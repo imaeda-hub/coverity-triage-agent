@@ -164,7 +164,7 @@ deviation_target: coverity   # coverity / coverity+annotation（D-59）
 ascii_file_encoding: utf-8   # 英数字だけのファイルに日本語を追加するときの文字コード（I-10）
 verify:
   default: none          # none / build / build+analyze（D-10）
-  setup_command: 'envset.bat "{root}"'   # ビルド前に実行。{root} は検証用コピーのフォルダ（D-75）
+  setup_command: 'envset.bat "{root}" <2つ目の引数>'   # ビルド前に実行。{root} は検証用コピーのフォルダ、他の引数はそのまま（D-75）
   build_command: "make -f makefileXX"
   cov_build_args: "--dir idir"
   cov_analyze_args: "--dir idir --all"

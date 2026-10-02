@@ -257,3 +257,13 @@ def test_batch_build_with_svn_patches(tmp_path, fake_tools):
     assert b"return 30;" in (after / "src" / "b.c").read_bytes()
     v1 = json.loads((Path(run_dir) / "results" / "1.verify.json").read_text(encoding="utf-8"))["fix"]
     assert v1["resolved_cids"] == [1]
+
+
+def test_setup_command_passes_two_arguments(repo):
+    """envset.bat takes two arguments (D-71): {root} is replaced, the other is passed as is."""
+    setup = (f'"{sys.executable}" -c "import sys; open(sys.argv[1] + \'/args.txt\', \'w\').write(\'|\'.join(sys.argv[1:]))" '
+             '"{root}" SECOND_ARG')
+    result = service.trial_build(str(repo), setup, f'"{sys.executable}" build.py')
+    assert result["build_ok"] is True
+    written = (Path(result["built_in"]) / "args.txt").read_text(encoding="utf-8").split("|")
+    assert written == [str(Path(result["built_in"])), "SECOND_ARG"]
