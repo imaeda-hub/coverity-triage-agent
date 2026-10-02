@@ -10,7 +10,7 @@ Agent Plugins 1.0 の構成に従う（D-1）。どのクライアントでも�
 ```
 coverity-triage/                         … プラグインのルート
 ├─ plugin.json                           … マニフェスト（$schema: agent-plugins.org 1.0.0）
-├─ mcp.json                              … MCP サーバ起動設定（Python 製 MCP サーバ 1 つ）
+├─ mcp.json                              … MCP サーバ起動設定（Python 製 MCP サーバ 1 つ・確定）
 ├─ skills/                               … 共通に使える知識・手順
 │  ├─ triage-investigation/SKILL.md      … 調査手順：警告経路の追跡、真偽判定、確信度基準（D-64）
 │  ├─ checker-knowledge/                 … チェッカー別の判断観点（D-6）
@@ -63,6 +63,8 @@ coverity-triage/                         … プラグインのルート
 - レポートの生成（確定）：AI は判断結果を構造化データで `submit_result` に提出し、Python が CID レポート・一覧サマリの Markdown に整形する。根拠や逸脱コメントなどの文章の中身は AI が書く。
 
 ## 3. MCP ツール一覧（案）
+
+- MCP サーバは 1 つにまとめる（確定）。実行フォルダや進捗などの状態をサーバ内で共有する。
 
 | 分類 | ツール | 内容 | 関連 |
 |---|---|---|---|
