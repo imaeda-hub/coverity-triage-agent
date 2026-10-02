@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -68,8 +67,9 @@ class ProjectConfig(_Strict):
 
     def secret_values(self) -> list[str]:
         """Values of the credential environment variables, for log redaction."""
+        from .envvars import get_env
         names = [self.coverity.user_env, self.coverity.key_env, self.vcs.github_token_env]
-        return [v for v in (os.environ.get(n) for n in names) if v]
+        return [v for v in (get_env(n) for n in names) if v]
 
 
 class TriageFilter(_Strict):

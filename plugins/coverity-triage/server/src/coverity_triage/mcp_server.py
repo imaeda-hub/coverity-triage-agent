@@ -12,7 +12,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import service
+from . import onboarding, service
 from .config import ConfigError
 from .coverity import CoverityError
 from .encoding import EncodingError
@@ -50,9 +50,34 @@ def tool(func):
 
 
 @tool
-def init_project(repo_root: str, vcs_type: str = "git") -> dict:
-    """対象リポジトリに .coverity-triage/（設定・条件ファイル・偽データのひな形）を作る。既存ファイルは上書きしない。"""
-    return service.init_project(repo_root, vcs_type)
+def detect_project(repo_root: str) -> dict:
+    """セットアップ用：リポジトリを調べ、自動で決められる設定値（git / svn、取り込み先ブランチ、文字コード、出力先）と、設定ファイルの有無を返す。"""
+    return onboarding.detect_project(repo_root)
+
+
+@tool
+def write_project_config(repo_root: str, coverity_url: str, project: str, stream: str,
+                         vcs_type: str, base_branch: str | None = None,
+                         ascii_file_encoding: str = "utf-8",
+                         path_strip_prefixes: list[str] | None = None,
+                         output_dir: str = onboarding.DEFAULT_OUTPUT_DIR, api: str = "auto",
+                         overwrite: bool = False) -> dict:
+    """セットアップ用：利用者が確認した値で .coverity-triage/config.yaml と既定の条件ファイルを書き出す。必ず値を一覧で見せて同意を得てから呼ぶ。"""
+    return onboarding.write_project_config(repo_root, coverity_url, project, stream, vcs_type,
+                                           base_branch, ascii_file_encoding, path_strip_prefixes,
+                                           output_dir, api, overwrite)
+
+
+@tool
+def doctor(repo_root: str) -> dict:
+    """PC とリポジトリの準備状況を機械的に確認する（設定ファイル、条件ファイル、出力先、認証情報、Coverity 接続など）。"""
+    return onboarding.doctor(repo_root)
+
+
+@tool
+def list_runs(repo_root: str, limit: int = 10) -> dict:
+    """最近の実行を新しい順に返す（未完了かどうか、反映済みの件数を含む）。再開や反映の対象を決めるときに使う。"""
+    return onboarding.list_runs(repo_root, limit)
 
 
 @tool
