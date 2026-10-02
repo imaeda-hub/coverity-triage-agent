@@ -22,7 +22,8 @@ coverity-triage/                         … プラグインのルート
 ├─ com.github.copilot/                   … Copilot 固有の部品
 │  ├─ agents/
 │  │  ├─ coverity-triage.agent.md        … 親エージェント：進捗管理・グループ化・サブエージェント起動・集約（D-39）
-│  │  └─ coverity-triage-worker.agent.md … サブエージェント：1 CID / 1 グループの調査 → 2 案作成 → 検証
+│  │  ├─ coverity-triage-worker.agent.md … サブエージェント：1 CID / 1 グループの調査 → 2 案作成 → 検証
+│  │  └─ coverity-triage-apply.agent.md  … 承認の反映専用（apply_approvals を使えるのはこのエージェントだけ）
 │  └─ commands/                          … 利用者向けの 5 つの操作（D-61）
 │     ├─ init     … 初期設定
 │     ├─ run      … トリアージ実行
@@ -65,6 +66,7 @@ coverity-triage/                         … プラグインのルート
 ## 3. MCP ツール一覧（案）
 
 - MCP サーバは 1 つにまとめる（確定）。実行フォルダや進捗などの状態をサーバ内で共有する。
+- 外部に変更を加える `apply_approvals` は、承認の反映（apply）専用のエージェントだけに渡す（確定）。エージェント定義の `tools` で制限し、さらにツール側でも `preview_apply` で件数を提示して利用者の同意を得たことを確認できない限り実行しない（二重の防止）。
 
 | 分類 | ツール | 内容 | 関連 |
 |---|---|---|---|
