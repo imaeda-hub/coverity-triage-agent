@@ -250,6 +250,16 @@ revision_drift: none | detected (内容)
 group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53）
 ```
 
+### 5.6 アノテーションの書式（D-59 (b) 選択時・確定）
+
+警告行の直前の行に、ブロックコメントで埋め込む（C90 でも使え、C / C++ 共通で安全）。理由の文章は逸脱コメント（D-22〜D-24）と同じものを使う。
+
+```c
+/* coverity[misra_c_2012_rule_10_4_violation] 誤検知。... */
+```
+
+- Coverity が認識する正確な書式（タグ名、理由の書き方）は、社内の Coverity バージョンで実装前に確認する（7 章）。
+
 ## 6. 配布（確定）
 
 - 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。
@@ -262,3 +272,4 @@ group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53
 - `com.github.copilot/commands/` のファイル形式（VS Code と Copilot CLI の両方でコマンドとして使えるか）
 - `.agent.md` のフロントマター（`model`、`tools`、`agents` など）のうち、Copilot CLI でも有効なもの（D-47 のモデル固定、D-39 のサブエージェントに関係）
 - サブエージェントの起動方法が VS Code と Copilot CLI で共通に書けるか
+- アノテーション（5.6）の正確な書式が社内の Coverity バージョンで認識されるか
