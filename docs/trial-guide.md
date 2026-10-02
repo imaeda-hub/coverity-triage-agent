@@ -72,12 +72,15 @@ git commit -m "init"
 |---|---|---|---|
 | C-1 | `plugin.json` が受け付けられるか（必須項目の不足がないか） | インストール時にエラーが出ないか | `plugin.json` |
 | C-2 | MCP サーバが起動するか（`mcp.json` のプラグインルートの変数 `${PLUGIN_ROOT}` の書き方が正しいか） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 18 個見えるか | `mcp.json` |
-| C-3 | 3 つのエージェントが選べるか | エージェントの一覧に `coverity-triage`、`coverity-triage-apply` が出るか（`coverity-triage-worker` は一覧に出ない想定） | `com.github.copilot/agents/*.agent.md` |
+| C-3 | エージェントが選べるか | エージェントの一覧に `coverity-guide`、`coverity-triage`、`coverity-triage-apply` が出るか（`coverity-triage-worker` は一覧に出ない想定） | `com.github.copilot/agents/*.agent.md` |
 | C-4 | モデルの固定が効くか | エージェント選択時のモデルが `gpt-6 luna` になるか。モデル名の正しい書き方も確認 | 各 `.agent.md` の `model:` |
 | C-5 | ツールの制限が効くか | `coverity-triage` エージェントから `apply_approvals` が使えないこと | 各 `.agent.md` の `tools:` |
-| C-6 | コマンドが使えるか | `/coverity-run` などの 5 つのコマンドが表示されるか | `com.github.copilot/commands/*.md` |
+| C-6 | コマンドが使えるか | `/coverity-setup`・`/coverity-run`・`/coverity-apply`・`/coverity-help` の 4 つが表示されるか | `com.github.copilot/commands/*.md` |
 | C-7 | サブエージェントが起動するか | 実行時に、作業項目ごとに `coverity-triage-worker` が別のコンテキストで動くか | `coverity-triage.agent.md` の `agents:`、`tools: [agent]` |
 | C-8 | Skill が読み込まれるか | サブエージェントが `triage-investigation` などを参照しているか | `skills/*/SKILL.md` |
+| C-9 | AI による準備の案内が動くか | 新しい PC（または uv を消した状態）で `/coverity-setup` を実行し、uv のインストール → MCP サーバの再起動 → 設定ファイルの作成 → 認証情報の伏せ字入力 → `doctor` がすべて ok、まで案内されるか | `agents/coverity-guide.agent.md`、`skills/coverity-guide/` |
+| C-10 | 伏せ字入力がターミナルで使えるか | 認証キーの入力時に、Copilot のターミナルで伏せ字の入力欄に入力できるか（できない場合はコマンドを渡されて自分の PowerShell で実行する流れになるか） | `skills/coverity-guide/SKILL.md` 段階 3 |
+| C-11 | 案内役のツール名 | `coverity-guide.agent.md` の `tools:` の `runCommands`・`editFiles`・`search` が、ターミナル実行・ファイル編集・検索の正しい名前か | `agents/coverity-guide.agent.md` |
 
 確認は VS Code と Copilot CLI の**両方**で行ってください（仕様 D-2）。
 
@@ -94,7 +97,7 @@ git commit -m "init"
 4. **承認の反映**：`/coverity-apply <実行フォルダ>`
    - 期待：反映前に件数が表示され、同意を求められる。同意すると、逸脱は `.coverity-triage\fake-issues.yaml.writes.jsonl` に書き戻しが記録される（偽データのため）。
    - 修正の反映は push とプルリクエスト作成になるため、リモートが無い試用環境ではエラーになります（想定どおり）。
-5. **効果測定の集計**：`/coverity-stats`
+5. **効果測定の集計**：`/coverity-help どれくらい役立っている？`
    - 期待：承認の内訳、採用率、手直しの割合が表示される。
 
 > 記録：各手順の結果（○ / ×）、AI の判断が想定と違った CID とその内容、気になった点（遅い、質問が多い、レポートが読みにくい等）

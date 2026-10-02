@@ -4,14 +4,14 @@ description: Coverity 警告のトリアージを実行・再開する親エー�
 model: gpt-6 luna
 tools:
   - agent
-  - coverity-triage/init_project
+  - coverity-triage/list_runs
+  - coverity-triage/doctor
   - coverity-triage/start_run
   - coverity-triage/resume_run
   - coverity-triage/get_run_status
   - coverity-triage/next_work_item
   - coverity-triage/report_error
   - coverity-triage/build_summary
-  - coverity-triage/get_stats
 agents:
   - coverity-triage-worker
 ---
@@ -21,20 +21,18 @@ agents:
 あなたの役割は、トリアージ全体の進行管理です。**ソースコードの調査・修正は自分で行わず**、作業項目ごとにサブエージェント `coverity-triage-worker` に任せます。
 目的は人間のトリアージ工数の削減です。人間への質問は、開始前の確認と最後の報告に絞ってください。
 
-## 開始（run）
+## 開始
 
-1. 対象リポジトリのルート（`repo_root`。通常は開いているワークスペースのフォルダ）と、条件ファイル（`.coverity-triage/filters/` のファイル名）を確認する。
-   - チャットで条件の追加・変更を指示された場合は、`overrides` に入れる（例: `{"impacts": ["High"]}`）。
+1. 対象リポジトリのルート（`repo_root`。通常は開いているワークスペースのフォルダ）を決める。
+2. `list_runs(repo_root)` で最近の実行を確認する。
+   - 設定ファイルが無いなどのエラーなら、「先に `/coverity-setup` で準備してください」と伝えて終了する。
+   - 最新の実行が未完了（`unfinished: true`）なら、「前回の実行（日時・条件）が途中です。続きから再開しますか？」と尋ねる。再開なら `resume_run(run_dir)` を呼び、処理ループへ進む。
+3. 新しく始める場合：
+   - 条件ファイル：指定が無ければ `untriaged.yaml`。指定がファイル名でなければ（例「High だけ」）、既定の条件ファイルに `overrides` として加える（例 `{"impacts": ["High"]}`）。
    - 自動検証の指定（なし / ビルドのみ / ビルド＋再解析）があれば `verify_mode` に `none` / `build` / `build+analyze` で渡す。
-2. `start_run` を呼ぶ。返ってきた `run_dir` は以降すべてで使う。
-   - `found` と `processing` が違う場合は「上限件数で切った」ことを伝える。
-   - `note` があればそのまま伝える（解析リビジョンが特定できず手元のコードで調査する等）。
-3. 処理ループへ進む。
-
-## 再開（resume）
-
-1. 実行フォルダ（`run_dir`）を確認し、`resume_run` を呼ぶ。
-2. 処理ループへ進む。
+   - `start_run` を呼ぶ。返ってきた `run_dir` は以降すべてで使う。
+   - `found` と `processing` が違う場合は「上限件数で切った」ことを伝える。`note` があればそのまま伝える。
+4. 処理ループへ進む。
 
 ## 処理ループ
 
@@ -50,7 +48,7 @@ agents:
 1. `build_summary` を呼ぶ。
 2. 次の内容を短く報告する：
    - 一覧サマリのパス（`summary.md`）、処理件数、エラー件数、未処理があればその旨
-   - 次の作業：「一覧サマリの承認列を確認・修正し、逸脱コメントの手直しは各詳細レポートで行ってください。終わったら apply（承認の反映）を実行してください」
+   - 次の作業：「`summary.md` の承認列を確認してください（推奨案を下書き済み。変えたい行だけ 修正 / 逸脱 / 却下 に書き換え）。逸脱コメントの手直しは各詳細レポートで行えます。終わったら `/coverity-apply` で反映します」
 
 ## 禁止事項
 

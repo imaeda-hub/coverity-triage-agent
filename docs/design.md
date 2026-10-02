@@ -11,25 +11,26 @@ Agent Plugins 1.0 の構成に従う（D-1）。どのクライアントでも�
 coverity-triage/                         … プラグインのルート
 ├─ plugin.json                           … マニフェスト（$schema: agent-plugins.org 1.0.0）
 ├─ mcp.json                              … MCP サーバ起動設定（Python 製 MCP サーバ 1 つ・確定）
-├─ skills/                               … 共通に使える知識・手順（5 つに分ける・確定）
+├─ skills/                               … 共通に使える知識・手順（トリアージ用 5 つ・確定、案内役 1 つ）
 │  ├─ triage-investigation/SKILL.md      … 調査手順：警告経路の追跡、真偽判定、確信度基準（D-64）
 │  ├─ checker-knowledge/                 … チェッカー別の判断観点（D-6）
 │  │  ├─ SKILL.md
 │  │  └─ references/ standard.md, misra.md, cert.md
 │  ├─ code-fix/SKILL.md                  … 修正方針（D-37, D-38）、文字コード保持（D-36）、社内規約（U-3）
 │  ├─ deviation-comment/SKILL.md         … 逸脱コメント（D-22〜D-24）、アノテーション（D-59）
-│  └─ triage-report/SKILL.md             … レポートに書く内容の基準（D-20, D-55）
+│  ├─ triage-report/SKILL.md             … レポートに書く内容の基準（D-20, D-55）
+│  └─ coverity-guide/                    … 案内役の手順と知識（設定・使い方・困ったとき、D-65）
 ├─ com.github.copilot/                   … Copilot 固有の部品
 │  ├─ agents/
 │  │  ├─ coverity-triage.agent.md        … 親エージェント：進捗管理・グループ化・サブエージェント起動・集約（D-39）
 │  │  ├─ coverity-triage-worker.agent.md … サブエージェント：1 CID / 1 グループの調査 → 2 案作成 → 検証
-│  │  └─ coverity-triage-apply.agent.md  … 承認の反映専用（apply_approvals を使えるのはこのエージェントだけ）
-│  └─ commands/                          … 利用者向けの 5 つの操作（D-61）
-│     ├─ init     … 初期設定
-│     ├─ run      … トリアージ実行
-│     ├─ resume   … 再開
-│     ├─ apply    … 承認の反映
-│     └─ stats    … 効果測定の集計
+│  │  ├─ coverity-triage-apply.agent.md  … 承認の反映専用（apply_approvals を使えるのはこのエージェントだけ）
+│  │  └─ coverity-guide.agent.md         … 案内役（準備と質問、D-66）
+│  └─ commands/                          … 利用者向けの 4 つのコマンド（D-69）
+│     ├─ coverity-setup   … 準備（案内役）
+│     ├─ coverity-run     … トリアージ実行（未完了なら再開を提案）
+│     ├─ coverity-apply   … 承認の反映
+│     └─ coverity-help    … 質問・設定変更・効果測定（案内役）
 └─ server/                               … Python 製 MCP サーバ（D-40, D-41, D-42）
    ├─ pyproject.toml                     … Python 3.12 以上（D-46）
    └─ coverity_triage/
@@ -73,7 +74,7 @@ coverity-triage/                         … プラグインのルート
 
 | 分類 | ツール | 内容 | 関連 |
 |---|---|---|---|
-| 設定 | `init_project` | 設定・条件ファイルのひな形を生成 | D-61 |
+| 準備 | `detect_project` / `write_project_config` / `doctor` / `list_runs` | 自動判定、確認済みの値で設定を書き出し、準備状況の診断、最近の実行の一覧（再開・反映の対象を決める） | D-66〜D-70 |
 | 実行管理 | `start_run` | 実行フォルダ作成、条件で CID を検索、上限件数で切り、グループ候補を作成、進捗ファイル作成 | D-11〜D-15, D-43, D-53 |
 | | `next_work_item` / `get_run_status` | 未処理・エラーの CID / グループを返す | D-15, D-51 |
 | | `resume_run` | 実行フォルダを指定して再開 | D-61 |
@@ -317,3 +318,13 @@ docs/trial-guide.md           … 試用・確認の手順書
 | I-8（確定） | 承認の反映の同意確認は、`preview_apply` が返す確認用の文字列を `apply_approvals` に渡す方式。確認後にサマリやレポートが変更されたら反映を拒否する | 確認した内容と実際に反映する内容が食い違うことを防ぐため（D-63） |
 | I-9（確定） | Coverity が返すファイルパス（ビルド環境の絶対パスの場合など）は、設定 `coverity.path_strip_prefixes` の接頭辞を取り除いてリポジトリ内のパスに対応づける。設定で対応づけられない場合は、リポジトリに実在する最も長い末尾部分で自動的に対応づけ、その旨をレポートに明記する。候補が複数あり決められない場合は対応づけず、その旨を明記する | 解析環境とリポジトリでパスが違っても調査を止めないため（実装の見直しで判明、ユーザ確認済み） |
 | I-10（確定） | 英数字だけのファイル（UTF-8 か Shift_JIS か判別できない）に日本語などを追加する場合は、設定 `ascii_file_encoding`（`utf-8` / `cp932`、既定 `utf-8`）の文字コードで保存する | Shift_JIS のプロジェクトで文字コードが混在しないようにするため（実装の見直しで判明、ユーザ確認済み） |
+
+## 9. 使いやすさの改善（D-65〜D-70）
+
+| 変更 | 内容 |
+|---|---|
+| 資料 | 人が読むのは README だけ（5 分以内）。設定項目・使い方・困ったときの対処は Skill `coverity-guide`（references/settings.md・usage.md・troubleshooting.md）に移し、利用者は `/coverity-help` で AI に聞く。導入手順書・利用手順書は廃止 |
+| 案内役エージェント | `coverity-guide`：`/coverity-setup`（準備）と `/coverity-help`（質問）を担当。ターミナル実行（毎回利用者が確認）とファイル編集ができる |
+| 準備の流れ | 段階 0：uv（無ければ AI がインストール → MCP サーバを再起動。Python とライブラリは uv が自動で用意）→ 段階 1：`doctor` で診断 → 段階 2：設定が無ければ URL・プロジェクト・ストリームだけ聞き、残りは `detect_project` で自動判定して確認 → `write_project_config` → 段階 3：認証情報を伏せ字で入力（値はチャットに出ない）→ 段階 4：`doctor` で確認 |
+| 環境変数 | Windows では利用者の環境変数をレジストリから直接読むため、準備中に保存した値が VS Code の再起動なしで有効になる（`envvars.get_env`） |
+| コマンド | `/coverity-setup`・`/coverity-run`（未完了なら再開を提案）・`/coverity-apply`（省略時は最新の実行）・`/coverity-help` の 4 つ |
