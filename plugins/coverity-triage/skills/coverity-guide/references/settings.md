@@ -22,7 +22,7 @@
 | `deviation_target` | `coverity`：逸脱は Coverity にだけ登録／`coverity+annotation`：ソースに注釈コメントも入れる | 既定 `coverity` |
 | `ascii_file_encoding` | 英数字だけのファイルに日本語を入れるときの文字コード `utf-8` / `cp932` | 自動判定（Shift_JIS のプロジェクトなら `cp932`） |
 | `verify.default` | 自動検証 `none` / `build` / `build+analyze` | 既定 `none` |
-| `verify.setup_command` | ビルド前の環境設定のコマンド（同じコマンドプロンプトで先に実行）。`{root}` はビルド用にコピーしたフォルダに置き換わる | 例 `envset.bat "{root}"`。不要なら空 |
+| `verify.setup_command` | ビルド前の環境設定のコマンド（同じコマンドプロンプトで先に実行）。`{root}` はビルド用にコピーしたフォルダに置き換わる | 例 `envset.bat "{root}" <2つ目の引数>`。引数はいくつでも書ける（`{root}` 以外はそのまま渡される）。不要なら空 |
 | `verify.build_command` | ビルドのコマンド（リポジトリのルートで実行） | 例 `make -f makefileXX` |
 | `verify.cov_build_args` / `verify.cov_analyze_args` | `cov-build` / `cov-analyze` の引数（`--dir` 必須） | 例 `--dir idir` / `--dir idir --all` |
 
