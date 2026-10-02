@@ -266,6 +266,12 @@ class Probe:
 
 
 def main() -> int:
+    # Never fail just because the console cannot show Japanese (the report file is UTF-8).
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--url", required=True, help="Coverity Connect の URL（例: https://host:8443）")
     parser.add_argument("--user-env", default="COV_USER", help="ユーザ名の環境変数名")
