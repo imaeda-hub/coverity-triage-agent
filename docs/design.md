@@ -144,7 +144,8 @@ revision: ""         # 解析リビジョンの手動指定（D-17 の (2)。通
 ```yaml
 coverity:
   url: https://coverity.example.co.jp:8443
-  api: auto            # rest / soap / auto（U-1 確定後に見直し）
+  api: auto            # rest / soap / auto（U-1 確定後に見直し）/ fake（試用・テスト用、I-3）
+  fake_data: ""        # api: fake のときの偽データのファイル（I-3）
   user_env: COV_USER
   key_env: COV_AUTH_KEY
   revision_field: version   # 解析リビジョンの記録項目（D-17）
@@ -306,7 +307,7 @@ docs/trial-guide.md           … 試用・確認の手順書
 |---|---|---|
 | I-1（確定） | 作業領域は、git の worktree / svn の checkout ではなく、**エクスポート（`git archive` / `svn export`）したスナップショット＋変更を重ねる層**で実現した。git のコミットとブランチは一時インデックスで作る（D-57 の実現方法の変更） | 利用者のリポジトリの作業ツリー・`.git` の作業領域情報に一切触れない。並列処理で作業領域が干渉しない。svn で CID ごとに checkout するより大幅に軽い |
 | I-2（確定） | `branch_mode: per_run` のとき、実行ごとのブランチは**承認の反映時に、承認された修正だけを集めて**作る（トリアージ中は CID ごとのコミットを非公開の参照に保存） | 却下された修正をあとから取り除く手間（revert）が不要になる |
-| I-3 | 設定に `coverity.api: fake` と `coverity.fake_data`（偽データのファイル）を追加した | 社内 Coverity に接続せずに試用・自動テストするため |
+| I-3（確定） | 設定に `coverity.api: fake` と `coverity.fake_data`（偽データのファイル）を追加した | 社内 Coverity に接続せずに試用・自動テストするため |
 | I-4 | ブランチ名：単一 CID は `<prefix>cid-<CID>`、グループは `<prefix><実行ID>-G<n>`、アノテーションは末尾に `-annotation`。同名のブランチがあれば末尾に `-<実行ID>` | CID 番号で探しやすくするため |
 | I-5 | 差分ファイル名：`patches/<作業項目>-fix.patch`、`patches/<作業項目>-annotation.patch`。修正後ファイルは `fixed/<作業項目>/<fix または annotation>/` | 修正案とアノテーション案を区別するため |
 | I-6 | 再解析による検証では、実行ごとに 1 回、修正前の最新コードも解析し（ベースライン）、新規の警告を判定する。結果の読み取りは `cov-format-errors --json-output-v7` を使う | 修正で新たに出た警告と、元からある警告を区別するため。出力形式は社内のバージョンで要確認 |
