@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import ValidationError
 
 from . import config as cfg
@@ -24,7 +25,8 @@ from .pathmap import PathMapper
 from .report import ItemReport, read_approvals, read_deviation, render_item, render_summary
 from .run_state import ItemState, RunStore
 from .vcs import GitVcs, SvnVcs, Vcs, make_vcs
-from .verify import Verifier
+from .verify import BatchItem, Verifier
+from .verify import trial_build as trial_build_in
 from .workspace import OverlayTree, ReadOnlyTree
 
 TEMPLATES = Path(__file__).parent / "templates"
@@ -184,7 +186,7 @@ def resume_run(run_dir: str) -> dict[str, Any]:
     reset = run.store.reset_for_resume()
     run.log("resume_run", reset=reset)
     return {"run_dir": str(run.dir), "reset": reset, "status": run.store.status_counts(),
-            "parallel": run.config.parallel}
+            "parallel": run.config.parallel, "verify_mode": run.meta.verify_mode}
 
 
 def get_run_status(run_dir: str) -> dict[str, Any]:
@@ -302,20 +304,83 @@ def save_fix(run_dir: str, item_id: str, kind: str, message: str) -> dict[str, A
     return {"kind": kind, **saved.__dict__}
 
 
-def verify_fix(run_dir: str, item_id: str, kind: str = "fix", mode: str | None = None) -> dict[str, Any]:
+def verify_run(run_dir: str, mode: str | None = None) -> dict[str, Any]:
+    """Verify all saved fixes of the run at once, after investigation (spec D-72 to D-74)."""
     run = Run(run_dir)
-    item = run.require_in_progress(item_id)
     mode = mode or run.meta.verify_mode
-    if kind not in run.read_json(item_id, ".fixes"):
-        raise ServiceError(f"{kind} の修正が保存されていません。先に save_fix を実行してください")
+    if mode == "none":
+        return {"mode": "none", "message": "自動検証は指定されていません"}
     issues = run.store.issues()
-    result = Verifier(run.config.verify, run.dir).run(
-        mode, item_id, kind, run.tree(item_id, kind), [issues[c] for c in item.cids])
-    verify = run.read_json(item_id, ".verify")
-    verify[kind] = result
-    run.write_json(item_id, ".verify", verify)
-    run.log("verify_fix", item=item_id, kind=kind, mode=mode, result={k: v for k, v in result.items() if k != "log_tail"})
+    strip = 1 if isinstance(run.vcs, GitVcs) else 0
+    batch = []
+    for item in run.store.load().items:
+        fix = run.read_json(item.id, ".fixes").get("fix")
+        if item.status == "done" and fix:
+            batch.append(BatchItem(item.id, fix["patch_path"], fix["files"],
+                                   [issues[c] for c in item.cids], strip))
+    if not batch:
+        return {"mode": mode, "message": "検証する修正案がありません"}
+    _, latest_root = run.vcs.latest()
+    run.log("verify_run_start", mode=mode, items=[b.item_id for b in batch])
+    outcome = Verifier(run.config.verify, run.dir).run_batch(mode, latest_root, batch)
+
+    downgraded = []
+    for item_id, verify in outcome.items.items():
+        run.write_json(item_id, ".verify", {"fix": verify})
+        data = run.read_json(item_id, "")
+        if verify.get("problems"):
+            original = data.get("confidence_before_verify", data["confidence"])
+            data["confidence_before_verify"] = original
+            data["confidence"] = "low"
+            base_reason = data.get("confidence_reason_before_verify", data["confidence_reason"])
+            data["confidence_reason_before_verify"] = base_reason
+            data["confidence_reason"] = f"{base_reason}（自動検証で問題: {'、'.join(verify['problems'])}）"
+            downgraded.append(item_id)
+        run.write_json(item_id, "", data)
+        parsed = TriageResult.model_validate(data)
+        (run.dir / "cid" / f"{item_id}.md").write_text(render_item(_item_report(run, item_id, parsed)),
+                                                        encoding="utf-8")
+    run.log("verify_run", mode=mode, build_ok=outcome.build_ok, seconds=round(outcome.seconds),
+            downgraded=downgraded, error=outcome.error)
+    return {"mode": mode, "build_ok": outcome.build_ok, "seconds": round(outcome.seconds),
+            "items": len(outcome.items), "downgraded_to_low": downgraded,
+            "unassigned_new_issues": len(outcome.unassigned_new_issues),
+            "error": outcome.error, "log": outcome.log}
+
+
+def trial_build(repo_root: str, setup_command: str, build_command: str) -> dict[str, Any]:
+    """Build the latest code once with the given commands, before saving them (spec D-75)."""
+    config = cfg.load_project_config(repo_root)
+    verify = config.verify.model_copy(update={"setup_command": setup_command,
+                                              "build_command": build_command})
+    work = Path(output_dir_of(repo_root)) / "_trial-build"
+    if work.exists():
+        shutil.rmtree(work)
+    vcs = make_vcs(repo_root, config.vcs, work, "trial")
+    _, root = vcs.latest()
+    result = trial_build_in(verify, root, work / "trial-build.log")
+    result["built_in"] = str(root)
     return result
+
+
+def write_verify_config(repo_root: str, setup_command: str, build_command: str,
+                        default: str = "none", cov_build_args: str | None = None,
+                        cov_analyze_args: str | None = None) -> dict[str, Any]:
+    """Save verification settings into config.yaml after the person agreed (spec D-75)."""
+    path = cfg.config_dir(repo_root) / cfg.CONFIG_FILE_NAME
+    text = path.read_text(encoding="utf-8")
+    header = "".join(line + "\n" for line in text.splitlines() if line.startswith("#"))
+    data = yaml.safe_load(text) or {}
+    verify = dict(data.get("verify") or {})
+    verify.update(default=default, setup_command=setup_command, build_command=build_command)
+    if cov_build_args is not None:
+        verify["cov_build_args"] = cov_build_args
+    if cov_analyze_args is not None:
+        verify["cov_analyze_args"] = cov_analyze_args
+    data["verify"] = verify
+    cfg.ProjectConfig.model_validate(data)
+    path.write_text(header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return {"written": str(path), "verify": verify}
 
 
 def _item_report(run: Run, item_id: str, result: TriageResult,

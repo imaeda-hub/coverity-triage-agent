@@ -82,7 +82,7 @@ coverity-triage/                         … プラグインのルート
 | VCS | `prepare_workspaces` | 解析リビジョンを特定し（D-17）、調査用（解析リビジョン）と修正用（最新）の作業領域を作る | D-16, D-17, D-57, D-58 |
 | | `save_fix` | 修正用作業領域の変更から、差分ファイル・別領域出力・git コミット / ブランチを作る | D-4, D-25, D-26 |
 | ソース操作 | `read_source` / `search_source` / `edit_source` | その CID / グループの作業領域に範囲を限定した読み取り・検索・編集。文字コード・改行コードを保持して保存する（確定） | D-36, D-57 |
-| 検証 | `verify_fix` | 設定に従いビルド / 再解析を実行し、警告の消滅・新規警告を返す | D-10, D-42 |
+| 検証 | `verify_run`（全件の調査後に 1 回、D-72） / `trial_build` / `write_verify_config` | 設定に従いビルド / 再解析を実行し、警告の消滅・新規警告を返す | D-10, D-42 |
 | 結果 | `submit_result` | サブエージェントの判断結果（構造化データ）を受け取り、CID レポートを生成し、進捗を更新 | D-20 |
 | | `build_summary` | 一覧サマリを生成（確信度の低い順、承認列に推奨案を下書き） | D-54〜D-56, D-62 |
 | 反映 | `preview_apply` | 承認列を読み取り、反映件数を返す | D-63 |
@@ -164,7 +164,8 @@ deviation_target: coverity   # coverity / coverity+annotation（D-59）
 ascii_file_encoding: utf-8   # 英数字だけのファイルに日本語を追加するときの文字コード（I-10）
 verify:
   default: none          # none / build / build+analyze（D-10）
-  build_command: "build.bat"
+  setup_command: 'envset.bat "{root}"'   # ビルド前に実行。{root} は検証用コピーのフォルダ（D-75）
+  build_command: "make -f makefileXX"
   cov_build_args: "--dir idir"
   cov_analyze_args: "--dir idir --all"
 model: gpt-6 luna       # 参考表示（実際の固定は D-47 の方式）
@@ -328,3 +329,15 @@ docs/trial-guide.md           … 試用・確認の手順書
 | 準備の流れ | 段階 0：uv（無ければ AI がインストール → MCP サーバを再起動。Python とライブラリは uv が自動で用意）→ 段階 1：`doctor` で診断 → 段階 2：設定が無ければ URL・プロジェクト・ストリームだけ聞き、残りは `detect_project` で自動判定して確認 → `write_project_config` → 段階 3：認証情報を伏せ字で入力（値はチャットに出ない）→ 段階 4：`doctor` で確認 |
 | 環境変数 | Windows では利用者の環境変数をレジストリから直接読むため、準備中に保存した値が VS Code の再起動なしで有効になる（`envvars.get_env`） |
 | コマンド | `/coverity-setup`・`/coverity-run`（未完了なら再開を提案）・`/coverity-apply`（省略時は最新の実行）・`/coverity-help` の 4 つ |
+
+## 10. 自動検証のまとめ実行（D-71〜D-75）
+
+| 項目 | 内容 |
+|---|---|
+| タイミング | 全件の調査が終わった後、親エージェントが `verify_run` を 1 回呼ぶ。サブエージェントは検証しない |
+| 修正案の合成 | 最新コードのコピーに、各修正案の差分ファイルを順に適用する（git は `-p1`、svn は `-p0`）。同じ箇所を変更していて適用できない修正案は「適用不可」とし、まとめた検証から外す |
+| 実行するコマンド | 1 つのシェルで `setup_command`（`{root}` をコピー先に置換、Windows では `call`）→ ビルドのみ：`build_command`／再解析：`cov-build <引数> <build_command>` → `cov-analyze` → `cov-format-errors --json-output-v7` |
+| 比較の基準 | 再解析の場合は、修正前の最新コードも 1 回ビルド・解析する（1 回の実行で解析 2 回分） |
+| 結果の割り当て | CID ごとに警告が消えたか（mergeKey、無ければチェッカー・ファイル・関数で照合）。新しい警告は、そのファイルを変更した修正案へ。ビルドエラーは、ログのエラー行に変更ファイル名が出ている修正案へ（特定できなければ全修正案、他の修正案が原因なら「未確認」） |
+| 確信度 | 問題が出た修正案は確信度を「低」に下げ、理由に追記する（元の値は `confidence_before_verify` に保存。再実行しても二重に追記しない）。推奨案は変えない |
+| 設定 | `/coverity-setup` の段階 5（任意）で聞き、`trial_build` で修正前のコードを試しにビルドしてから `write_verify_config` で保存する |

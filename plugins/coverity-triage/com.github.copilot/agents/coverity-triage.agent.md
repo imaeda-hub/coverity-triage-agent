@@ -11,6 +11,7 @@ tools:
   - coverity-triage/get_run_status
   - coverity-triage/next_work_item
   - coverity-triage/report_error
+  - coverity-triage/verify_run
   - coverity-triage/build_summary
 agents:
   - coverity-triage-worker
@@ -45,8 +46,11 @@ agents:
 
 ## 終了
 
-1. `build_summary` を呼ぶ。
-2. 次の内容を短く報告する：
+1. 自動検証（`verify_mode` が `none` 以外。start_run / resume_run の戻り値で分かる）の場合：
+   - 「全件の修正案をまとめてビルド（＋再解析）します。10〜60 分程度かかります」と伝え、`verify_run(run_dir)` を呼ぶ。
+   - 終わったら、ビルドの成否と、問題が出て確信度を「低」に下げた作業項目（`downgraded_to_low`）を短く伝える。`error` があればそのまま伝える。
+2. `build_summary` を呼ぶ。
+3. 次の内容を短く報告する：
    - 一覧サマリのパス（`summary.md`）、処理件数、エラー件数、未処理があればその旨
    - 次の作業：「`summary.md` の承認列を確認してください（推奨案を下書き済み。変えたい行だけ 修正 / 逸脱 / 却下 に書き換え）。逸脱コメントの手直しは各詳細レポートで行えます。終わったら `/coverity-apply` で反映します」
 

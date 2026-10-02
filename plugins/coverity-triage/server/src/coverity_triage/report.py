@@ -62,6 +62,10 @@ class ItemReport:
 def _verify_label(verify: dict[str, Any] | None) -> str:
     if not verify or verify.get("mode") in (None, "none"):
         return "-"
+    if verify.get("applied") is False:
+        return "適用不可"
+    if verify.get("build_ok") is None:
+        return "未確認"
     if not verify.get("build_ok"):
         return "失敗"
     if verify.get("remaining_cids"):
@@ -77,13 +81,23 @@ def _attrs(attrs: TriageAttributes) -> str:
 
 
 def _verify_block(verify: dict[str, Any]) -> str:
-    lines = [f"- モード: {verify.get('mode')}", f"- 判定: {_verify_label(verify)}"]
+    mode = {"build": "ビルドのみ", "build+analyze": "ビルド＋再解析"}.get(verify.get("mode"), verify.get("mode"))
+    lines = [f"- 方法: {mode}" + ("（実行内の全修正案をまとめて 1 回で検証）" if verify.get("batch") else ""),
+             f"- 判定: {_verify_label(verify)}"]
+    for problem in verify.get("problems", []):
+        lines.append(f"- 要確認: {problem}")
+    if verify.get("note"):
+        lines.append(f"- 補足: {verify['note']}")
     if "resolved_cids" in verify:
         lines.append(f"- 解消した CID: {verify['resolved_cids'] or 'なし'}")
         lines.append(f"- 残っている CID: {verify['remaining_cids'] or 'なし'}")
-        lines.append(f"- 新規の警告: {verify.get('new_issue_count', 0)} 件")
+        lines.append(f"- この修正案が変更したファイルでの新しい警告: {verify.get('new_issue_count', 0)} 件")
         for issue in verify.get("new_issues", [])[:10]:
             lines.append(f"  - {issue['checker']} {issue['file']} {issue.get('function') or ''}")
+    if verify.get("batch"):
+        lines.append("- 注意: まとめて検証しているため、修正案同士の影響は区別しきれません")
+    if verify.get("detail"):
+        lines.append(f"- 詳細: {verify['detail']}")
     if verify.get("log"):
         lines.append(f"- ログ: `{verify['log']}`")
     if verify.get("log_tail"):

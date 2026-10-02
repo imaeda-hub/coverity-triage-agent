@@ -53,4 +53,3 @@ description: Coverity トリアージの判断結果を submit_result で提出�
 
 - 修正案を `save_fix`（kind=`fix`）で保存したか（最新で解消済みの場合を除く）。
 - アノテーション方式の場合、`save_fix`（kind=`annotation`）で保存したか。
-- 自動検証の指定がある場合、`verify_fix` を実行したか。検証が失敗していれば、確信度と `fix.impact` に反映したか。
