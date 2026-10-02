@@ -222,6 +222,34 @@ model: gpt-6 luna       # 参考表示（実際の固定は D-47 の方式）
 - グループの扱い（確定）：グループは 1 行にまとめ（CID 列に「G1（20 件）」のように表示）、承認も 1 つとする。CID 一覧は詳細レポートに載せる。一部だけ別扱いにしたい場合は「却下」とし、次回の実行で個別に処理する。
 - 却下されたグループ（確定）：その CID を `.coverity-triage/no-grouping.yaml` に記録し（コミットしてチームで共有）、次回以降はグループ化せず個別に処理する。
 
+### 5.5 サブエージェントの提出データ（`submit_result`・確定）
+
+レポート・一覧サマリ・効果測定の元データ。必須項目が欠けている場合、ツールは受け付けず再提出を求める。
+検証結果・差分の場所・処理時間などはツール側が記録しているため、AI は提出しない。
+
+```yaml
+work_item: 12345 または G1
+verdict:            # 真偽の見立て
+  judgement: false_positive | true_bug | intentional | undetermined
+  summary: "呼び出し元で NULL チェック済み"   # 1行要約
+  rationale: "..."          # 根拠（経路の追跡結果）
+  evidence: [{file, line, note}]
+recommendation: fix | deviation
+confidence: high | medium | low
+confidence_reason: "..."
+deviation:
+  classification / action / severity
+  comment: "誤検知。..."
+fix:
+  summary: "..."
+  impact: "..."            # 影響範囲とリスク
+  exceeded_constraints: []  # 超えた制約（D-38）
+  already_fixed_on_latest: false  # D-58
+  classification / action / severity
+revision_drift: none | detected (内容)
+group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53）
+```
+
 ## 6. 配布（確定）
 
 - 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。
