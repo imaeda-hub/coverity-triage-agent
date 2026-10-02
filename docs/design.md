@@ -106,8 +106,8 @@ coverity-triage/                         … プラグインのルート
               ├─ ソースを読んで調査（Skill: triage-investigation, checker-knowledge）
               ├─ 修正案を作成 → save_fix（Skill: code-fix）
               ├─ 逸脱コメント案を作成（Skill: deviation-comment）
-              ├─ [オプション] verify_fix
               └─ submit_result（判断結果を構造化データで提出）
+  ├─ [オプション] verify_run …… 全修正案をまとめて 1 回ビルド（＋再解析）、問題があれば確信度を「低」に（D-72〜D-74）
   └─ build_summary → 利用者に一覧サマリの場所を報告
 
 利用者: 一覧サマリの承認列を確認・修正 → apply
