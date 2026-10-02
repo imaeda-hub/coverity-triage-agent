@@ -1,0 +1,28 @@
+[project]
+name = "coverity-triage"
+version = "0.1.0"
+description = "MCP server for the Coverity triage agent plugin"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=2.2,<3",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+coverity-triage-mcp = "coverity_triage.mcp_server:main"
+coverity-triage = "coverity_triage.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/coverity_triage"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
