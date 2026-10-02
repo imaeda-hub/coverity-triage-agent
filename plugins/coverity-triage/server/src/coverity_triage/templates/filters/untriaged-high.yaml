@@ -1,0 +1,14 @@
+# 絞り込み条件（docs/design.md 5.1）
+# 同じ項目内の複数値は OR、項目同士は AND。省略した項目は条件にしません。
+name: 未トリアージの High Impact
+project: MyProduct
+streams:
+  - MyProduct-main
+checkers: []          # 省略時は全チェッカー。"MISRA C-2012 *" のようなワイルドカード可
+impacts: [High, Medium]
+triage:
+  classification: [Unclassified]
+  action: [Undecided]
+  status: [New, Triaged]
+max_items: 50        # 上限件数（省略時は設定ファイルの値）
+revision: ""         # 解析リビジョンの手動指定（D-17 の (2)。通常は空）

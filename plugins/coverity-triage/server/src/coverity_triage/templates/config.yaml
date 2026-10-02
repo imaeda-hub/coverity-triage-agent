@@ -1,0 +1,26 @@
+# Coverity トリアージエージェント プロジェクト設定（docs/design.md 5.2）
+# 認証情報は値を書かず、環境変数名だけを書きます。
+coverity:
+  url: https://coverity.example.co.jp:8443
+  # rest / soap / auto（U-1 確定後に見直し）。試用時は fake にして fake_data を指定します。
+  api: fake
+  fake_data: fake-issues.yaml
+  user_env: COV_USER
+  key_env: COV_AUTH_KEY
+  revision_field: version   # 解析リビジョンを記録したスナップショットの項目（D-17）
+vcs:
+  type: {{VCS_TYPE}}              # git / svn
+  base_branch: main      # 修正の起点（D-58、git のみ）
+  branch_mode: per_cid   # per_cid / per_run（D-25）
+  branch_prefix: coverity-fix/
+  github_token_env: GITHUB_TOKEN
+output_dir: ../coverity-triage-out   # リポジトリの外を推奨（相対パスはリポジトリのルート基準）
+max_items: 100
+parallel: 1
+deviation_target: coverity   # coverity / coverity+annotation（D-59）
+verify:
+  default: none          # none / build / build+analyze（D-10）
+  build_command: ""
+  cov_build_args: "--dir idir"
+  cov_analyze_args: "--dir idir --all"
+model: gpt-6 luna       # 参考表示（実際の固定はエージェント定義、D-47）
