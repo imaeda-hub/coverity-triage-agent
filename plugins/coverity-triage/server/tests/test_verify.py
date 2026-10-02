@@ -10,13 +10,13 @@ from coverity_triage.workspace import OverlayTree
 def test_build_mode_runs_configured_command(tmp_path):
     base = tmp_path / "base"
     base.mkdir()
-    (base / "a.c").write_text("int a;\n")
+    (base / "a.c").write_text("int a;\n", encoding="utf-8")
     tree = OverlayTree(base, tmp_path / "ov")
     tree.edit("a.c", "int a;", "int a = 1;")
     ok = Verifier(VerifyConfig(build_command=f'"{sys.executable}" -c "print(open(\'a.c\').read())"'),
                   tmp_path / "run").run("build", "1", "fix", tree, [])
     assert ok["build_ok"] is True
-    assert "int a = 1;" in open(ok["log"]).read()
+    assert "int a = 1;" in open(ok["log"], encoding="utf-8").read()
     ng = Verifier(VerifyConfig(build_command=f'"{sys.executable}" -c "raise SystemExit(2)"'),
                   tmp_path / "run").run("build", "2", "fix", tree, [])
     assert ng["build_ok"] is False

@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from . import metrics, oplog
 from .coverity import CoverityClient, make_client
 from .grouping import build_work_items
 from .models import IssueDetail, TriageAttributes, TriageResult
+from .pathmap import PathMapper
 from .report import ItemReport, read_approvals, read_deviation, render_item, render_summary
 from .run_state import ItemState, RunStore
 from .vcs import GitVcs, SvnVcs, Vcs, make_vcs
@@ -89,7 +91,12 @@ class Run:
         if cached and sorted(cached) == sorted(str(c) for c in item.cids):
             return [IssueDetail.model_validate(cached[str(c)]) for c in item.cids]
         issues = self.store.issues()
-        details = {str(c): self.client.get_issue_detail(issues[c]) for c in item.cids}
+        mapper = PathMapper(self.meta.repo_root, self.config.coverity.path_strip_prefixes)
+        details = {}
+        for c in item.cids:
+            detail, notes = mapper.map_detail(self.client.get_issue_detail(issues[c]))
+            merged = list(dict.fromkeys(issues[c].path_notes + notes))
+            details[str(c)] = detail.model_copy(update={"issue": detail.issue.model_copy(update={"path_notes": merged})})
         self.write_json(item_id, ".details", {k: v.model_dump() for k, v in details.items()})
         return [details[str(c)] for c in item.cids]
 
@@ -141,7 +148,11 @@ def start_run(repo_root: str, filter_file: str, overrides: dict[str, Any] | None
         raise ServiceError("verify_mode は none / build / build+analyze のいずれかです")
     client = client or make_client(config.coverity)
 
-    issues = client.search_issues(spec)
+    mapper = PathMapper(repo_root, config.coverity.path_strip_prefixes)
+    issues = []
+    for found_issue in client.search_issues(spec):
+        mapped, notes = mapper.map_issue(found_issue)
+        issues.append(mapped.model_copy(update={"path_notes": notes}))
     limit = spec.max_items or config.max_items
     found = len(issues)
     issues = issues[:limit]
@@ -244,6 +255,9 @@ def prepare_workspaces(run_dir: str, item_id: str) -> dict[str, Any]:
         "deviation_target": run.config.deviation_target,
         "verify_mode": run.meta.verify_mode,
     }
+    path_notes = [n for d in run.details(item_id) for n in d.issue.path_notes]
+    if path_notes:
+        result["path_notes"] = path_notes
     if run.meta.analyzed_revision is None:
         findings = _drift_check(analyzed_root, run.details(item_id))
         result["drift_check"] = findings or ["機械的な確認ではずれは見つかりませんでした（コード内容の確認は必要）"]
@@ -269,7 +283,7 @@ def edit_source(run_dir: str, item_id: str, workspace: str, path: str,
         raise ServiceError("編集できるのは fix / annotation の作業領域だけです")
     tree = run.tree(item_id, workspace)
     assert isinstance(tree, OverlayTree)
-    result = tree.edit(path, old_text, new_text)
+    result = tree.edit(path, old_text, new_text, run.config.ascii_file_encoding)
     run.log("edit_source", item=item_id, workspace=workspace, path=result["path"])
     return result
 
@@ -304,7 +318,8 @@ def verify_fix(run_dir: str, item_id: str, kind: str = "fix", mode: str | None =
     return result
 
 
-def _item_report(run: Run, item_id: str, result: TriageResult) -> ItemReport:
+def _item_report(run: Run, item_id: str, result: TriageResult,
+                 seconds: float | None = None) -> ItemReport:
     item = run.store.item(item_id)
     latest = run.dir / "work" / "latest-revision.txt"
     return ItemReport(
@@ -312,15 +327,17 @@ def _item_report(run: Run, item_id: str, result: TriageResult) -> ItemReport:
         fixes=run.read_json(item_id, ".fixes"), verify=run.read_json(item_id, ".verify"),
         analyzed_revision=run.meta.analyzed_revision,
         latest_revision=latest.read_text(encoding="utf-8").strip() if latest.is_file() else None,
-        seconds=item.seconds,
+        seconds=item.seconds if seconds is None else seconds,
+        run_dir=str(run.dir),
     )
 
 
-def submit_result(run_dir: str, item_id: str, result: dict[str, Any]) -> dict[str, Any]:
+def submit_result(run_dir: str, item_id: str,
+                  result: dict[str, Any] | TriageResult) -> dict[str, Any]:
     run = Run(run_dir)
     item = run.require_in_progress(item_id)
     try:
-        parsed = TriageResult.model_validate(result)
+        parsed = result if isinstance(result, TriageResult) else TriageResult.model_validate(result)
     except ValidationError as exc:
         raise ServiceError(f"提出データが不正です。修正して再提出してください:\n{exc}") from exc
     if parsed.work_item != item_id:
@@ -338,9 +355,10 @@ def submit_result(run_dir: str, item_id: str, result: dict[str, Any]) -> dict[st
         split = run.store.split_group(item_id, parsed.group_excluded_cids)
         (run.results_path(item_id, ".details")).unlink(missing_ok=True)
     run.write_json(item_id, "", parsed.model_dump())
-    run.store.mark_done(item_id)
-    report = render_item(_item_report(run, item_id, parsed))
+    elapsed = time.time() - item.started_at if item.started_at else None
+    report = render_item(_item_report(run, item_id, parsed, elapsed))
     (run.dir / "cid" / f"{item_id}.md").write_text(report, encoding="utf-8")
+    run.store.mark_done(item_id)
     run.log("submit_result", item=item_id, recommendation=parsed.recommendation,
             confidence=parsed.confidence, split=split)
     return {"item": item_id, "report": str(run.dir / "cid" / f"{item_id}.md"),
@@ -448,11 +466,15 @@ def apply_approvals(run_dir: str, confirmation_token: str) -> dict[str, Any]:
         outcome: dict[str, Any] = {"item": item_id, "action": action}
         try:
             kinds = ["fix"] if action == "fix" else (["annotation"] if entry.get("annotation") else [])
-            if action == "deviation":
+            done_before = run.store.item(item_id).apply_result
+            if action == "deviation" and done_before.get("coverity") == "登録済み":
+                outcome["coverity"] = "登録済み（前回の反映で登録済みのため省略）"
+            elif action == "deviation":
                 spec = cfg.FilterSpec.model_validate(run.meta.filter)
                 run.client.write_triage(entry["cids"], TriageAttributes.model_validate(entry["attributes"]),
                                         entry["comment"], spec)
                 outcome["coverity"] = "登録済み"
+                run.store.record_apply_progress(item_id, {"coverity": "登録済み"})
             for kind in kinds:
                 outcome[kind] = _apply_code(run, item_id, kind, fixes[kind], per_run_commits)
             if action == "reject" and run.store.item(item_id).is_group:

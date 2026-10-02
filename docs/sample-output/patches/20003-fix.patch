@@ -1,0 +1,14 @@
+diff --git a/src/reader.c b/src/reader.c
+index ecfe7a8..179f1f9 100644
+--- a/src/reader.c
++++ b/src/reader.c
+@@ -46,6 +46,9 @@ int first_char(void)
+ {
+     char *buf = get_buf(BUF_SIZE);
+     int c;
++    if (buf == NULL) {
++        return -1;
++    }
+     buf[0] = 'a';
+     c = buf[0];
+     free(buf);

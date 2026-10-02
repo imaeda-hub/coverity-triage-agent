@@ -149,6 +149,7 @@ coverity:
   user_env: COV_USER
   key_env: COV_AUTH_KEY
   revision_field: version   # 解析リビジョンの記録項目（D-17）
+  path_strip_prefixes: []   # Coverity のファイルパスから取り除く接頭辞（I-9）
 vcs:
   type: git              # git / svn
   base_branch: main      # 修正の起点（D-58）
@@ -159,6 +160,7 @@ output_dir: D:/coverity-triage-out
 max_items: 100
 parallel: 1
 deviation_target: coverity   # coverity / coverity+annotation（D-59）
+ascii_file_encoding: utf-8   # 英数字だけのファイルに日本語を追加するときの文字コード（I-10）
 verify:
   default: none          # none / build / build+analyze（D-10）
   build_command: "build.bat"
@@ -313,3 +315,5 @@ docs/trial-guide.md           … 試用・確認の手順書
 | I-6（確定、出力形式は要確認） | 再解析による検証では、実行ごとに 1 回、修正前の最新コードも解析し（ベースライン）、新規の警告を判定する。結果の読み取りは `cov-format-errors --json-output-v7` を使う | 修正で新たに出た警告と、元からある警告を区別するため。出力形式は社内のバージョンで要確認 |
 | I-7（確定） | グループを「逸脱」で承認した場合、グループ内のすべての CID に同じ属性・逸脱コメントを書き戻す | グループは同一原因で 1 つの案を出す仕様（D-52）のため |
 | I-8（確定） | 承認の反映の同意確認は、`preview_apply` が返す確認用の文字列を `apply_approvals` に渡す方式。確認後にサマリやレポートが変更されたら反映を拒否する | 確認した内容と実際に反映する内容が食い違うことを防ぐため（D-63） |
+| I-9（確定） | Coverity が返すファイルパス（ビルド環境の絶対パスの場合など）は、設定 `coverity.path_strip_prefixes` の接頭辞を取り除いてリポジトリ内のパスに対応づける。設定で対応づけられない場合は、リポジトリに実在する最も長い末尾部分で自動的に対応づけ、その旨をレポートに明記する。候補が複数あり決められない場合は対応づけず、その旨を明記する | 解析環境とリポジトリでパスが違っても調査を止めないため（実装の見直しで判明、ユーザ確認済み） |
+| I-10（確定） | 英数字だけのファイル（UTF-8 か Shift_JIS か判別できない）に日本語などを追加する場合は、設定 `ascii_file_encoding`（`utf-8` / `cp932`、既定 `utf-8`）の文字コードで保存する | Shift_JIS のプロジェクトで文字コードが混在しないようにするため（実装の見直しで判明、ユーザ確認済み） |

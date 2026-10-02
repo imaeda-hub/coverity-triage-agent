@@ -1,0 +1,16 @@
+diff --git a/src/reader.c b/src/reader.c
+index ecfe7a8..ad69623 100644
+--- a/src/reader.c
++++ b/src/reader.c
+@@ -54,8 +54,8 @@ int first_char(void)
+ 
+ unsigned char to_u8(int value)
+ {
+-    unsigned char a = value;
+-    unsigned char b = value + 1;
+-    unsigned char c = value + 2;
++    unsigned char a = (unsigned char)value;
++    unsigned char b = (unsigned char)(value + 1);
++    unsigned char c = (unsigned char)(value + 2);
+     return a + b + c;
+ }

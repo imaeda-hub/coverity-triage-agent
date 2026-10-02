@@ -119,12 +119,12 @@ class OverlayTree(ReadOnlyTree):
                     seen.add(rel)
                     yield rel, full
 
-    def edit(self, rel: str, old: str, new: str) -> dict:
+    def edit(self, rel: str, old: str, new: str, ascii_file_encoding: str = "utf-8") -> dict:
         rel = safe_relpath(rel)
         current = self.locate(rel)
         if not current.is_file():
             raise WorkspaceError(f"ファイルが見つかりません: {rel}")
-        updated = replace_once(read_source(current), old, new)
+        updated = replace_once(read_source(current), old, new, ascii_file_encoding)
         target = self.overlay / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         write_source(target, updated)

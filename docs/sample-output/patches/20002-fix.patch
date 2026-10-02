@@ -1,0 +1,17 @@
+diff --git a/src/reader.c b/src/reader.c
+index ecfe7a8..8151007 100644
+--- a/src/reader.c
++++ b/src/reader.c
+@@ -12,7 +12,11 @@ static char *get_buf(size_t size)
+ /* 呼び出し元は必ず path を検証してから渡す */
+ static int open_and_read(const char *path, char *out)
+ {
+-    FILE *fp = fopen(path, "r");
++    FILE *fp;
++    if (path == NULL) {
++        return -1;
++    }
++    fp = fopen(path, "r");
+     if (fp == NULL) {
+         return -1;
+     }

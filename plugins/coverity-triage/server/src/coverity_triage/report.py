@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .models import Issue, IssueDetail, TriageAttributes, TriageResult
@@ -42,6 +43,16 @@ class ItemReport:
     latest_revision: str | None = None
     seconds: float | None = None
     error: str = ""
+    run_dir: str | None = None
+
+    def rel(self, path: str) -> str:
+        """Paths inside the run folder are shown relative to the report (cid/<id>.md)."""
+        if self.run_dir:
+            try:
+                return "../" + Path(path).resolve().relative_to(Path(self.run_dir).resolve()).as_posix()
+            except ValueError:
+                pass
+        return path
 
     @property
     def main(self) -> Issue:
@@ -88,6 +99,8 @@ def render_item(report: ItemReport) -> str:
     notes.append("制約超過 " + ("あり: " + "、".join(r.fix.exceeded_constraints) if r.fix.exceeded_constraints else "なし"))
     if r.fix.already_fixed_on_latest:
         notes.append("最新リビジョンでは解消済み")
+    path_notes = list(dict.fromkeys(n for d in report.details for n in d.issue.path_notes))
+    notes.extend(path_notes)
 
     out = [f"# {title_cid} — {main.checker}（{main.impact or '-'}）\n",
            "## 1. 結論\n",
@@ -119,11 +132,11 @@ def render_item(report: ItemReport) -> str:
                "承認の反映時に、手直し後の内容が Coverity に登録されます。\n")
     out.append(DEV_BEGIN)
     out.append(_attrs(r.deviation) + "- 逸脱コメント:\n")
-    out.append(r.deviation.comment.strip() + "\n")
+    out.append(r.deviation.comment.strip())
     out.append(DEV_END + "\n")
     annotation = report.fixes.get("annotation")
     if annotation:
-        out.append(f"- アノテーション差分: `{annotation['patch_path']}`"
+        out.append(f"- アノテーション差分: `{report.rel(annotation['patch_path'])}`"
                    + (f" ／ ブランチ: `{annotation['branch']}`" if annotation.get("branch") else ""))
 
     out.append("\n## 5. 案B: 修正\n")
@@ -133,19 +146,20 @@ def render_item(report: ItemReport) -> str:
         out.append(f"- 超えた制約: {'、'.join(r.fix.exceeded_constraints)}")
     fix = report.fixes.get("fix")
     if fix:
-        out.append(f"- 差分: `{fix['patch_path']}`")
+        out.append(f"- 差分: `{report.rel(fix['patch_path'])}`")
         if fix.get("branch"):
             out.append(f"- ブランチ: `{fix['branch']}`")
-        out.append(f"- 修正後ファイル: `{fix['mirror_dir']}`")
+        out.append(f"- 修正後ファイル: `{report.rel(fix['mirror_dir'])}`")
     else:
         out.append("- 差分: なし（修正コードは保存されていません）")
-    out.append("\n" + _attrs(r.fix))
+    out.append("\n修正した場合の Classification / Action / Severity（参考。「修正」の承認時は Coverity に書き戻しません）:\n")
+    out.append(_attrs(r.fix))
 
     out.append("## 6. 自動検証の結果\n")
     if report.verify:
         for kind, verify in report.verify.items():
             out.append(f"### {'修正' if kind == 'fix' else 'アノテーション'}\n")
-            out.append(_verify_block(verify))
+            out.append(_verify_block({**verify, "log": report.rel(verify["log"])} if verify.get("log") else verify))
     else:
         out.append("実施していません。\n")
 

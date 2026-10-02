@@ -21,6 +21,7 @@ class SourceText:
     text: str
     encoding: str  # "utf-8" or "cp932"
     bom: bool
+    ascii_only: bool = False  # the encoding cannot be told from the content
 
     @property
     def newline(self) -> str:
@@ -49,6 +50,8 @@ def decode(data: bytes) -> SourceText:
             return SourceText(data[len(UTF8_BOM):].decode("utf-8"), "utf-8", True)
         except UnicodeDecodeError as exc:
             raise EncodingError("BOM 付き UTF-8 として読めません") from exc
+    if data.isascii():
+        return SourceText(data.decode("ascii"), "utf-8", False, ascii_only=True)
     for encoding in ("utf-8", "cp932"):
         try:
             return SourceText(data.decode(encoding), encoding, False)
@@ -65,8 +68,11 @@ def write_source(path: str | Path, source: SourceText) -> None:
     Path(path).write_bytes(source.encode())
 
 
-def replace_once(source: SourceText, old: str, new: str) -> SourceText:
+def replace_once(source: SourceText, old: str, new: str,
+                 ascii_file_encoding: str = "utf-8") -> SourceText:
     """Replace exactly one occurrence of ``old`` with ``new``.
+
+    A file that is pure ASCII gets ``ascii_file_encoding`` when non-ASCII text is added.
 
     The AI writes ``\\n`` line endings. When the file uses CRLF, ``old`` is also tried
     with CRLF and ``new`` is converted to match, so the file's line endings are kept.
@@ -79,7 +85,10 @@ def replace_once(source: SourceText, old: str, new: str) -> SourceText:
     for target, replacement in candidates:
         count = source.text.count(target)
         if count == 1:
-            updated = SourceText(source.text.replace(target, replacement), source.encoding, source.bom)
+            encoding = source.encoding
+            if source.ascii_only and not replacement.isascii():
+                encoding = ascii_file_encoding
+            updated = SourceText(source.text.replace(target, replacement), encoding, source.bom)
             updated.encode()  # fail early when the new text cannot be encoded
             return updated
         if count > 1:

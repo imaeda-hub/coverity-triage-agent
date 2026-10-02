@@ -191,6 +191,12 @@ class RunStore:
     def mark_applied(self, item_id: str, result: dict[str, Any]) -> ItemState:
         return self._update(item_id, applied=True, apply_result=result)
 
+    def record_apply_progress(self, item_id: str, progress: dict[str, Any]) -> ItemState:
+        """Remember steps already applied, so a retry does not repeat them."""
+        with self._lock:
+            merged = {**self.item(item_id).apply_result, **progress}
+            return self._update(item_id, apply_result=merged)
+
     def reset_for_resume(self) -> dict[str, int]:
         """Interrupted and failed items go back to pending (spec D-15, D-51)."""
         with self._lock:

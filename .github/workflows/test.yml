@@ -1,0 +1,50 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  server:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: plugins/coverity-triage/server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install Subversion (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install sliksvn -y --no-progress
+          "C:\Program Files\SlikSvn\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Subversion (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q subversion
+
+      - name: Show tool versions
+        run: |
+          git --version
+          svn --version --quiet
+          git config --get core.autocrlf || echo "core.autocrlf not set"
+
+      - name: Run tests
+        run: uv run --python 3.12 pytest -q
+
+  probe-script:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+      - name: Probe script runs on the oldest supported Python
+        run: python tools/coverity_api_probe.py --help
