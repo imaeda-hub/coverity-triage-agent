@@ -1,0 +1,12 @@
+diff --git a/src/reader.c b/src/reader.c
+index ecfe7a8..953c2c7 100644
+--- a/src/reader.c
++++ b/src/reader.c
+@@ -17,6 +17,7 @@ static int open_and_read(const char *path, char *out)
+         return -1;
+     }
+     if (fgets(out, BUF_SIZE, fp) == NULL) {
++        fclose(fp);
+         return -1;
+     }
+     fclose(fp);

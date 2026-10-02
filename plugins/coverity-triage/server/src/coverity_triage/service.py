@@ -328,6 +328,7 @@ def _item_report(run: Run, item_id: str, result: TriageResult,
         analyzed_revision=run.meta.analyzed_revision,
         latest_revision=latest.read_text(encoding="utf-8").strip() if latest.is_file() else None,
         seconds=item.seconds if seconds is None else seconds,
+        run_dir=str(run.dir),
     )
 
 
