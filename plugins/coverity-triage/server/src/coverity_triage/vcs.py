@@ -25,6 +25,7 @@ import httpx
 
 from .config import VcsConfig
 from .encoding import decode
+from .envvars import get_env
 from .workspace import OverlayTree
 
 FixKind = str  # "fix" or "annotation"
@@ -255,7 +256,7 @@ class GitVcs(Vcs):
         self.git("push", "origin", f"refs/heads/{branch}:refs/heads/{branch}")
 
     def create_pull_request(self, branch: str, title: str, body: str) -> str:
-        token = os.environ.get(self.config.github_token_env)
+        token = get_env(self.config.github_token_env)
         if not token:
             raise VcsError(f"環境変数 {self.config.github_token_env} に GitHub のトークンが設定されていません")
         api, owner, repo = github_repo(self.git("remote", "get-url", "origin").decode().strip())
