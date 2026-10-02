@@ -147,9 +147,7 @@ def start_run(repo_root: str, filter_file: str, overrides: dict[str, Any] | None
     issues = issues[:limit]
     items = build_work_items(issues, cfg.load_no_grouping(repo_root))
 
-    output_dir = Path(config.output_dir)
-    if not output_dir.is_absolute():
-        output_dir = Path(repo_root) / output_dir
+    output_dir = Path(output_dir_of(repo_root))
     probe = make_vcs(repo_root, config.vcs, output_dir / "_probe", "probe")
     revision, source, note = _resolve_analyzed_revision(config, probe, client, spec)
 
@@ -531,5 +529,5 @@ def get_stats(output_dir: str) -> dict[str, Any]:
 def output_dir_of(repo_root: str) -> str:
     config = cfg.load_project_config(repo_root)
     path = Path(config.output_dir)
-    return str(path if path.is_absolute() else Path(repo_root) / path)
+    return str((path if path.is_absolute() else Path(repo_root) / path).resolve())
 

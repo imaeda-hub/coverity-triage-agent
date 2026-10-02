@@ -1,0 +1,24 @@
+# 試用用の設定。output_dir は必要に応じて変更してください。
+coverity:
+  url: https://coverity.example.co.jp:8443
+  api: fake
+  fake_data: fake-issues.yaml
+  user_env: COV_USER
+  key_env: COV_AUTH_KEY
+  revision_field: version
+vcs:
+  type: git
+  base_branch: main
+  branch_mode: per_cid
+  branch_prefix: coverity-fix/
+  github_token_env: GITHUB_TOKEN
+output_dir: ../coverity-triage-out
+max_items: 100
+parallel: 1
+deviation_target: coverity
+verify:
+  default: none
+  build_command: ""
+  cov_build_args: "--dir idir"
+  cov_analyze_args: "--dir idir --all"
+model: gpt-6 luna

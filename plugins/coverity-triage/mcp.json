@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "coverity-triage": {
+      "command": "uv",
+      "args": ["run", "--quiet", "--directory", "${PLUGIN_ROOT}/server", "coverity-triage-mcp"]
+    }
+  }
+}
