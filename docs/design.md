@@ -136,6 +136,35 @@ max_items: 50        # 上限件数（省略時は設定ファイルの値）
 revision: ""         # 解析リビジョンの手動指定（D-17 の (2)。通常は空）
 ```
 
+### 5.2 プロジェクト設定ファイル（確定）
+
+`.coverity-triage/config.yaml`。認証情報は値を書かず、環境変数名だけを書く（D-34）。
+
+```yaml
+coverity:
+  url: https://coverity.example.co.jp:8443
+  api: auto            # rest / soap / auto（U-1 確定後に見直し）
+  user_env: COV_USER
+  key_env: COV_AUTH_KEY
+  revision_field: version   # 解析リビジョンの記録項目（D-17）
+vcs:
+  type: git              # git / svn
+  base_branch: main      # 修正の起点（D-58）
+  branch_mode: per_cid   # per_cid / per_run（D-25）
+  branch_prefix: coverity-fix/
+  github_token_env: GITHUB_TOKEN
+output_dir: D:/coverity-triage-out
+max_items: 100
+parallel: 1
+deviation_target: coverity   # coverity / coverity+annotation（D-59）
+verify:
+  default: none          # none / build / build+analyze（D-10）
+  build_command: "build.bat"
+  cov_build_args: "--dir idir"
+  cov_analyze_args: "--dir idir --all"
+model: gpt-6 luna       # 参考表示（実際の固定は D-47 の方式）
+```
+
 ## 6. 配布（確定）
 
 - 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。
