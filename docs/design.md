@@ -112,7 +112,11 @@ coverity-triage/                         … プラグインのルート
   └─ preview_apply → 件数確認（D-63）→ apply_approvals
 ```
 
-## 5. 実装前に確認する事項（一次資料での確認が必要）
+## 5. 配布（確定）
+
+- 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。
+
+## 6. 実装前に確認する事項（一次資料での確認が必要）
 
 - `plugin.json` の必須フィールドと `$schema` の正確な URL（`https://agent-plugins.org/schemas/1.0.0/plugin.schema.json` と報じられている）
 - `mcp.json` 内でプラグインのルートを参照する変数の書き方（Python サーバの起動パス指定に必要）
