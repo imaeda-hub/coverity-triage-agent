@@ -6,6 +6,7 @@ coverity:
   user_env: COV_USER
   key_env: COV_AUTH_KEY
   revision_field: version
+  path_strip_prefixes: []   # Coverity のファイルパスから取り除く接頭辞（例: "C:/build/product/"）。未指定のパスは自動で対応づけ
 vcs:
   type: git
   base_branch: main

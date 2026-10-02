@@ -88,6 +88,8 @@ def render_item(report: ItemReport) -> str:
     notes.append("制約超過 " + ("あり: " + "、".join(r.fix.exceeded_constraints) if r.fix.exceeded_constraints else "なし"))
     if r.fix.already_fixed_on_latest:
         notes.append("最新リビジョンでは解消済み")
+    path_notes = list(dict.fromkeys(n for d in report.details for n in d.issue.path_notes))
+    notes.extend(path_notes)
 
     out = [f"# {title_cid} — {main.checker}（{main.impact or '-'}）\n",
            "## 1. 結論\n",

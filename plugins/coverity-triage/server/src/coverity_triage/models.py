@@ -35,6 +35,8 @@ class Issue(BaseModel):
     action: str | None = None
     severity: str | None = None
     status: str | None = None
+    # Notes when the reported path was mapped automatically or could not be mapped.
+    path_notes: list[str] = Field(default_factory=list)
 
 
 class IssueDetail(BaseModel):

@@ -7,7 +7,8 @@ coverity:
   fake_data: fake-issues.yaml
   user_env: COV_USER
   key_env: COV_AUTH_KEY
-  revision_field: version   # 解析リビジョンを記録したスナップショットの項目（D-17）
+  revision_field: version
+  path_strip_prefixes: []   # Coverity のファイルパスから取り除く接頭辞（例: "C:/build/product/"）。未指定のパスは自動で対応づけ   # 解析リビジョンを記録したスナップショットの項目（D-17）
 vcs:
   type: {{VCS_TYPE}}              # git / svn
   base_branch: main      # 修正の起点（D-58、git のみ）

@@ -30,6 +30,8 @@ class CoverityConfig(_Strict):
     user_env: str = "COV_USER"
     key_env: str = "COV_AUTH_KEY"
     revision_field: str | None = "version"
+    # Prefixes removed from file paths reported by Coverity (e.g. "C:/build/product/").
+    path_strip_prefixes: list[str] = Field(default_factory=list)
     fake_data: str | None = None
 
 

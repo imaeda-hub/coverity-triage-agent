@@ -20,6 +20,7 @@ from . import metrics, oplog
 from .coverity import CoverityClient, make_client
 from .grouping import build_work_items
 from .models import IssueDetail, TriageAttributes, TriageResult
+from .pathmap import PathMapper
 from .report import ItemReport, read_approvals, read_deviation, render_item, render_summary
 from .run_state import ItemState, RunStore
 from .vcs import GitVcs, SvnVcs, Vcs, make_vcs
@@ -90,7 +91,12 @@ class Run:
         if cached and sorted(cached) == sorted(str(c) for c in item.cids):
             return [IssueDetail.model_validate(cached[str(c)]) for c in item.cids]
         issues = self.store.issues()
-        details = {str(c): self.client.get_issue_detail(issues[c]) for c in item.cids}
+        mapper = PathMapper(self.meta.repo_root, self.config.coverity.path_strip_prefixes)
+        details = {}
+        for c in item.cids:
+            detail, notes = mapper.map_detail(self.client.get_issue_detail(issues[c]))
+            merged = list(dict.fromkeys(issues[c].path_notes + notes))
+            details[str(c)] = detail.model_copy(update={"issue": detail.issue.model_copy(update={"path_notes": merged})})
         self.write_json(item_id, ".details", {k: v.model_dump() for k, v in details.items()})
         return [details[str(c)] for c in item.cids]
 
@@ -142,7 +148,11 @@ def start_run(repo_root: str, filter_file: str, overrides: dict[str, Any] | None
         raise ServiceError("verify_mode は none / build / build+analyze のいずれかです")
     client = client or make_client(config.coverity)
 
-    issues = client.search_issues(spec)
+    mapper = PathMapper(repo_root, config.coverity.path_strip_prefixes)
+    issues = []
+    for found_issue in client.search_issues(spec):
+        mapped, notes = mapper.map_issue(found_issue)
+        issues.append(mapped.model_copy(update={"path_notes": notes}))
     limit = spec.max_items or config.max_items
     found = len(issues)
     issues = issues[:limit]
@@ -245,6 +255,9 @@ def prepare_workspaces(run_dir: str, item_id: str) -> dict[str, Any]:
         "deviation_target": run.config.deviation_target,
         "verify_mode": run.meta.verify_mode,
     }
+    path_notes = [n for d in run.details(item_id) for n in d.issue.path_notes]
+    if path_notes:
+        result["path_notes"] = path_notes
     if run.meta.analyzed_revision is None:
         findings = _drift_check(analyzed_root, run.details(item_id))
         result["drift_check"] = findings or ["機械的な確認ではずれは見つかりませんでした（コード内容の確認は必要）"]
