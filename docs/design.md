@@ -112,12 +112,36 @@ coverity-triage/                         … プラグインのルート
   └─ preview_apply → 件数確認（D-63）→ apply_approvals
 ```
 
-## 5. 配布（確定）
+## 5. 設定ファイルの書式
+
+### 5.1 絞り込み条件ファイル（確定）
+
+`.coverity-triage/filters/*.yaml`。同じ項目内の複数値は OR、項目同士は AND。省略した項目は条件にしない。
+
+```yaml
+# .coverity-triage/filters/untriaged-high.yaml
+name: 未トリアージの High Impact
+project: MyProduct
+streams:
+  - MyProduct-main
+checkers:            # 省略時は全チェッカー
+  - NULL_RETURNS
+  - "MISRA C-2012 *"  # ワイルドカード可
+impacts: [High, Medium]
+triage:
+  classification: [Unclassified]
+  action: [Undecided]
+  status: [New, Triaged]
+max_items: 50        # 上限件数（省略時は設定ファイルの値）
+revision: ""         # 解析リビジョンの手動指定（D-17 の (2)。通常は空）
+```
+
+## 6. 配布（確定）
 
 - 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。
 - MCP サーバの Python 環境は uv で自動構築する（`mcp.json` で uv 経由で起動）。利用者は uv を入れるだけでよい。
 
-## 6. 実装前に確認する事項（一次資料での確認が必要）
+## 7. 実装前に確認する事項（一次資料での確認が必要）
 
 - `plugin.json` の必須フィールドと `$schema` の正確な URL（`https://agent-plugins.org/schemas/1.0.0/plugin.schema.json` と報じられている）
 - `mcp.json` 内でプラグインのルートを参照する変数の書き方（Python サーバの起動パス指定に必要）
