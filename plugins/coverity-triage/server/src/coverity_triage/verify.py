@@ -1,30 +1,59 @@
-"""Optional verification of a fix by build and Coverity re-analysis (spec D-10, D-42).
+"""Optional verification of fixes by build and Coverity re-analysis (spec D-10, D-42, D-72 to D-75).
+
+Verification runs **once per run, after every work item has been investigated** (D-72):
+all fix patches are applied together to a copy of the latest code, which is built (and
+analyzed) once. For re-analysis, the unmodified latest code is analyzed once as the
+baseline, so a run costs two analyses however many items it has.
+
+Results are then attributed to work items (D-73): a CID is resolved when its warning is
+gone; build errors and new warnings go to the items that changed the files involved.
 
 Only the commands written in the project settings are run; the AI cannot pass its own.
-Re-analysis is heavy, so it runs one at a time. A baseline analysis of the latest code is
-run once per run and used to tell new warnings from existing ones.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
-import threading
+import sys
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .config import VerifyConfig
 from .models import Issue
-from .workspace import OverlayTree
 
-_analyze_lock = threading.Lock()
-LOG_TAIL = 2000
+LOG_TAIL = 3000
 
 
 class VerifyError(Exception):
     """Raised when verification cannot be run."""
+
+
+@dataclass
+class BatchItem:
+    """One work item's fix, as input to a batch verification."""
+
+    item_id: str
+    patch_path: str
+    files: list[str]
+    issues: list[Issue]
+    strip: int = 1  # path components to strip: 1 for git patches, 0 for svn patches
+
+
+@dataclass
+class BatchResult:
+    mode: str
+    build_ok: bool
+    items: dict[str, dict[str, Any]] = field(default_factory=dict)
+    unassigned_new_issues: list[dict[str, Any]] = field(default_factory=list)
+    log: str = ""
+    seconds: float = 0.0
+    error: str = ""
 
 
 def _run_shell(command: str, cwd: Path, log: Path) -> bool:
@@ -75,66 +104,151 @@ def _key(record: dict[str, Any]) -> tuple:
     return record.get("merge_key") or (record["checker"], record["file"], record.get("function"))
 
 
+def _touches(record_file: str, files: list[str]) -> bool:
+    return any(record_file.lower().endswith(f.replace("\\", "/").lower()) for f in files)
+
+
+def build_command_line(config: VerifyConfig, root: Path, mode: str, json_out: Path | None = None) -> str:
+    """One shell line: environment setup, then build (and analysis) (D-75)."""
+    if not config.build_command:
+        raise VerifyError("verify.build_command が設定されていません（/coverity-help で設定できます）")
+    steps = []
+    if config.setup_command:
+        setup = config.setup_command.replace("{root}", str(root))
+        steps.append(("call " if sys.platform == "win32" else "") + setup)
+    if mode == "build":
+        steps.append(config.build_command)
+    elif mode == "build+analyze":
+        idir = intermediate_dir(config.cov_analyze_args)
+        steps += [f"cov-build {config.cov_build_args} {config.build_command}",
+                  f"cov-analyze {config.cov_analyze_args}",
+                  f'cov-format-errors --dir {idir} --json-output-v7 "{json_out}"']
+    else:
+        raise VerifyError("検証方法は build か build+analyze です")
+    return " && ".join(steps)
+
+
+def apply_patch(root: Path, patch: str, strip: int) -> str | None:
+    """Apply one patch to a plain directory. Returns an error message, or None on success."""
+    env = dict(os.environ, GIT_CEILING_DIRECTORIES=str(root.parent))  # never treat it as a repository
+    proc = subprocess.run(["git", "apply", f"-p{strip}", "--whitespace=nowarn", patch],
+                          cwd=root, env=env, capture_output=True, check=False)
+    if proc.returncode != 0:
+        return proc.stderr.decode("utf-8", "replace").strip() or "差分を適用できませんでした"
+    return None
+
+
 class Verifier:
     def __init__(self, config: VerifyConfig, run_dir: str | Path):
         self.config = config
         self.dir = Path(run_dir) / "work" / "verify"
         self.log_dir = Path(run_dir) / "verify"
 
-    def _analyze(self, tree_root: Path, name: str, log: Path) -> list[dict[str, Any]] | None:
-        idir = intermediate_dir(self.config.cov_analyze_args)
-        steps = [
-            f"cov-build {self.config.cov_build_args} {self.config.build_command}",
-            f"cov-analyze {self.config.cov_analyze_args}",
-            f'cov-format-errors --dir {idir} --json-output-v7 "{self.dir / (name + ".json")}"',
-        ]
-        for step in steps:
-            if not _run_shell(step, tree_root, log):
-                return None
-        return load_analysis(self.dir / (name + ".json"))
+    def _copy(self, source: Path, name: str) -> Path:
+        dest = self.dir / name
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(source, dest)
+        return dest
 
-    def _baseline(self, latest_root: Path) -> list[dict[str, Any]] | None:
-        cached = self.dir / "baseline.json"
-        if cached.is_file():
-            return load_analysis(cached)
-        tree = self.dir / "baseline-tree"
-        if not tree.exists():
-            shutil.copytree(latest_root, tree)
-        return self._analyze(tree, "baseline", self.log_dir / "baseline.log")
-
-    def run(self, mode: str, item_id: str, kind: str, tree: OverlayTree,
-            issues: list[Issue]) -> dict[str, Any]:
-        if mode == "none":
-            return {"mode": "none"}
-        if not self.config.build_command:
-            raise VerifyError("verify.build_command が設定されていません")
+    def run_batch(self, mode: str, latest_root: Path, items: list[BatchItem]) -> BatchResult:
+        if mode not in ("build", "build+analyze"):
+            raise VerifyError("検証方法は build か build+analyze です")
+        started = time.time()
         self.dir.mkdir(parents=True, exist_ok=True)
         self.log_dir.mkdir(parents=True, exist_ok=True)
-        name = f"{item_id}-{kind}"
-        log = self.log_dir / f"{name}.log"
+        log = self.log_dir / "after.log"
         log.unlink(missing_ok=True)
-        root = tree.materialize(self.dir / name)
-        result: dict[str, Any] = {"mode": mode, "log": str(log)}
+        result = BatchResult(mode=mode, build_ok=False, log=str(log))
 
-        if mode == "build":
-            result["build_ok"] = _run_shell(self.config.build_command, root, log)
-            if not result["build_ok"]:
-                result["log_tail"] = _tail(log)
+        # baseline (unmodified latest code), only for re-analysis
+        baseline: list[dict[str, Any]] | None = None
+        if mode == "build+analyze":
+            before = self._copy(latest_root, "before")
+            before_log = self.log_dir / "before.log"
+            before_log.unlink(missing_ok=True)
+            before_json = self.dir / "before.json"
+            if not _run_shell(build_command_line(self.config, before, mode, before_json), before, before_log):
+                result.error = "修正前のコードのビルド・解析に失敗しました（設定のコマンドを確認してください）"
+                result.log = str(before_log)
+                result.seconds = time.time() - started
+                for item in items:
+                    result.items[item.item_id] = {"mode": mode, "batch": True, "build_ok": False,
+                                                  "problems": [result.error], "log": str(before_log),
+                                                  "log_tail": _tail(before_log)}
+                return result
+            baseline = load_analysis(before_json)
+
+        # all fixes applied together
+        after = self._copy(latest_root, "after")
+        applied: list[BatchItem] = []
+        for item in items:
+            error = apply_patch(after, item.patch_path, item.strip)
+            if error:
+                result.items[item.item_id] = {
+                    "mode": mode, "batch": True, "applied": False, "build_ok": None,
+                    "problems": ["他の修正案と同じ箇所を変更しているため、まとめた検証に含められませんでした"],
+                    "detail": error[:500]}
+            else:
+                applied.append(item)
+
+        after_json = self.dir / "after.json"
+        result.build_ok = _run_shell(build_command_line(self.config, after, mode, after_json), after, log)
+        result.seconds = time.time() - started
+        tail = _tail(log)
+
+        if not result.build_ok:
+            text = log.read_text(encoding="utf-8", errors="replace").lower()
+            error_lines = [line for line in text.splitlines() if "error" in line]
+            blamed = [i for i in applied
+                      if any(Path(f).name.lower() in line for f in i.files for line in error_lines)]
+            for item in applied:
+                entry = {"mode": mode, "batch": True, "applied": True, "log": str(log)}
+                if blamed and item not in blamed:
+                    entry.update(build_ok=None, problems=[],
+                                 note="他の修正案のビルドエラーのため、この修正案は確認できませんでした")
+                elif blamed:
+                    entry.update(build_ok=False, log_tail=tail,
+                                 problems=["ビルドエラーがこの修正案の変更したファイルで出ています"])
+                else:
+                    entry.update(build_ok=False, log_tail=tail,
+                                 problems=["ビルドに失敗しました（原因の修正案を特定できません）"])
+                result.items[item.item_id] = entry
             return result
 
-        with _analyze_lock:
-            baseline = self._baseline(tree.base)
-            if baseline is None:
-                return {**result, "build_ok": False, "error": "ベースライン解析に失敗しました",
-                        "log_tail": _tail(self.log_dir / "baseline.log")}
-            records = self._analyze(root, name, log)
-        if records is None:
-            return {**result, "build_ok": False, "log_tail": _tail(log)}
-        remaining = [i.cid for i in issues if any(matches(i, r) for r in records)]
-        known = {_key(r) for r in baseline}
+        if mode == "build":
+            for item in applied:
+                result.items[item.item_id] = {"mode": mode, "batch": True, "applied": True,
+                                              "build_ok": True, "problems": [], "log": str(log)}
+            return result
+
+        records = load_analysis(after_json)
+        known = {_key(r) for r in baseline or []}
         new = [r for r in records if _key(r) not in known]
-        result.update(build_ok=True,
-                      resolved_cids=[i.cid for i in issues if i.cid not in remaining],
-                      remaining_cids=remaining, new_issues=new[:50],
-                      new_issue_count=len(new))
+        assigned: set[int] = set()
+        for item in applied:
+            remaining = [i.cid for i in item.issues if any(matches(i, r) for r in records)]
+            own_new = [r for n, r in enumerate(new) if _touches(r["file"], item.files)]
+            assigned |= {n for n, r in enumerate(new) if _touches(r["file"], item.files)}
+            problems = []
+            if remaining:
+                problems.append(f"警告が残っています: CID {remaining}")
+            if own_new:
+                problems.append(f"この修正案が変更したファイルで新しい警告が {len(own_new)} 件出ています")
+            result.items[item.item_id] = {
+                "mode": mode, "batch": True, "applied": True, "build_ok": True,
+                "resolved_cids": [i.cid for i in item.issues if i.cid not in remaining],
+                "remaining_cids": remaining, "new_issues": own_new[:20],
+                "new_issue_count": len(own_new), "problems": problems, "log": str(log)}
+        result.unassigned_new_issues = [r for n, r in enumerate(new) if n not in assigned][:50]
         return result
+
+
+def trial_build(config: VerifyConfig, root: Path, log: Path) -> dict[str, Any]:
+    """Build unmodified code once to confirm the settings work (D-75)."""
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.unlink(missing_ok=True)
+    started = time.time()
+    ok = _run_shell(build_command_line(config, root, "build"), root, log)
+    return {"build_ok": ok, "seconds": round(time.time() - started, 1), "log": str(log),
+            "log_tail": "" if ok else _tail(log)}

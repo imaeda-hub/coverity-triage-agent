@@ -69,6 +69,21 @@ def write_project_config(repo_root: str, coverity_url: str, project: str, stream
 
 
 @tool
+def trial_build(repo_root: str, setup_command: str, build_command: str) -> dict:
+    """検証の設定前に、修正前の最新コードを試しにビルドしてコマンドが正しいか確かめる。setup_command の {root} はビルドするフォルダに置き換わる。"""
+    return service.trial_build(repo_root, setup_command, build_command)
+
+
+@tool
+def write_verify_config(repo_root: str, setup_command: str, build_command: str,
+                        default: str = "none", cov_build_args: str | None = None,
+                        cov_analyze_args: str | None = None) -> dict:
+    """利用者が同意した検証の設定（環境設定・ビルドのコマンド、既定の検証方法 none / build / build+analyze）を config.yaml に保存する。"""
+    return service.write_verify_config(repo_root, setup_command, build_command, default,
+                                       cov_build_args, cov_analyze_args)
+
+
+@tool
 def doctor(repo_root: str) -> dict:
     """PC とリポジトリの準備状況を機械的に確認する（設定ファイル、条件ファイル、出力先、認証情報、Coverity 接続など）。"""
     return onboarding.doctor(repo_root)
@@ -107,6 +122,12 @@ def get_run_status(run_dir: str) -> dict:
 def next_work_item(run_dir: str) -> dict:
     """次の作業項目（CID またはグループ）を処理中にして返す。item が null なら残りなし。"""
     return service.next_work_item(run_dir)
+
+
+@tool
+def verify_run(run_dir: str, mode: str | None = None) -> dict:
+    """全件の調査が終わった後に 1 回だけ呼ぶ。保存されたすべての修正案をまとめて適用し、設定のコマンドでビルド（＋再解析）して、作業項目ごとに結果を割り当てる。問題が出た修正案は確信度を「低」に下げる。時間がかかる（10〜60 分程度）。"""
+    return service.verify_run(run_dir, mode)
 
 
 @tool
@@ -155,12 +176,6 @@ def edit_source(run_dir: str, item_id: str, workspace: str, path: str,
 def save_fix(run_dir: str, item_id: str, kind: str, message: str) -> dict:
     """fix / annotation の変更を保存し、差分ファイル・修正後ファイルを出力する（git はコミットとブランチも作る）。"""
     return service.save_fix(run_dir, item_id, kind, message)
-
-
-@tool
-def verify_fix(run_dir: str, item_id: str, kind: str = "fix", mode: str | None = None) -> dict:
-    """設定ファイルのコマンドでビルド / 再解析し、警告が消えたか・新しい警告が出たかを返す。mode 省略時は実行時の指定。"""
-    return service.verify_fix(run_dir, item_id, kind, mode)
 
 
 @tool

@@ -81,6 +81,7 @@ git commit -m "init"
 | C-9 | AI による準備の案内が動くか | 新しい PC（または uv を消した状態）で `/coverity-setup` を実行し、uv のインストール → MCP サーバの再起動 → 設定ファイルの作成 → 認証情報の伏せ字入力 → `doctor` がすべて ok、まで案内されるか | `agents/coverity-guide.agent.md`、`skills/coverity-guide/` |
 | C-10 | 伏せ字入力がターミナルで使えるか | 認証キーの入力時に、Copilot のターミナルで伏せ字の入力欄に入力できるか（できない場合はコマンドを渡されて自分の PowerShell で実行する流れになるか） | `skills/coverity-guide/SKILL.md` 段階 3 |
 | C-11 | 案内役のツール名 | `coverity-guide.agent.md` の `tools:` の `runCommands`・`editFiles`・`search` が、ターミナル実行・ファイル編集・検索の正しい名前か | `agents/coverity-guide.agent.md` |
+| C-12 | 実際のビルドで自動検証が動くか | `/coverity-setup` の段階 5 で `envset.bat "{root}"` と `make -f makefileXX` を設定し、試しのビルドが通るか。その後 `/coverity-run ビルドで検証して`（できれば再解析も）で、まとめた検証の結果がレポートに載るか。`cov-format-errors --json-output-v7` が社内のバージョンで使えるか | `server/src/coverity_triage/verify.py` |
 
 確認は VS Code と Copilot CLI の**両方**で行ってください（仕様 D-2）。
 

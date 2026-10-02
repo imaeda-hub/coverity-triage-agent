@@ -9,6 +9,8 @@ tools:
   - coverity-triage/detect_project
   - coverity-triage/write_project_config
   - coverity-triage/doctor
+  - coverity-triage/trial_build
+  - coverity-triage/write_verify_config
   - coverity-triage/list_runs
   - coverity-triage/get_run_status
   - coverity-triage/get_stats

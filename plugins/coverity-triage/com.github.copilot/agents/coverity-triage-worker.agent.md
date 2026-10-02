@@ -10,7 +10,6 @@ tools:
   - coverity-triage/search_source
   - coverity-triage/edit_source
   - coverity-triage/save_fix
-  - coverity-triage/verify_fix
   - coverity-triage/submit_result
   - coverity-triage/report_error
 ---
@@ -38,9 +37,10 @@ tools:
    - 最新リビジョンで既に解消済みなら修正は不要。`fix.already_fixed_on_latest` を true にする。
 5. **逸脱コメント案**（skill: `deviation-comment`）
    - 逸脱コメントを書く。`prepare_workspaces` の `deviation_target` が `coverity+annotation` の場合は、`annotation` 作業領域にアノテーションを入れて `save_fix`（kind=`annotation`）で保存する。
-6. **自動検証**：`prepare_workspaces` の `verify_mode` が `none` 以外なら `verify_fix` を実行する。失敗した場合は修正を見直し、それでも直らなければ結果をそのまま提出する（確信度に反映する）。
-7. **提出**（skill: `triage-report`）：`submit_result` で判断結果を提出する。エラーが返ったら内容を直して再提出する。
-8. 処理を続けられない問題（ファイルが無い、ツールのエラーが解消しない等）が起きたら、`report_error` で理由を記録して終了する。
+6. **提出**（skill: `triage-report`）：`submit_result` で判断結果を提出する。エラーが返ったら内容を直して再提出する。
+7. 処理を続けられない問題（ファイルが無い、ツールのエラーが解消しない等）が起きたら、`report_error` で理由を記録して終了する。
+
+自動検証（ビルド・再解析）は、全件の調査が終わった後に親エージェントがまとめて行います。あなたは行いません。
 
 ## 最後の返答
 

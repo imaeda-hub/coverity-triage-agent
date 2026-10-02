@@ -47,6 +47,8 @@ VerifyMode = Literal["none", "build", "build+analyze"]
 
 class VerifyConfig(_Strict):
     default: VerifyMode = "none"
+    # Run before the build in the same shell; "{root}" becomes the copied tree (D-75).
+    setup_command: str = ""
     build_command: str = ""
     cov_build_args: str = ""
     cov_analyze_args: str = ""
