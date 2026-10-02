@@ -283,7 +283,7 @@ def edit_source(run_dir: str, item_id: str, workspace: str, path: str,
         raise ServiceError("編集できるのは fix / annotation の作業領域だけです")
     tree = run.tree(item_id, workspace)
     assert isinstance(tree, OverlayTree)
-    result = tree.edit(path, old_text, new_text)
+    result = tree.edit(path, old_text, new_text, run.config.ascii_file_encoding)
     run.log("edit_source", item=item_id, workspace=workspace, path=result["path"])
     return result
 

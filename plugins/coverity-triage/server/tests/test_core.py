@@ -150,3 +150,14 @@ def test_path_mapping(tmp_path):
     assert m.map("D:\\x\\util.c")[1] == "unmapped"          # ambiguous: lib/util.c or src/util.c
     issue, notes = m.map_issue(Issue(cid=1, checker="X", file="/ci/src/io/reader.c"))
     assert issue.file == "src/io/reader.c" and "自動で対応づけました" in notes[0]
+
+
+def test_ascii_file_gets_configured_encoding():
+    src = decode(b"int a;\r\n")
+    assert src.ascii_only
+    sjis = replace_once(src, "int a;", "int a; /* 初期値 */", ascii_file_encoding="cp932")
+    assert sjis.encode() == "int a; /* 初期値 */\r\n".encode("cp932")
+    utf8 = replace_once(src, "int a;", "int a; /* 初期値 */")
+    assert utf8.encode() == "int a; /* 初期値 */\r\n".encode("utf-8")
+    still_ascii = replace_once(src, "int a;", "int a = 0;", ascii_file_encoding="cp932")
+    assert still_ascii.encoding == "utf-8" and still_ascii.encode() == b"int a = 0;\r\n"

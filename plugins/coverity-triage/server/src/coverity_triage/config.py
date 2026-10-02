@@ -60,6 +60,8 @@ class ProjectConfig(_Strict):
     max_items: int = Field(default=100, ge=1)
     parallel: int = Field(default=1, ge=1)
     deviation_target: Literal["coverity", "coverity+annotation"] = "coverity"
+    # Encoding used when non-ASCII text is added to a file that was pure ASCII.
+    ascii_file_encoding: Literal["utf-8", "cp932"] = "utf-8"
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
     # Shown for reference only; the model is pinned in the agent definitions (spec D-47).
     model: str | None = None

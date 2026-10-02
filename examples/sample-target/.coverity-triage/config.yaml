@@ -17,6 +17,7 @@ output_dir: ../coverity-triage-out
 max_items: 100
 parallel: 1
 deviation_target: coverity
+ascii_file_encoding: utf-8
 verify:
   default: none
   build_command: ""
