@@ -42,7 +42,7 @@ def fake_issue(cid, function, line):
 def repo(tmp_path):
     repo = tmp_path / "repo"
     (repo / "src").mkdir(parents=True)
-    (repo / "src" / "sample.c").write_text(SOURCE)
+    (repo / "src" / "sample.c").write_text(SOURCE, encoding="utf-8")
     sh("git", "init", "-q", "-b", "main", cwd=repo)
     sh("git", "config", "user.name", "t", cwd=repo)
     sh("git", "config", "user.email", "t@e", cwd=repo)
@@ -51,11 +51,11 @@ def repo(tmp_path):
     (conf / "fake-issues.yaml").write_text(yaml.safe_dump({
         "snapshot": {"version": ""},
         "issues": [fake_issue(1, "read_all", 6), fake_issue(2, "read_all", 5), fake_issue(3, "other", 11)],
-    }))
-    config = yaml.safe_load((conf / "config.yaml").read_text())
+    }), encoding="utf-8")
+    config = yaml.safe_load((conf / "config.yaml").read_text(encoding="utf-8"))
     config["output_dir"] = str(tmp_path / "out")
-    (conf / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True))
-    (conf / "filters" / "all.yaml").write_text("project: P\n")
+    (conf / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True), encoding="utf-8")
+    (conf / "filters" / "all.yaml").write_text("project: P\n", encoding="utf-8")
     sh("git", "add", ".", cwd=repo)
     sh("git", "commit", "-qm", "init", cwd=repo)
     return repo
@@ -116,17 +116,17 @@ def test_full_flow(repo):
     assert service.next_work_item(run_dir)["item"] is None
 
     summary = service.build_summary(run_dir)
-    text = Path(summary["summary"]).read_text()
+    text = Path(summary["summary"]).read_text(encoding="utf-8")
     rows = [l for l in text.splitlines() if l.startswith("| 修正") or l.startswith("| 逸脱")]
     assert rows[0].startswith("| 修正 | 3 |") and rows[1].startswith("| 逸脱 | G1（1 件） |")
     assert "| 2 | ソースが見つからない |" in text
 
     # person edits the deviation comment and approves; rebuilding keeps the approval
     report = Path(run_dir) / "cid" / "G1.md"
-    report.write_text(report.read_text().replace("呼び出し元で保証されている。", "呼び出し元 main() で保証。"))
-    Path(summary["summary"]).write_text(text.replace("| 修正 | 3 |", "| 却下 | 3 |"))
+    report.write_text(report.read_text(encoding="utf-8").replace("呼び出し元で保証されている。", "呼び出し元 main() で保証。"), encoding="utf-8")
+    Path(summary["summary"]).write_text(text.replace("| 修正 | 3 |", "| 却下 | 3 |"), encoding="utf-8")
     service.build_summary(run_dir)
-    assert "| 却下 | 3 |" in Path(summary["summary"]).read_text()
+    assert "| 却下 | 3 |" in Path(summary["summary"]).read_text(encoding="utf-8")
 
     preview = service.preview_apply(run_dir)
     assert preview["counts"] == {"修正": 0, "逸脱": 1, "却下": 1}
@@ -135,7 +135,7 @@ def test_full_flow(repo):
     applied = service.apply_approvals(run_dir, preview["confirmation_token"])
     assert all(r["ok"] for r in applied["results"])
 
-    writes = (repo / ".coverity-triage" / "fake-issues.yaml.writes.jsonl").read_text().splitlines()
+    writes = (repo / ".coverity-triage" / "fake-issues.yaml.writes.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(writes[0]) == {"cids": [1], "classification": "False Positive", "action": "Ignore",
                                      "severity": "Unspecified", "comment": "誤検知。呼び出し元 main() で保証。"}
     # already applied items are not applied twice

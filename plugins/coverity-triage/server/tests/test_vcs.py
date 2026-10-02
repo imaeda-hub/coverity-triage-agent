@@ -97,7 +97,7 @@ def svn_wc(tmp_path):
     repo = tmp_path / "svnrepo"
     sh("svnadmin", "create", str(repo))
     wc = tmp_path / "wc"
-    sh("svn", "checkout", "-q", f"file://{repo}", str(wc))
+    sh("svn", "checkout", "-q", repo.as_uri(), str(wc))
     (wc / "src").mkdir()
     (wc / "src" / "a.c").write_bytes(SJIS_FILE)
     sh("svn", "add", "-q", "src", cwd=wc)
