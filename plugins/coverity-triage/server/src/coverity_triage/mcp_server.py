@@ -16,6 +16,7 @@ from . import service
 from .config import ConfigError
 from .coverity import CoverityError
 from .encoding import EncodingError
+from .models import TriageResult
 from .report import ReportError
 from .run_state import RunError
 from .vcs import VcsError
@@ -138,8 +139,8 @@ def verify_fix(run_dir: str, item_id: str, kind: str = "fix", mode: str | None =
 
 
 @tool
-def submit_result(run_dir: str, item_id: str, result: dict) -> dict:
-    """判断結果を提出する（形式は skill triage-report を参照）。不備があればエラーになるので直して再提出する。"""
+def submit_result(run_dir: str, item_id: str, result: TriageResult) -> dict:
+    """判断結果を提出する（各項目の書き方は skill triage-report を参照）。不備があればエラーになるので直して再提出する。"""
     return service.submit_result(run_dir, item_id, result)
 
 

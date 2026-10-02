@@ -34,6 +34,17 @@ class VcsError(Exception):
     """Raised when a VCS command fails."""
 
 
+_snapshot_locks: dict[str, threading.Lock] = {}
+_snapshot_locks_guard = threading.Lock()
+
+
+def _snapshot_lock(work_dir: Path) -> threading.Lock:
+    """One lock per run folder, shared by every tool call (parallel subagents)."""
+    key = str(work_dir.resolve())
+    with _snapshot_locks_guard:
+        return _snapshot_locks.setdefault(key, threading.Lock())
+
+
 def run_cmd(args: list[str], cwd: str | Path | None = None, *, env: dict | None = None,
             input_bytes: bytes | None = None) -> bytes:
     try:
@@ -63,7 +74,7 @@ class Vcs(ABC):
         self.run_dir = Path(run_dir)
         self.run_id = run_id
         self.work_dir = self.run_dir / "work"
-        self._lock = threading.Lock()
+        self._lock = _snapshot_lock(self.work_dir)
 
     # ---- snapshots -------------------------------------------------------------------
 

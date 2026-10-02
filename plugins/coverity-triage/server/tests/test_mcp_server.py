@@ -21,3 +21,10 @@ def test_expected_errors_become_tool_errors(tmp_path):
         assert "実行フォルダではありません" in str(exc)
     else:
         raise AssertionError("error expected")
+
+
+def test_submit_result_exposes_schema():
+    tools = anyio.run(mcp_server.mcp.list_tools)
+    submit = next(t for t in tools if t.name == "submit_result")
+    text = str(submit.input_schema)
+    assert "judgement" in text and "false_positive" in text and "confidence" in text

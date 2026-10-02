@@ -126,3 +126,17 @@ def test_svn_patch_and_apply(svn_wc, tmp_path):
     vcs.apply_patch(saved.patch_path)
     assert (svn_wc / "src" / "a.c").read_bytes() == SJIS_FILE.replace(
         b"return *p;", b"return p ? *p : 0;") + b"/* r2 */\r\n"
+
+
+def test_parallel_calls_share_one_snapshot(git_repo, tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    repo, first = git_repo
+
+    def latest(_):
+        # a new Vcs object per call, like one MCP tool call per subagent
+        return GitVcs(repo, VcsConfig(type="git"), tmp_path / "run", "R1").latest()
+
+    with ThreadPoolExecutor(8) as pool:
+        results = list(pool.map(latest, range(8)))
+    assert len({r[0] for r in results}) == 1
+    assert (results[0][1] / "src" / "b.c").is_file()

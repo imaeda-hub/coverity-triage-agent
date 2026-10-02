@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import time
 from pathlib import Path
 from typing import Any
 
@@ -304,7 +305,8 @@ def verify_fix(run_dir: str, item_id: str, kind: str = "fix", mode: str | None =
     return result
 
 
-def _item_report(run: Run, item_id: str, result: TriageResult) -> ItemReport:
+def _item_report(run: Run, item_id: str, result: TriageResult,
+                 seconds: float | None = None) -> ItemReport:
     item = run.store.item(item_id)
     latest = run.dir / "work" / "latest-revision.txt"
     return ItemReport(
@@ -312,15 +314,16 @@ def _item_report(run: Run, item_id: str, result: TriageResult) -> ItemReport:
         fixes=run.read_json(item_id, ".fixes"), verify=run.read_json(item_id, ".verify"),
         analyzed_revision=run.meta.analyzed_revision,
         latest_revision=latest.read_text(encoding="utf-8").strip() if latest.is_file() else None,
-        seconds=item.seconds,
+        seconds=item.seconds if seconds is None else seconds,
     )
 
 
-def submit_result(run_dir: str, item_id: str, result: dict[str, Any]) -> dict[str, Any]:
+def submit_result(run_dir: str, item_id: str,
+                  result: dict[str, Any] | TriageResult) -> dict[str, Any]:
     run = Run(run_dir)
     item = run.require_in_progress(item_id)
     try:
-        parsed = TriageResult.model_validate(result)
+        parsed = result if isinstance(result, TriageResult) else TriageResult.model_validate(result)
     except ValidationError as exc:
         raise ServiceError(f"提出データが不正です。修正して再提出してください:\n{exc}") from exc
     if parsed.work_item != item_id:
@@ -338,9 +341,10 @@ def submit_result(run_dir: str, item_id: str, result: dict[str, Any]) -> dict[st
         split = run.store.split_group(item_id, parsed.group_excluded_cids)
         (run.results_path(item_id, ".details")).unlink(missing_ok=True)
     run.write_json(item_id, "", parsed.model_dump())
-    run.store.mark_done(item_id)
-    report = render_item(_item_report(run, item_id, parsed))
+    elapsed = time.time() - item.started_at if item.started_at else None
+    report = render_item(_item_report(run, item_id, parsed, elapsed))
     (run.dir / "cid" / f"{item_id}.md").write_text(report, encoding="utf-8")
+    run.store.mark_done(item_id)
     run.log("submit_result", item=item_id, recommendation=parsed.recommendation,
             confidence=parsed.confidence, split=split)
     return {"item": item_id, "report": str(run.dir / "cid" / f"{item_id}.md"),
@@ -448,11 +452,15 @@ def apply_approvals(run_dir: str, confirmation_token: str) -> dict[str, Any]:
         outcome: dict[str, Any] = {"item": item_id, "action": action}
         try:
             kinds = ["fix"] if action == "fix" else (["annotation"] if entry.get("annotation") else [])
-            if action == "deviation":
+            done_before = run.store.item(item_id).apply_result
+            if action == "deviation" and done_before.get("coverity") == "登録済み":
+                outcome["coverity"] = "登録済み（前回の反映で登録済みのため省略）"
+            elif action == "deviation":
                 spec = cfg.FilterSpec.model_validate(run.meta.filter)
                 run.client.write_triage(entry["cids"], TriageAttributes.model_validate(entry["attributes"]),
                                         entry["comment"], spec)
                 outcome["coverity"] = "登録済み"
+                run.store.record_apply_progress(item_id, {"coverity": "登録済み"})
             for kind in kinds:
                 outcome[kind] = _apply_code(run, item_id, kind, fixes[kind], per_run_commits)
             if action == "reject" and run.store.item(item_id).is_group:

@@ -179,3 +179,31 @@ def test_fix_approval_pushes_branch_and_creates_pr(repo, tmp_path, monkeypatch):
     assert out["ok"] and out["fix"]["pull_request"] == "https://github.example/pr/1"
     assert created["branch"] == "coverity-fix/" + Path(run_dir).name + "-G1"
     assert "coverity-fix/" in sh("git", "ls-remote", "--heads", str(remote), cwd=repo)
+
+
+def test_retry_does_not_write_coverity_twice(repo, monkeypatch):
+    run_dir = service.start_run(str(repo), "all.yaml")["run_dir"]
+    service.next_work_item(run_dir)
+    work(run_dir, "G1", "    return buf[0];", "    return buf ? buf[0] : 0;")
+    service.build_summary(run_dir)
+
+    # a step after the Coverity write fails once
+    original = service.RunStore.mark_applied
+    calls = []
+
+    def flaky(self, item_id, result):
+        calls.append(item_id)
+        if len(calls) == 1:
+            raise RuntimeError("後続の処理で失敗")
+        return original(self, item_id, result)
+
+    monkeypatch.setattr(service.RunStore, "mark_applied", flaky)
+    token = service.preview_apply(run_dir)["confirmation_token"]
+    first = service.apply_approvals(run_dir, token)["results"][0]
+    assert first["ok"] is False and first["coverity"] == "登録済み"
+
+    token = service.preview_apply(run_dir)["confirmation_token"]
+    second = service.apply_approvals(run_dir, token)["results"][0]
+    assert second["ok"] is True and "省略" in second["coverity"]
+    writes = (repo / ".coverity-triage" / "fake-issues.yaml.writes.jsonl").read_text(encoding="utf-8")
+    assert len(writes.splitlines()) == 1
