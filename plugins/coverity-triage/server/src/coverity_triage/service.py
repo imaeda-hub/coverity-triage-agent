@@ -348,11 +348,13 @@ def verify_run(run_dir: str, mode: str | None = None) -> dict[str, Any]:
             "error": outcome.error, "log": outcome.log}
 
 
-def trial_build(repo_root: str, setup_command: str, build_command: str) -> dict[str, Any]:
-    """Build the latest code once with the given commands, before saving them (spec D-75)."""
+def trial_build(repo_root: str, setup_command: str, build_command: str,
+                build_dir: str = "") -> dict[str, Any]:
+    """Build the latest code once with the given commands, before saving them (spec D-75, D-76)."""
     config = cfg.load_project_config(repo_root)
     verify = config.verify.model_copy(update={"setup_command": setup_command,
-                                              "build_command": build_command})
+                                              "build_command": build_command,
+                                              "build_dir": build_dir})
     work = Path(output_dir_of(repo_root)) / "_trial-build"
     if work.exists():
         shutil.rmtree(work)
@@ -365,14 +367,15 @@ def trial_build(repo_root: str, setup_command: str, build_command: str) -> dict[
 
 def write_verify_config(repo_root: str, setup_command: str, build_command: str,
                         default: str = "none", cov_build_args: str | None = None,
-                        cov_analyze_args: str | None = None) -> dict[str, Any]:
+                        cov_analyze_args: str | None = None, build_dir: str = "") -> dict[str, Any]:
     """Save verification settings into config.yaml after the person agreed (spec D-75)."""
     path = cfg.config_dir(repo_root) / cfg.CONFIG_FILE_NAME
     text = path.read_text(encoding="utf-8")
     header = "".join(line + "\n" for line in text.splitlines() if line.startswith("#"))
     data = yaml.safe_load(text) or {}
     verify = dict(data.get("verify") or {})
-    verify.update(default=default, setup_command=setup_command, build_command=build_command)
+    verify.update(default=default, setup_command=setup_command, build_dir=build_dir,
+                  build_command=build_command)
     if cov_build_args is not None:
         verify["cov_build_args"] = cov_build_args
     if cov_analyze_args is not None:

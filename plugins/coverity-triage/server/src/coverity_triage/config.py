@@ -49,6 +49,8 @@ class VerifyConfig(_Strict):
     default: VerifyMode = "none"
     # Run before the build in the same shell; "{root}" becomes the copied tree (D-75).
     setup_command: str = ""
+    # Repository-relative directory to move into after setup_command, before the build (D-76).
+    build_dir: str = ""
     build_command: str = ""
     cov_build_args: str = ""
     cov_analyze_args: str = ""

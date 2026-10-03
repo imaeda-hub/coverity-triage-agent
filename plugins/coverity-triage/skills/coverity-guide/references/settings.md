@@ -23,7 +23,8 @@
 | `ascii_file_encoding` | 英数字だけのファイルに日本語を入れるときの文字コード `utf-8` / `cp932` | 自動判定（Shift_JIS のプロジェクトなら `cp932`） |
 | `verify.default` | 自動検証 `none` / `build` / `build+analyze` | 既定 `none` |
 | `verify.setup_command` | ビルド前の環境設定のコマンド（同じコマンドプロンプトで先に実行）。`{root}` はビルド用にコピーしたフォルダに置き換わる | 例 `envset.bat "{root}" <2つ目の引数>`。引数はいくつでも書ける（`{root}` 以外はそのまま渡される）。不要なら空 |
-| `verify.build_command` | ビルドのコマンド（リポジトリのルートで実行） | 例 `make -f makefileXX` |
+| `verify.build_dir` | `setup_command` の後に移動して、ビルド（`cov-build`）を実行するディレクトリ。makefile がある場所をリポジトリからの相対パスで書く | 例 `firmware/target`。空ならリポジトリのルート |
+| `verify.build_command` | ビルドのコマンド（`build_dir` で実行） | 例 `make -f makefileXX` |
 | `verify.cov_build_args` / `verify.cov_analyze_args` | `cov-build` / `cov-analyze` の引数（`--dir` 必須） | 例 `--dir idir` / `--dir idir --all` |
 
 自動検証の仕組み：全件の調査が終わった後に、その実行の修正案を**すべてまとめて適用したコピー**で 1 回だけビルド（＋解析）する。再解析では修正前のコードも 1 回解析して比べるため、1 回の実行で解析 2 回分の時間がかかる。利用者の PC でビルドと Coverity の解析ツールが動く必要がある。設定を変えたら `trial_build` で試しにビルドしてから `write_verify_config` で保存する。
