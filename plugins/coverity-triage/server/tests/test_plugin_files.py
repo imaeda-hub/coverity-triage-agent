@@ -66,8 +66,8 @@ def test_worker_agent_tools_exist():
     fm = _frontmatter(agent)
     assert fm["name"] == "coverity-triage-worker" and fm["user-invocable"] is False
     refs = [t.split("/", 1)[1] for t in fm["tools"] if t.startswith("coverity-triage/")]
-    bare = [t for t in fm["tools"] if "/" not in t and t not in ("read", "skill")]
-    assert refs and set(refs) <= tools and set(bare) == set(refs)  # both naming forms, same set
+    assert refs and set(refs) <= tools
+    assert set(fm["tools"]) - {"read", "skill"} == {f"coverity-triage/{r}" for r in refs}
     assert {"read", "skill"} <= set(fm["tools"])  # needed to load the investigation skills
     assert "apply_approvals" not in refs
 

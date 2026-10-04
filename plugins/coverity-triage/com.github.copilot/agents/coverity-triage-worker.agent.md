@@ -7,7 +7,7 @@ tools:
   # Skill を読むためのツール（VS Code は read、Copilot CLI は skill で Skill を読み込む）
   - read
   - skill
-  # MCP ツール。クライアントによって名前の付け方が違うため、両方の形で書く
+  # MCP ツール（公式の書き方：サーバ名/ツール名）
   - coverity-triage/get_issue_detail
   - coverity-triage/prepare_workspaces
   - coverity-triage/read_source
@@ -16,14 +16,6 @@ tools:
   - coverity-triage/save_fix
   - coverity-triage/submit_result
   - coverity-triage/report_error
-  - get_issue_detail
-  - prepare_workspaces
-  - read_source
-  - search_source
-  - edit_source
-  - save_fix
-  - submit_result
-  - report_error
 ---
 
 # Coverity トリアージ（作業項目の調査）
