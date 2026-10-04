@@ -73,13 +73,13 @@ README「はじめに」の 1 の手順（マーケットプレイスとして�
 | No | 確認すること | 確認方法 | 関係するファイル |
 |---|---|---|---|
 | C-1 | `plugin.json` が受け付けられるか（必須項目の不足がないか） | インストール時にエラーが出ないか | `plugin.json` |
-| C-2 | MCP サーバが起動するか（`mcp.json` は Agent Plugins 1.0 の書式：`$schema`、`type: stdio`、`${PLUGIN_ROOT}`） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 25 個見えるか | `mcp.json` |
+| C-2 | MCP サーバが起動するか（`mcp.json` は Agent Plugins 1.0 の書式：`$schema`、`type: stdio`、`${PLUGIN_ROOT}`） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 25 個見えるか。Python の環境がプラグインのデータフォルダ（`PLUGIN_DATA`）の `venv` にできるか（プラグイン本体のフォルダに `.venv` ができないか） | `mcp.json` |
 | C-3 | エージェントの一覧 | エージェントの一覧に `coverity-triage-worker` が出ないこと（サブエージェント専用。`user-invocable: false`） | `com.github.copilot/agents/coverity-triage-worker.agent.md` |
 | C-4 | モデルの固定が効くか | 調査のサブエージェントが `gpt-6 luna` で動くか。モデル名の正しい書き方も確認（入口の Skill は利用者が選んでいるモデルで動く、D-47） | `coverity-triage-worker.agent.md` の `model:` |
 | C-5 | ツールの制限が効くか | 調査のサブエージェントが `apply_approvals` やターミナルを使えないこと | `coverity-triage-worker.agent.md` の `tools:` |
 | C-6 | 入口の Skill が使えるか | `/` メニューに `coverity-setup`・`coverity-run`・`coverity-apply`・`coverity-help` の 4 つが出るか（VS Code では `/coverity-triage:coverity-setup` のようにプラグイン名が付く）。調査用の 5 つ（`triage-investigation` など）が `/` メニューに出ないこと。CLI での呼び方（`/coverity-setup` か）も記録 | `skills/*/SKILL.md` の `disable-model-invocation` / `user-invocable` |
 | C-7 | サブエージェントが起動するか | `/coverity-run` で、作業項目ごとに `coverity-triage-worker` が別のコンテキストで動くか。VS Code ではチャットのツールに「Run Subagent」（`agent/runSubagent`）が有効になっている必要がある | `skills/coverity-run/SKILL.md` |
-| C-8 | Skill が読み込まれるか | サブエージェントが `triage-investigation` などを参照しているか | `skills/*/SKILL.md` |
+| C-8 | Skill が読み込まれるか | サブエージェントが `triage-investigation` などを読み込んでいるか（読み込みに `read` / `skill` ツールを使う）。読み込めない場合はツール名をエラーとともに記録 | `skills/*/SKILL.md`、`coverity-triage-worker.agent.md` の `tools:` |
 | C-9 | AI による準備の案内が動くか | 新しい PC（または uv を消した状態）で `/coverity-setup` を実行し、uv のインストール → MCP サーバの再起動 → 設定ファイルの作成 → 認証情報の伏せ字入力 → `doctor` がすべて ok、まで案内されるか | `skills/coverity-setup/SKILL.md` |
 | C-10 | 伏せ字入力がターミナルで使えるか | 認証キーの入力時に、Copilot のターミナルで伏せ字の入力欄に入力できるか（できない場合はコマンドを渡されて自分の PowerShell で実行する流れになるか） | `skills/coverity-setup/SKILL.md` 段階 3 |
 | C-11 | 反映の安全策 | `/coverity-apply` で、件数の確認に同意する前に反映が始まらないこと（同意前に `apply_approvals` を呼んでもツールが拒否する） | `skills/coverity-apply/SKILL.md`、`apply_approvals` |

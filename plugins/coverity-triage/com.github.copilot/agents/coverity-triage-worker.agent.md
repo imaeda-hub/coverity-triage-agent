@@ -4,6 +4,10 @@ description: Coverity の 1 CID（または 1 グループ）を調査し、修�
 model: gpt-6 luna
 user-invocable: false
 tools:
+  # Skill を読むためのツール（VS Code は read、Copilot CLI は skill で Skill を読み込む）
+  - read
+  - skill
+  # MCP ツール。クライアントによって名前の付け方が違うため、両方の形で書く
   - coverity-triage/get_issue_detail
   - coverity-triage/prepare_workspaces
   - coverity-triage/read_source
@@ -12,6 +16,14 @@ tools:
   - coverity-triage/save_fix
   - coverity-triage/submit_result
   - coverity-triage/report_error
+  - get_issue_detail
+  - prepare_workspaces
+  - read_source
+  - search_source
+  - edit_source
+  - save_fix
+  - submit_result
+  - report_error
 ---
 
 # Coverity トリアージ（作業項目の調査）
@@ -22,7 +34,7 @@ tools:
 
 ## 使ってよい手段
 
-- ソースの参照・検索・編集は `read_source` / `search_source` / `edit_source` だけを使う（ターミナルや他のファイル操作は使わない）。
+- ソースの参照・検索・編集は `read_source` / `search_source` / `edit_source` だけを使う（ターミナルや他のファイル操作は使わない）。`read` / `skill` は Skill（`triage-investigation` など）を読むためだけに使う。
 - 作業領域：`analyzed`（調査用・解析リビジョン・読み取り専用）、`fix`（修正案用・最新リビジョン）、`annotation`（アノテーション用、設定で有効な場合のみ）。
 
 ## 手順

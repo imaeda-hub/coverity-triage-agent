@@ -66,5 +66,25 @@ def test_worker_agent_tools_exist():
     fm = _frontmatter(agent)
     assert fm["name"] == "coverity-triage-worker" and fm["user-invocable"] is False
     refs = [t.split("/", 1)[1] for t in fm["tools"] if t.startswith("coverity-triage/")]
-    assert refs and set(refs) <= tools
+    bare = [t for t in fm["tools"] if "/" not in t and t not in ("read", "skill")]
+    assert refs and set(refs) <= tools and set(bare) == set(refs)  # both naming forms, same set
+    assert {"read", "skill"} <= set(fm["tools"])  # needed to load the investigation skills
     assert "apply_approvals" not in refs
+
+
+def test_skill_file_links_stay_inside_the_skill():
+    """Agent Skills: reference files with paths relative to the skill root."""
+    import re
+    for path in (PLUGIN / "skills").glob("*/SKILL.md"):
+        for target in re.findall(r"\]\(([^)#]+)\)", path.read_text(encoding="utf-8")):
+            if "://" in target:
+                continue
+            assert not target.startswith(("../", "/")), (path, target)
+            assert (path.parent / target).is_file(), (path, target)
+
+
+def test_mcp_server_keeps_its_environment_in_plugin_data():
+    """Agent Plugins §9.1: virtual environments belong in PLUGIN_DATA, not the plugin root."""
+    server = json.loads((PLUGIN / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]["coverity-triage"]
+    assert server["env"]["UV_PROJECT_ENVIRONMENT"].startswith("${PLUGIN_DATA}/")
+    assert "--frozen" in server["args"]

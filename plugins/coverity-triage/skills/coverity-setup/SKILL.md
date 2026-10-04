@@ -58,8 +58,8 @@ disable-model-invocation: true
    | 結果の出力先 | リポジトリの隣のフォルダ（`../coverity-triage-out`） |
    | 調べる警告 | 未トリアージ・1 回 20 件まで（`untriaged.yaml`） |
 4. 同意を得たら `write_project_config` を呼ぶ。変更したい値があれば反映してから呼ぶ。
-5. 接続後に警告のファイルパスが `C:/build/...` のような絶対パスなら、`path_strip_prefixes` の設定を提案する（[settings.md](../coverity-help/references/settings.md)）。
-6. 「`.coverity-triage/` をコミットしてチームで共有してください（パスワード等は含まれていません）」と伝える。あわせて、プロジェクトの知識のファイル `knowledge.md`（ひな形）もできたこと、AI が調査の前に読むので、戻らない関数や修正・逸脱の方針などを書いておけることを 1 行で伝える（[usage.md](../coverity-help/references/usage.md)）。コミットを頼まれたら、利用者の確認を得て実行してよい。
+5. 接続後に警告のファイルパスが `C:/build/...` のような絶対パスなら、`path_strip_prefixes` の設定を提案する（設定の詳細は skill `coverity-help` の settings.md）。
+6. 「`.coverity-triage/` をコミットしてチームで共有してください（パスワード等は含まれていません）」と伝える。あわせて、プロジェクトの知識のファイル `knowledge.md`（ひな形）もできたこと、AI が調査の前に読むので、戻らない関数や修正・逸脱の方針などを書いておけることを 1 行で伝える（詳細は skill `coverity-help` の usage.md）。コミットを頼まれたら、利用者の確認を得て実行してよい。
 
 ### 段階 3：認証情報（個人の PC ごと）
 

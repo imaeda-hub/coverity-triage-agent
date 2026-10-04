@@ -283,7 +283,7 @@ group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53
 
 - 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。マーケットプレイスの定義は `.github/plugin/marketplace.json`（プラグイン `coverity-triage` の場所は `plugins/coverity-triage`）。
 - プラグインを更新するときは、`plugin.json` と `marketplace.json` の `version` をそろえて上げる（自動テストで一致を確認）。
-- MCP サーバの Python 環境は uv で自動構築する（`mcp.json` で uv 経由で起動）。利用者は uv を入れるだけでよい。
+- MCP サーバの Python 環境は uv で自動構築する（`mcp.json` で uv 経由で起動）。利用者は uv を入れるだけでよい。仮想環境はプラグインのデータフォルダ（`${PLUGIN_DATA}/venv`）に作り、プラグイン本体のフォルダには書き込まない（Agent Plugins 1.0 §9.1、Copilot CLI のプラグインリファレンス）。
 
 ## 7. 実装前に確認する事項（一次資料での確認が必要）
 
@@ -331,6 +331,7 @@ docs/trial-guide.md           … 試用・確認の手順書
 | I-9（確定） | Coverity が返すファイルパス（ビルド環境の絶対パスの場合など）は、設定 `coverity.path_strip_prefixes` の接頭辞を取り除いてリポジトリ内のパスに対応づける。設定で対応づけられない場合は、リポジトリに実在する最も長い末尾部分で自動的に対応づけ、その旨をレポートに明記する。候補が複数あり決められない場合は対応づけず、その旨を明記する | 解析環境とリポジトリでパスが違っても調査を止めないため（実装の見直しで判明、ユーザ確認済み） |
 | I-10（確定） | 英数字だけのファイル（UTF-8 か Shift_JIS か判別できない）に日本語などを追加する場合は、設定 `ascii_file_encoding`（`utf-8` / `cp932`、既定 `utf-8`）の文字コードで保存する | Shift_JIS のプロジェクトで文字コードが混在しないようにするため（実装の見直しで判明、ユーザ確認済み） |
 | I-11（確定） | Coverity Connect への接続の細部：(1) 条件のうちワイルドカードを含むチェッカー名と Status は、検索後に手元で絞り込む（サーバ側の絞り込み方が公開例で確認できないため）(2) 証明書は OS の証明書ストアを使い（社内 CA を入れた会社の PC でそのまま動くように）、`coverity.ca_file` で個別に指定もできる (3) `revision_field` の既定を、SOAP のスナップショット情報に実在する項目名 `sourceVersion` に変えた（旧既定 `version` は該当する項目が無かった。リビジョンを記録する運用は今後の拡張 E-2） (4) 書き戻し先のトリアージストアを `coverity.triage_store`（既定 `Default Triage Store`）で指定する | 推測で書かず、公開されている形だけで動くようにするため |
+| I-12（確定） | 公式仕様と実例（awesome-copilot）に合わせた細部：(1) 調査用サブエージェントの `tools` に、Skill を読むための `read`（VS Code）と `skill`（Copilot CLI）を入れる (2) MCP ツールは `coverity-triage/ツール名` と `ツール名` の両方の形で書く（クライアントで名前の付け方が違うため。Microsoft の公式プラグインと同じ書き方）(3) Skill の中の資料へのリンクは、その Skill のフォルダの中だけにする（Agent Skills 仕様） (4) Skill の `user-invocable` / `disable-model-invocation` / `argument-hint` は、Agent Skills 仕様の検証ツール（skills-ref）では対象外の項目として警告されるが、VS Code と Copilot CLI の公式ドキュメントで定義された項目であり、Microsoft・SonarSource などの公式プラグインも使っているため使う | 2026-10-04 の調査（Agent Plugins 1.0.0 仕様、Agent Skills 仕様、VS Code・Copilot CLI の公式ドキュメント、awesome-copilot の 5 プラグイン） |
 
 ## 9. 使いやすさの改善（D-65〜D-70）
 
