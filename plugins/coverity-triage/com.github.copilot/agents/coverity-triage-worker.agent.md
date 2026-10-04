@@ -4,6 +4,10 @@ description: Coverity の 1 CID（または 1 グループ）を調査し、修�
 model: gpt-6 luna
 user-invocable: false
 tools:
+  # Skill を読むためのツール（VS Code は read、Copilot CLI は skill で Skill を読み込む）
+  - read
+  - skill
+  # MCP ツール（公式の書き方：サーバ名/ツール名）
   - coverity-triage/get_issue_detail
   - coverity-triage/prepare_workspaces
   - coverity-triage/read_source
@@ -22,7 +26,7 @@ tools:
 
 ## 使ってよい手段
 
-- ソースの参照・検索・編集は `read_source` / `search_source` / `edit_source` だけを使う（ターミナルや他のファイル操作は使わない）。
+- ソースの参照・検索・編集は `read_source` / `search_source` / `edit_source` だけを使う（ターミナルや他のファイル操作は使わない）。`read` / `skill` は Skill（`triage-investigation` など）を読むためだけに使う。
 - 作業領域：`analyzed`（調査用・解析リビジョン・読み取り専用）、`fix`（修正案用・最新リビジョン）、`annotation`（アノテーション用、設定で有効な場合のみ）。
 
 ## 手順
@@ -40,8 +44,8 @@ tools:
 6. **提出**（skill: `triage-report`）：`submit_result` で判断結果を提出する。エラーが返ったら内容を直して再提出する。
 7. 処理を続けられない問題（ファイルが無い、ツールのエラーが解消しない等）が起きたら、`report_error` で理由を記録して終了する。
 
-自動検証（ビルド・再解析）は、全件の調査が終わった後に親エージェントがまとめて行います。あなたは行いません。
+自動検証（ビルド・再解析）は、全件の調査が終わった後に呼び出し元（親）がまとめて行います。あなたは行いません。
 
 ## 最後の返答
 
-親エージェントには 1 行だけ返す。例：`G1: 逸脱推奨（確信度 高）— 呼び出し元で NULL チェック済み`
+呼び出し元（親）には 1 行だけ返す。例：`G1: 逸脱推奨（確信度 高）— 呼び出し元で NULL チェック済み`

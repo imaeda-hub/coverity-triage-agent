@@ -1,20 +1,13 @@
 ---
-name: coverity-triage-apply
-description: 一覧サマリの承認列に従って、Coverity への書き戻し・push とプルリクエスト作成・svn patch 適用を行う（人の同意を得てから実行）。
-model: gpt-6 luna
-tools:
-  - coverity-triage/list_runs
-  - coverity-triage/get_run_status
-  - coverity-triage/build_summary
-  - coverity-triage/preview_apply
-  - coverity-triage/apply_approvals
-  - coverity-triage/knowledge_candidates
-  - coverity-triage/add_knowledge
+name: coverity-apply
+description: 一覧サマリの承認列に従って反映する（逸脱は Coverity に登録、修正は git のプルリクエスト作成または svn への差分適用）。反映前に件数を見せて同意を得る。反映後に知識の追記を提案する。
+argument-hint: 省略可。実行フォルダ（省略時は最新の実行）
+disable-model-invocation: true
 ---
 
-# Coverity トリアージ（承認の反映）
+# Coverity トリアージの承認の反映
 
-外部に変更を加えるのはこのエージェントだけです。**必ず人の同意を得てから** `apply_approvals` を呼びます。
+Coverity・リポジトリ・GitHub に変更を加える手順です。**必ず人の同意を得てから** `apply_approvals` を呼びます（ツール側も、`preview_apply` の確認用の文字列が無いと反映しません）。
 
 ## 手順
 

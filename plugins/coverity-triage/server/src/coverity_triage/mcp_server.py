@@ -1,7 +1,8 @@
 """MCP server of the Coverity triage agent (spec D-40 to D-42; design 3).
 
-Tools are grouped by who may use them. The agent definitions restrict each agent's tools:
-the apply tools (``preview_apply`` / ``apply_approvals``) are given only to the apply agent.
+The skills (/coverity-setup, /coverity-run, /coverity-apply, /coverity-help) use these tools from
+the main conversation; the worker subagent is limited to the worker tools by its agent definition.
+``apply_approvals`` refuses to run without the token that ``preview_apply`` returns (spec D-63).
 """
 
 from __future__ import annotations
@@ -46,7 +47,7 @@ def tool(func):
     return mcp.tool()(wrapper)
 
 
-# ---- setup / run management (parent agent, commands) ---------------------------------------
+# ---- setup / run management (skills) ---------------------------------------
 
 
 @tool
@@ -191,7 +192,7 @@ def report_error(run_dir: str, item_id: str, message: str) -> dict:
     return runs.report_error(run_dir, item_id, message)
 
 
-# ---- apply agent only -------------------------------------------------------------------------
+# ---- apply (/coverity-apply) --------------------------------------------------------------------
 
 
 @tool

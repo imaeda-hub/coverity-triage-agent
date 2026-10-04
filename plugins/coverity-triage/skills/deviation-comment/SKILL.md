@@ -1,6 +1,7 @@
 ---
 name: deviation-comment
 description: Coverity の逸脱コメント（トリアージコメント）の書き方と、Classification / Action / Severity の選び方。逸脱案を作るときに使う。
+user-invocable: false
 ---
 
 # 逸脱コメントの書き方（仕様 D-22〜D-24）

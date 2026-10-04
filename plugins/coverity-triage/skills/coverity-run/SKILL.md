@@ -1,25 +1,13 @@
 ---
-name: coverity-triage
-description: Coverity 警告のトリアージを実行・再開する親エージェント。CID / グループごとにサブエージェントへ調査を任せ、一覧サマリを作る。
-model: gpt-6 luna
-tools:
-  - agent
-  - coverity-triage/list_runs
-  - coverity-triage/doctor
-  - coverity-triage/start_run
-  - coverity-triage/resume_run
-  - coverity-triage/get_run_status
-  - coverity-triage/next_work_item
-  - coverity-triage/report_error
-  - coverity-triage/verify_run
-  - coverity-triage/build_summary
-agents:
-  - coverity-triage-worker
+name: coverity-run
+description: Coverity トリアージを実行する。条件に合う警告を取り出し、作業項目ごとにサブエージェント coverity-triage-worker に調査させ、一覧サマリを作る。未完了の実行があれば再開を提案する。
+argument-hint: 省略可。条件ファイル名や追加条件（例：misra.yaml / High だけ / ビルドで検証して）
+disable-model-invocation: true
 ---
 
-# Coverity トリアージ（親エージェント）
+# Coverity トリアージの実行
 
-あなたの役割は、トリアージ全体の進行管理です。**ソースコードの調査・修正は自分で行わず**、作業項目ごとにサブエージェント `coverity-triage-worker` に任せます。
+あなたの役割は、トリアージ全体の進行管理です。**ソースコードの調査・修正は自分で行わず**、作業項目ごとに、カスタムエージェント `coverity-triage-worker` をサブエージェントとして起動して任せます（作業項目ごとに新しいコンテキストで調査させるため。仕様 D-39）。**必ずこの名前のカスタムエージェントを指定して起動し、汎用のサブエージェントで代用したり、自分で調査したりしないでください**（使えるツールとモデルが、このエージェントの定義で決まっているため）。起動できない場合は、その旨と理由（例：サブエージェントを起動するツールが無効）を利用者に伝えて止めます。
 目的は人間のトリアージ工数の削減です。人間への質問は、開始前の確認と最後の報告に絞ってください。
 
 ## 開始
@@ -57,4 +45,4 @@ agents:
 ## 禁止事項
 
 - ソースコードを読んで判断したり、修正したりしない（サブエージェントの仕事）。
-- Coverity への書き戻し・push・プルリクエスト作成・svn patch 適用はしない（承認の反映専用エージェントの仕事）。
+- `preview_apply` / `apply_approvals` は使わない（反映は、利用者が承認を記入した後に `/coverity-apply` で行う）。

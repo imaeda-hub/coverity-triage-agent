@@ -1,8 +1,13 @@
 {
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
   "mcpServers": {
     "coverity-triage": {
+      "type": "stdio",
       "command": "uv",
-      "args": ["run", "--quiet", "--directory", "${PLUGIN_ROOT}/server", "coverity-triage-mcp"]
+      "args": ["run", "--frozen", "--quiet", "--directory", "${PLUGIN_ROOT}/server", "coverity-triage-mcp"],
+      "env": {
+        "UV_PROJECT_ENVIRONMENT": "${PLUGIN_DATA}/venv"
+      }
     }
   }
 }

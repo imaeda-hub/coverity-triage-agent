@@ -36,33 +36,32 @@ Coverity の警告を AI が調査し、警告ごとに **「修正案」と「�
 
 ## このプラグインの仕組み
 
-あなたが使うのは **4 つのコマンドだけ** です。コマンドからエージェントが起動し、エージェントは Skill を読みながら MCP サーバのツールで作業します。Skill を自分で呼ぶ必要はありません。
+あなたが使うのは **4 つの Skill（`/coverity-setup` など）だけ** です。VS Code ではプラグイン名が付き、`/coverity-triage:coverity-setup` のように表示されます。
+Skill の手順に沿って AI が MCP サーバのツールで作業し、警告 1 件ずつの調査は専用のサブエージェントに任せます。
 
 ```mermaid
 flowchart LR
-    U([あなた]) --> C["コマンド<br>/coverity-setup・/coverity-run<br>/coverity-apply・/coverity-help"]
-    C --> A["エージェント"]
-    A -- 読む --> S["Skill"]
+    U([あなた]) --> E["Skill（入口）<br>/coverity-setup・/coverity-run<br>/coverity-apply・/coverity-help"]
+    E --> A["AI（チャット）"]
+    A -- 1 件ずつ任せる --> W["サブエージェント<br>coverity-triage-worker"]
+    W -- 読む --> K["Skill（調査の手順）"]
     A -- 使う --> M["MCP サーバ"]
+    W -- 使う --> M
     M --> X[("Coverity・git / svn<br>ビルド・レポート")]
 ```
 
 | 種類 | 名前 | できること |
 |---|---|---|
-| コマンド | `/coverity-setup` | 初回の準備（Python 環境・設定ファイル・認証情報・試しのビルド）を AI が案内 |
-| | `/coverity-run` | 警告を取得して調べ、修正案と逸脱コメント案のレポートを作る |
-| | `/coverity-apply` | 承認した内容だけを反映（修正ブランチ／パッチ、Coverity への書き戻し） |
-| | `/coverity-help` | 使い方・エラー・設定変更・効果の集計に答える |
-| エージェント | `coverity-triage` | 実行全体を管理する。作業項目を 1 件ずつ `coverity-triage-worker` に割り当て、最後に一覧（summary.md）を作る |
-| | `coverity-triage-worker` | 警告 1 件（またはまとめた 1 グループ）を調べ、修正案と逸脱コメント案を書く |
-| | `coverity-triage-apply` | 承認された項目だけを反映し、次回に活かす知識の追記を提案する |
-| | `coverity-guide` | 初回の準備を進め、使い方やエラーの質問に答える |
-| Skill | `triage-investigation` | 警告が本物かを調べる手順、確信度の基準、推奨の選び方、プロジェクトの知識の使い方 |
+| Skill（入口。あなたが呼ぶ） | `/coverity-setup` | 初回の準備（Python 環境・設定ファイル・認証情報・試しのビルド）を AI が案内 |
+| | `/coverity-run` | 警告を取得し、1 件ずつサブエージェントに調べさせ、一覧 `summary.md` を作る |
+| | `/coverity-apply` | 承認した内容だけを反映（修正ブランチ／パッチ、Coverity への書き戻し）し、次回に活かす知識の追記を提案 |
+| | `/coverity-help` | 使い方・エラー・設定変更・知識の追加・効果の集計に答える |
+| サブエージェント | `coverity-triage-worker` | 警告 1 件（またはまとめた 1 グループ）を調べ、修正案と逸脱コメント案を書く（使えるツールを調査用に限定） |
+| Skill（調査の手順。AI が読む） | `triage-investigation` | 警告が本物かを調べる手順、確信度の基準、推奨の選び方、プロジェクトの知識の使い方 |
 | | `checker-knowledge` | チェッカーごとの着眼点（標準・MISRA・CERT） |
 | | `code-fix` | 修正案を作るときの制約と手順 |
 | | `deviation-comment` | 逸脱コメントの書き方、Classification / Action / Severity の選び方 |
 | | `triage-report` | レポートの書式と記載基準 |
-| | `coverity-guide` | 準備の手順、設定項目、使い方、エラー時の対処 |
 | MCP サーバ | `coverity-triage`（ツール 25 個） | Coverity との通信、git / svn の操作、文字コードを保った編集、ビルド・再解析、レポート作成 |
 
 ## 安心して使うために
@@ -80,7 +79,7 @@ flowchart LR
 | [docs/spec.md](docs/spec.md) | 要件仕様 |
 | [docs/design.md](docs/design.md) | 構成設計と実装の状況 |
 | [docs/trial-guide.md](docs/trial-guide.md) | 開発時の試用・確認の手順 |
-| `plugins/coverity-triage/` | プラグイン本体（エージェント、Skill、コマンド、MCP サーバ） |
+| `plugins/coverity-triage/` | プラグイン本体（Skill、サブエージェント、MCP サーバ） |
 | `.github/plugin/marketplace.json` | マーケットプレイスの定義（プラグインを更新するときは `plugin.json` と `version` をそろえる） |
 | `examples/sample-target/` | 試用用の対象リポジトリ（偽の Coverity データ付き） |
 | `tools/coverity_api_probe.py` | Coverity Connect の API 調査スクリプト（読み取りのみ） |

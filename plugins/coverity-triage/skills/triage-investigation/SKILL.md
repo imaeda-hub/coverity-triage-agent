@@ -1,6 +1,7 @@
 ---
 name: triage-investigation
 description: Coverity 警告の真偽を調べる手順と確信度の基準。Coverity の CID を調査して、本物のバグか誤検知かを判断するときに使う。
+user-invocable: false
 ---
 
 # 警告の真偽の調べ方

@@ -1,6 +1,7 @@
 ---
 name: checker-knowledge
 description: Coverity のチェッカー（標準チェッカー、MISRA C/C++、CERT C/C++）ごとの判断観点。C / C++ の Coverity 警告を調査するときに、チェッカー名に応じて参照する。
+user-invocable: false
 ---
 
 # チェッカー別の判断観点
