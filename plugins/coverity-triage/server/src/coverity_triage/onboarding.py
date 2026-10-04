@@ -126,7 +126,8 @@ def write_project_config(repo_root: str, coverity_url: str, project: str, stream
             "api": api,
             "user_env": "COV_USER",
             "key_env": "COV_AUTH_KEY",
-            "revision_field": "version",
+            "revision_field": "sourceVersion",
+            "triage_store": "Default Triage Store",
             "path_strip_prefixes": path_strip_prefixes or [],
         },
         "vcs": {

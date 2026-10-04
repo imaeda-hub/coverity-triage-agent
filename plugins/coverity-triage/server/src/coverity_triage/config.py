@@ -24,11 +24,17 @@ class _Strict(BaseModel):
 
 class CoverityConfig(_Strict):
     url: str
-    # "fake" reads issues from a local file instead of a server (for trials and tests).
-    api: Literal["rest", "soap", "auto", "fake"] = "auto"
+    # "auto" connects to Coverity Connect (REST for search and write-back, SOAP for the
+    # warning path and snapshots, spec D-77). "fake" reads issues from a local file (trials, tests).
+    api: Literal["auto", "fake"] = "auto"
     user_env: str = "COV_USER"
     key_env: str = "COV_AUTH_KEY"
-    revision_field: str | None = "version"
+    # Triage store that receives write-backs (REST PUT /api/v2/issues/triage).
+    triage_store: str = "Default Triage Store"
+    # CA certificate file for the server; without it the OS certificate store is used.
+    ca_file: str | None = None
+    # Element of the SOAP snapshotInfoDataObj that holds the analyzed revision (spec D-17).
+    revision_field: str | None = "sourceVersion"
     # Prefixes removed from file paths reported by Coverity (e.g. "C:/build/product/").
     path_strip_prefixes: list[str] = Field(default_factory=list)
     fake_data: str | None = None

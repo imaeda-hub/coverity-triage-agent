@@ -3,7 +3,7 @@
 この手順書では、次の 2 つを行います。所要時間の目安は合わせて 1〜2 時間です。
 
 - **A. 最小プラグインの試用**（段階 1）：偽の Coverity データで、プラグインが VS Code と Copilot CLI で動くかを確認し、`docs/design.md` 7 章の確認事項を埋めます。社内 Coverity には接続しません。
-- **B. API 調査スクリプトの実行**（段階 1'）：社内 Coverity Connect に読み取りのみで接続し、未決定事項 U-1（REST / SOAP）と U-2（認証方式）を決める材料を集めます。
+- **B. 社内 Coverity との接続確認**（段階 1'）：API 調査スクリプトを読み取りのみで実行し（U-1 の残り、U-2）、そのあと実際の警告で `/coverity-run` を試します（D-77）。
 
 結果は、各節の「記録」欄を埋めて共有してください。
 
@@ -114,7 +114,7 @@ set COV_USER=<あなたのユーザ名>
 set COV_AUTH_KEY=<認証キー（無ければパスワード）>
 python <このリポジトリ>\tools\coverity_api_probe.py ^
     --url https://<Coverity サーバ>:<ポート> ^
-    --project <プロジェクト名> --stream <ストリーム名> --cid <実在する CID を 1 つ> ^
+    --stream <ストリーム名> --cid <実在する CID を 1 つ> ^
     --out probe-report.md
 ```
 
@@ -128,10 +128,21 @@ python <このリポジトリ>\tools\coverity_api_probe.py ^
 
 | 未決定事項 | 判断材料 |
 |---|---|
-| U-1 REST / SOAP | REST の列一覧と検索結果、SOAP の操作の有無（特に `getStreamDefects` のイベント、`updateTriageForCIDsInTriageStore`） |
+| U-1 の残り | サーバのバージョン（REST の書き戻しは 2022.6.0 以降）、列の名前と列キー、検索結果の 1 件目、`sourceCodeInfo` の応答（使えれば警告経路を REST に切り替えを検討） |
 | U-2 認証方式 | REST（Basic 認証）と SOAP（WS-Security）のそれぞれで、認証キー / パスワードで成功したか |
 | D-17 リビジョンの記録先 | 最新スナップショットの項目（`description`、`sourceVersion` など）のうち、運用で使えそうなもの |
 | アノテーションの書式（design 5.6） | Coverity のヘルプにあるコード注釈（`coverity[...]`）の書式。特に、誤検知の `:FALSE` が社内のバージョンで使えるか。バージョンは `getVersion` の結果 |
+
+### B-2. 実際の警告で試す（書き込みなし）
+
+調査スクリプトで問題が無ければ、偽データではなく社内 Coverity の警告で動かします。`/coverity-apply` を実行しない限り、Coverity への書き込みは行いません。
+
+1. 対象リポジトリの `.coverity-triage/config.yaml` で `coverity.api` を `auto` にする（`/coverity-setup` で作った場合は最初から `auto`）。
+2. `/coverity-help 接続を確認して` で `doctor` を実行し、「Coverity から警告を取得」が ok になるか。
+3. 件数を絞った条件（例：`max_items: 3`）で `/coverity-run` を実行し、詳細レポートに警告経路（イベント）が載るか。
+
+> 記録：各手順の結果（○ / ×）、エラーの表示（そのまま）
+
 
 ---
 

@@ -1,8 +1,8 @@
 """Access to Coverity Connect (spec D-3, D-31, D-33, D-40).
 
-Whether REST API v2 or SOAP is used is still open (spec U-1), so the rest of the server
-only depends on :class:`CoverityClient`. :class:`FakeCoverityClient` reads issues from a
-local YAML file and is used for trials of the plugin and for tests.
+The rest of the server only depends on :class:`CoverityClient`. The connection to
+Coverity Connect is in :mod:`.connect` (spec D-77). :class:`FakeCoverityClient` reads issues
+from a local YAML file and is used for trials of the plugin and for tests.
 """
 
 from __future__ import annotations
@@ -105,6 +105,5 @@ def make_client(config: CoverityConfig) -> CoverityClient:
         if not config.fake_data:
             raise CoverityError("coverity.api が fake のときは coverity.fake_data を指定してください")
         return FakeCoverityClient(config.fake_data)
-    raise CoverityError(
-        "Coverity Connect への接続はまだ実装されていません（仕様 U-1: REST / SOAP の決定待ち）。"
-        "試用には coverity.api: fake と coverity.fake_data を使ってください")
+    from .connect import ConnectClient
+    return ConnectClient(config)
