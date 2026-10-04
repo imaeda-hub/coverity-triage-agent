@@ -8,7 +8,7 @@ import pytest
 import yaml
 
 from coverity_triage import config as cfg
-from coverity_triage import service
+from coverity_triage import onboarding, service
 from coverity_triage.service import ServiceError
 
 SOURCE = (
@@ -47,13 +47,14 @@ def repo(tmp_path):
     sh("git", "init", "-q", "-b", "main", cwd=repo)
     sh("git", "config", "user.name", "t", cwd=repo)
     sh("git", "config", "user.email", "t@e", cwd=repo)
-    service.init_project(str(repo), "git")
+    onboarding.write_project_config(str(repo), "https://cov.example", "P", "S", "git", "main", api="fake")
     conf = repo / ".coverity-triage"
     (conf / "fake-issues.yaml").write_text(yaml.safe_dump({
-        "snapshot": {"version": ""},
+        "snapshot": {"sourceVersion": ""},
         "issues": [fake_issue(1, "read_all", 6), fake_issue(2, "read_all", 5), fake_issue(3, "other", 11)],
     }), encoding="utf-8")
     config = yaml.safe_load((conf / "config.yaml").read_text(encoding="utf-8"))
+    config["coverity"]["fake_data"] = "fake-issues.yaml"
     config["output_dir"] = str(tmp_path / "out")
     (conf / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True), encoding="utf-8")
     (conf / "filters" / "all.yaml").write_text("project: P\n", encoding="utf-8")
@@ -94,7 +95,7 @@ def test_full_flow(repo):
     assert first["item"] == "G1" and first["cids"] == [1, 2]
     detail = service.get_issue_detail(run_dir, "G1")
     assert detail["details"][0]["events"][0]["tag"] == "dereference"
-    assert detail["project_knowledge"] == ""
+    assert "## 調査で使う事実" in detail["project_knowledge"]  # template from setup
     prep = service.prepare_workspaces(run_dir, "G1")
     assert "drift_check" in prep
     lines = service.read_source(run_dir, "G1", "analyzed", "src/sample.c", 5, 6)

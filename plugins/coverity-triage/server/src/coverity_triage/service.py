@@ -30,7 +30,6 @@ from .verify import BatchItem, Verifier
 from .verify import trial_build as trial_build_in
 from .workspace import OverlayTree, ReadOnlyTree
 
-TEMPLATES = Path(__file__).parent / "templates"
 WORKSPACES = ("analyzed", "fix", "annotation")
 EDITABLE = ("fix", "annotation")
 
@@ -105,24 +104,6 @@ class Run:
 
 
 # ---- setup and run management -----------------------------------------------------------------
-
-
-def init_project(repo_root: str, vcs_type: str = "git") -> dict[str, Any]:
-    """Create settings and filter templates in the target repository (spec D-61)."""
-    if vcs_type not in ("git", "svn"):
-        raise ServiceError("vcs_type は git か svn です")
-    target = cfg.config_dir(repo_root)
-    created, skipped = [], []
-    for name in ("config.yaml", "filters/untriaged-high.yaml", "fake-issues.yaml"):
-        dest = target / name
-        if dest.exists():
-            skipped.append(str(dest))
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        text = (TEMPLATES / name).read_text(encoding="utf-8").replace("{{VCS_TYPE}}", vcs_type)
-        dest.write_text(text, encoding="utf-8")
-        created.append(str(dest))
-    return {"created": created, "skipped_existing": skipped}
 
 
 def _resolve_analyzed_revision(config: cfg.ProjectConfig, vcs: Vcs, client: CoverityClient,

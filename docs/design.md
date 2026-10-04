@@ -50,7 +50,7 @@ coverity-triage/                         … プラグインのルート
 
 ```
 <対象リポジトリ>/.coverity-triage/
-├─ config.yaml        … プロジェクト設定（init で生成）
+├─ config.yaml        … プロジェクト設定（/coverity-setup で生成）
 ├─ filters/*.yaml     … 絞り込み条件（複数用意可能）
 ├─ no-grouping.yaml   … グループ化しない CID（却下されたグループから自動追記）
 └─ knowledge.md       … プロジェクトの知識（調査の前に AI が読む。反映後に人が選んだ知識を追記。推奨の方針（D-48）もここに書く、D-78）
