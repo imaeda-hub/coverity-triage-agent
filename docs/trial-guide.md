@@ -73,7 +73,7 @@ README「はじめに」の 1 の手順（マーケットプレイスとして�
 | No | 確認すること | 確認方法 | 関係するファイル |
 |---|---|---|---|
 | C-1 | `plugin.json` が受け付けられるか（必須項目の不足がないか） | インストール時にエラーが出ないか | `plugin.json` |
-| C-2 | MCP サーバが起動するか（`mcp.json` のプラグインルートの変数 `${PLUGIN_ROOT}` の書き方が正しいか） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 25 個見えるか | `mcp.json` |
+| C-2 | MCP サーバが起動するか（`mcp.json` は Agent Plugins 1.0 の書式：`$schema`、`type: stdio`、`${PLUGIN_ROOT}`） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 25 個見えるか | `mcp.json` |
 | C-3 | エージェントが選べるか | エージェントの一覧に `coverity-guide`、`coverity-triage`、`coverity-triage-apply` が出るか（`coverity-triage-worker` は一覧に出ない想定） | `com.github.copilot/agents/*.agent.md` |
 | C-4 | モデルの固定が効くか | エージェント選択時のモデルが `gpt-6 luna` になるか。モデル名の正しい書き方も確認 | 各 `.agent.md` の `model:` |
 | C-5 | ツールの制限が効くか | `coverity-triage` エージェントから `apply_approvals` が使えないこと | 各 `.agent.md` の `tools:` |
