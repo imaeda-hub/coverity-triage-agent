@@ -34,6 +34,37 @@ Coverity の警告を AI が調査し、警告ごとに **「修正案」と「�
 - `/coverity-help MISRA の警告だけ調べたい`
 - `/coverity-help どれくらい役立っている？`
 
+## このプラグインの仕組み
+
+あなたが使うのは **4 つのコマンドだけ** です。コマンドからエージェントが起動し、エージェントは Skill を読みながら MCP サーバのツールで作業します。Skill を自分で呼ぶ必要はありません。
+
+```mermaid
+flowchart LR
+    U([あなた]) --> C["コマンド<br>/coverity-setup・/coverity-run<br>/coverity-apply・/coverity-help"]
+    C --> A["エージェント"]
+    A -- 読む --> S["Skill"]
+    A -- 使う --> M["MCP サーバ"]
+    M --> X[("Coverity・git / svn<br>ビルド・レポート")]
+```
+
+| 種類 | 名前 | できること |
+|---|---|---|
+| コマンド | `/coverity-setup` | 初回の準備（Python 環境・設定ファイル・認証情報・試しのビルド）を AI が案内 |
+| | `/coverity-run` | 警告を取得して調べ、修正案と逸脱コメント案のレポートを作る |
+| | `/coverity-apply` | 承認した内容だけを反映（修正ブランチ／パッチ、Coverity への書き戻し） |
+| | `/coverity-help` | 使い方・エラー・設定変更・効果の集計に答える |
+| エージェント | `coverity-triage` | 実行全体を管理する。作業項目を 1 件ずつ `coverity-triage-worker` に割り当て、最後に一覧（summary.md）を作る |
+| | `coverity-triage-worker` | 警告 1 件（またはまとめた 1 グループ）を調べ、修正案と逸脱コメント案を書く |
+| | `coverity-triage-apply` | 承認された項目だけを反映する |
+| | `coverity-guide` | 初回の準備を進め、使い方やエラーの質問に答える |
+| Skill | `triage-investigation` | 警告が本物かを調べる手順、確信度の基準、推奨の選び方 |
+| | `checker-knowledge` | チェッカーごとの着眼点（標準・MISRA・CERT） |
+| | `code-fix` | 修正案を作るときの制約と手順 |
+| | `deviation-comment` | 逸脱コメントの書き方、Classification / Action / Severity の選び方 |
+| | `triage-report` | レポートの書式と記載基準 |
+| | `coverity-guide` | 準備の手順、設定項目、使い方、エラー時の対処 |
+| MCP サーバ | `coverity-triage`（ツール 23 個） | Coverity との通信、git / svn の操作、文字コードを保った編集、ビルド・再解析、レポート作成 |
+
 ## 安心して使うために
 
 - 承認して反映するまで、あなたのコードも Coverity も **変更されません**。

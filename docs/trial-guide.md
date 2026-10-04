@@ -29,7 +29,7 @@
 
 ```bat
 cd <このリポジトリ>\plugins\coverity-triage\server
-uv run pytest -q          # 24 passed になること（初回は依存パッケージを自動で入れます）
+uv run pytest -q          # 41 passed になること（初回は依存パッケージを自動で入れます）
 ```
 
 > 記録：`pytest` の結果（○ / ×、× ならエラーの末尾）
@@ -71,7 +71,7 @@ git commit -m "init"
 | No | 確認すること | 確認方法 | 関係するファイル |
 |---|---|---|---|
 | C-1 | `plugin.json` が受け付けられるか（必須項目の不足がないか） | インストール時にエラーが出ないか | `plugin.json` |
-| C-2 | MCP サーバが起動するか（`mcp.json` のプラグインルートの変数 `${PLUGIN_ROOT}` の書き方が正しいか） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 18 個見えるか | `mcp.json` |
+| C-2 | MCP サーバが起動するか（`mcp.json` のプラグインルートの変数 `${PLUGIN_ROOT}` の書き方が正しいか） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 23 個見えるか | `mcp.json` |
 | C-3 | エージェントが選べるか | エージェントの一覧に `coverity-guide`、`coverity-triage`、`coverity-triage-apply` が出るか（`coverity-triage-worker` は一覧に出ない想定） | `com.github.copilot/agents/*.agent.md` |
 | C-4 | モデルの固定が効くか | エージェント選択時のモデルが `gpt-6 luna` になるか。モデル名の正しい書き方も確認 | 各 `.agent.md` の `model:` |
 | C-5 | ツールの制限が効くか | `coverity-triage` エージェントから `apply_approvals` が使えないこと | 各 `.agent.md` の `tools:` |
