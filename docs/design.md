@@ -285,7 +285,8 @@ group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53
 
 ## 6. 配布（確定）
 
-- 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。
+- 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。マーケットプレイスの定義は `.github/plugin/marketplace.json`（プラグイン `coverity-triage` の場所は `plugins/coverity-triage`）。
+- プラグインを更新するときは、`plugin.json` と `marketplace.json` の `version` をそろえて上げる（自動テストで一致を確認）。
 - MCP サーバの Python 環境は uv で自動構築する（`mcp.json` で uv 経由で起動）。利用者は uv を入れるだけでよい。
 
 ## 7. 実装前に確認する事項（一次資料での確認が必要）

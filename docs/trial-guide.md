@@ -29,7 +29,7 @@
 
 ```bat
 cd <このリポジトリ>\plugins\coverity-triage\server
-uv run pytest -q          # 51 passed になること（初回は依存パッケージを自動で入れます）
+uv run pytest -q          # 52 passed になること（初回は依存パッケージを自動で入れます）
 ```
 
 > 記録：`pytest` の結果（○ / ×、× ならエラーの末尾）
@@ -55,7 +55,9 @@ git commit -m "init"
 
 ### A-3. プラグインをインストールする
 
-README「はじめに」の 1 の手順で入れます。試用では、clone 済みのこのリポジトリのフォルダを使って構いません。
+README「はじめに」の 1 の手順（マーケットプレイスとして登録してインストール）で入れます。うまくいかない場合は、フォルダを直接指定する方法（下記）も試してください。
+
+- **マーケットプレイス**：Copilot CLI は `copilot plugin marketplace add <このリポジトリ>`（clone したフォルダ、または GitHub の `<組織>/<リポジトリ>`）の後に `copilot plugin install coverity-triage@coverity-triage-agent`。VS Code は設定 `chat.plugins.marketplaces` にこのリポジトリを追加し、拡張機能ビューで `@agentPlugins` を検索してインストール（定義ファイルは `.github/plugin/marketplace.json`）。
 
 - **Copilot CLI**：`copilot plugin install <このリポジトリ>\plugins\coverity-triage`（ローカルパス指定）。GitHub に置いた後は `copilot plugin install <組織>/<リポジトリ>:plugins/coverity-triage` も試す。
 - **VS Code**：CLI で入れたプラグインが、拡張機能ビューの **Agent Plugins - Installed** に自動で表示されるか確認する。表示されない場合は、設定 `chat.pluginLocations` に `<このリポジトリ>\plugins\coverity-triage` を `true` で追加する。
