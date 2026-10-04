@@ -141,7 +141,7 @@ def write_project_config(repo_root: str, coverity_url: str, project: str, stream
         "parallel": 1,
         "deviation_target": "coverity",
         "ascii_file_encoding": ascii_file_encoding,
-        "verify": {"default": "none", "build_command": "", "cov_build_args": "--dir idir",
+        "verify": {"default": "none", "setup_command": "", "build_dir": "", "build_command": "", "cov_build_args": "--dir idir",
                    "cov_analyze_args": "--dir idir --all"},
     }
     cfg.ProjectConfig.model_validate(data)  # same validation as at run time

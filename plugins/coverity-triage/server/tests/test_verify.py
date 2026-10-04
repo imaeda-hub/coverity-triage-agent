@@ -267,3 +267,49 @@ def test_setup_command_passes_two_arguments(repo):
     assert result["build_ok"] is True
     written = (Path(result["built_in"]) / "args.txt").read_text(encoding="utf-8").split("|")
     assert written == [str(Path(result["built_in"])), "SECOND_ARG"]
+
+
+BUILD_IN_DIR_PY = r'''
+import os, sys
+cwd = os.getcwd().replace(os.sep, "/")
+open("built_here.txt", "w").write(cwd)
+sys.exit(0 if cwd.endswith("/firmware/target") else 1)
+'''
+
+
+def test_build_dir_is_entered_after_setup(repo):
+    """cov-build runs in the makefile's directory (D-76), even if envset changed the directory."""
+    target = repo / "firmware" / "target"
+    target.mkdir(parents=True)
+    (target / "build_here.py").write_text(BUILD_IN_DIR_PY, encoding="utf-8")
+    sh("git", "add", ".", cwd=repo)
+    sh("git", "commit", "-qm", "add firmware", cwd=repo)
+    # a setup command that leaves the current directory somewhere else, like an envset that cds
+    setup = "cd .."
+    result = service.trial_build(str(repo), setup, f'"{sys.executable}" build_here.py', "firmware/target")
+    assert result["build_ok"] is True, result.get("log_tail")
+    built = Path(result["built_in"]) / "firmware" / "target" / "built_here.txt"
+    assert built.read_text().endswith("/firmware/target")
+
+    service.write_verify_config(str(repo), setup, f'"{sys.executable}" build_here.py',
+                                default="build", build_dir="firmware/target")
+    assert cfg.load_project_config(repo).verify.build_dir == "firmware/target"
+    run_dir = service.start_run(str(repo), "all.yaml")["run_dir"]
+    triage(run_dir, {"1": ("src/a.c", "    return 1;", "    return 10;"),
+                     "2": ("src/b.c", "    return 3;", "    return 30;")})
+    assert service.verify_run(run_dir)["build_ok"] is True
+
+
+def test_build_dir_in_command_line_and_validation(tmp_path):
+    from coverity_triage.config import VerifyConfig
+    from coverity_triage.verify import VerifyError, build_command_line
+    config = VerifyConfig(setup_command='envset.bat "{root}" X', build_dir="firmware/target",
+                          build_command="make -f makefileXX", cov_build_args="--dir idir",
+                          cov_analyze_args="--dir idir --all")
+    line = build_command_line(config, tmp_path, "build+analyze", tmp_path / "out.json")
+    parts = line.split(" && ")
+    assert parts[0].endswith(f'envset.bat "{tmp_path}" X')
+    assert str(tmp_path / "firmware" / "target") in parts[1] and parts[1].startswith("cd ")
+    assert parts[2] == "cov-build --dir idir make -f makefileXX"
+    with pytest.raises(VerifyError, match="相対パス"):
+        build_command_line(config.model_copy(update={"build_dir": "../outside"}), tmp_path, "build")

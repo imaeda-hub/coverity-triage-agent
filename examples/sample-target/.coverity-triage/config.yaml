@@ -20,6 +20,7 @@ deviation_target: coverity
 ascii_file_encoding: utf-8
 verify:
   default: none
+  build_dir: ""           # ビルド前に移動するディレクトリ（リポジトリからの相対パス）
   build_command: ""
   cov_build_args: "--dir idir"
   cov_analyze_args: "--dir idir --all"

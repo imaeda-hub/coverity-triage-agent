@@ -26,6 +26,7 @@ from typing import Any
 
 from .config import VerifyConfig
 from .models import Issue
+from .workspace import WorkspaceError, safe_relpath
 
 LOG_TAIL = 3000
 
@@ -109,13 +110,22 @@ def _touches(record_file: str, files: list[str]) -> bool:
 
 
 def build_command_line(config: VerifyConfig, root: Path, mode: str, json_out: Path | None = None) -> str:
-    """One shell line: environment setup, then build (and analysis) (D-75)."""
+    """One shell line: environment setup, move to the build directory, then build (and analysis) (D-75, D-76)."""
     if not config.build_command:
         raise VerifyError("verify.build_command が設定されていません（/coverity-help で設定できます）")
     steps = []
     if config.setup_command:
         setup = config.setup_command.replace("{root}", str(root))
         steps.append(("call " if sys.platform == "win32" else "") + setup)
+    if config.build_dir:
+        try:
+            safe_relpath(config.build_dir)
+        except WorkspaceError as exc:
+            raise VerifyError(f"verify.build_dir はリポジトリからの相対パスで指定してください: {config.build_dir}") from exc
+        # absolute path, so it works even if setup_command changed the current directory;
+        # /d also changes the drive on Windows (D-76)
+        target = root / safe_relpath(config.build_dir)
+        steps.append(f'cd /d "{target}"' if sys.platform == "win32" else f'cd "{target}"')
     if mode == "build":
         steps.append(config.build_command)
     elif mode == "build+analyze":

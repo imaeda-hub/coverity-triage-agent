@@ -69,18 +69,19 @@ def write_project_config(repo_root: str, coverity_url: str, project: str, stream
 
 
 @tool
-def trial_build(repo_root: str, setup_command: str, build_command: str) -> dict:
-    """検証の設定前に、修正前の最新コードを試しにビルドしてコマンドが正しいか確かめる。setup_command の {root} はビルドするフォルダに置き換わる。"""
-    return service.trial_build(repo_root, setup_command, build_command)
+def trial_build(repo_root: str, setup_command: str, build_command: str,
+                build_dir: str = "") -> dict:
+    """検証の設定前に、修正前の最新コードを試しにビルドしてコマンドが正しいか確かめる。setup_command の {root} はビルドするフォルダに置き換わる。build_dir（リポジトリからの相対パス）を指定すると、setup_command の後にそこへ移動してからビルドする。"""
+    return service.trial_build(repo_root, setup_command, build_command, build_dir)
 
 
 @tool
 def write_verify_config(repo_root: str, setup_command: str, build_command: str,
                         default: str = "none", cov_build_args: str | None = None,
-                        cov_analyze_args: str | None = None) -> dict:
-    """利用者が同意した検証の設定（環境設定・ビルドのコマンド、既定の検証方法 none / build / build+analyze）を config.yaml に保存する。"""
+                        cov_analyze_args: str | None = None, build_dir: str = "") -> dict:
+    """利用者が同意した検証の設定（環境設定のコマンド、ビルドするディレクトリ、ビルドのコマンド、既定の検証方法 none / build / build+analyze）を config.yaml に保存する。"""
     return service.write_verify_config(repo_root, setup_command, build_command, default,
-                                       cov_build_args, cov_analyze_args)
+                                       cov_build_args, cov_analyze_args, build_dir)
 
 
 @tool

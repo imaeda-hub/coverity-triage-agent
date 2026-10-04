@@ -165,6 +165,7 @@ ascii_file_encoding: utf-8   # 英数字だけのファイルに日本語を追�
 verify:
   default: none          # none / build / build+analyze（D-10）
   setup_command: 'envset.bat "{root}" <2つ目の引数>'   # ビルド前に実行。{root} は検証用コピーのフォルダ、他の引数はそのまま（D-75）
+  build_dir: 'firmware/target'   # setup_command の後に移動するディレクトリ（リポジトリからの相対パス、D-76）
   build_command: "make -f makefileXX"
   cov_build_args: "--dir idir"
   cov_analyze_args: "--dir idir --all"
@@ -336,7 +337,7 @@ docs/trial-guide.md           … 試用・確認の手順書
 |---|---|
 | タイミング | 全件の調査が終わった後、親エージェントが `verify_run` を 1 回呼ぶ。サブエージェントは検証しない |
 | 修正案の合成 | 最新コードのコピーに、各修正案の差分ファイルを順に適用する（git は `-p1`、svn は `-p0`）。同じ箇所を変更していて適用できない修正案は「適用不可」とし、まとめた検証から外す |
-| 実行するコマンド | 1 つのシェルで `setup_command`（`{root}` をコピー先に置換、Windows では `call`）→ ビルドのみ：`build_command`／再解析：`cov-build <引数> <build_command>` → `cov-analyze` → `cov-format-errors --json-output-v7` |
+| 実行するコマンド | 1 つのシェルで `setup_command`（`{root}` をコピー先に置換、Windows では `call`）→ `build_dir` へ絶対パスで移動（Windows では `cd /d`、D-76）→ ビルドのみ：`build_command`／再解析：`cov-build <引数> <build_command>` → `cov-analyze` → `cov-format-errors --json-output-v7` |
 | 比較の基準 | 再解析の場合は、修正前の最新コードも 1 回ビルド・解析する（1 回の実行で解析 2 回分） |
 | 結果の割り当て | CID ごとに警告が消えたか（mergeKey、無ければチェッカー・ファイル・関数で照合）。新しい警告は、そのファイルを変更した修正案へ。ビルドエラーは、ログのエラー行に変更ファイル名が出ている修正案へ（特定できなければ全修正案、他の修正案が原因なら「未確認」） |
 | 確信度 | 問題が出た修正案は確信度を「低」に下げ、理由に追記する（元の値は `confidence_before_verify` に保存。再実行しても二重に追記しない）。推奨案は変えない |
