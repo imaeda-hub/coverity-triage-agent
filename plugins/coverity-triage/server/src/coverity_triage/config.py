@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 CONFIG_DIR_NAME = ".coverity-triage"
 CONFIG_FILE_NAME = "config.yaml"
@@ -111,12 +111,20 @@ class FilterSpec(_Strict):
 
     name: str = ""
     project: str | None = None
+    # One stream per run (spec D-79); a list so that several can be allowed later.
     streams: list[str] = Field(default_factory=list)
     checkers: list[str] = Field(default_factory=list)
     impacts: list[str] = Field(default_factory=list)
     triage: TriageFilter = Field(default_factory=TriageFilter)
     max_items: int | None = Field(default=None, ge=1)
     revision: str = ""
+
+    @field_validator("streams")
+    @classmethod
+    def _one_stream(cls, value: list[str]) -> list[str]:
+        if len(value) > 1:
+            raise ValueError("ストリームは 1 回の実行で 1 つだけ指定してください（複数の指定は今後の拡張）")
+        return value
 
 
 def config_dir(repo_root: str | Path) -> Path:

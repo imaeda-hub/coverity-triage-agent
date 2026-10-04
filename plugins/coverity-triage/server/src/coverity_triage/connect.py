@@ -187,23 +187,23 @@ class ConnectClient(CoverityClient):
         if missing:
             raise CoverityError(f"Coverity の列に {', '.join(missing)} が見つかりません（調査スクリプトの列一覧を共有してください）")
         keys = [k for k in COLUMN_KEYS.values() if k in available]
+        stream = spec.streams[0]  # one stream per run (spec D-79)
+        body = {"filters": self._filters(spec, stream), "columns": keys,
+                "snapshotScope": {"show": {"scope": "last()", "includeOutdatedSnapshots": False}}}
         issues: dict[int, Issue] = {}
-        for stream in spec.streams:
-            body = {"filters": self._filters(spec, stream), "columns": keys,
-                    "snapshotScope": {"show": {"scope": "last()", "includeOutdatedSnapshots": False}}}
-            offset = 0
-            while True:
-                data = self._rest("POST", "/api/v2/issues/search", {
-                    "includeColumnLabels": "true", "offset": offset, "queryType": "bySnapshot",
-                    "rowCount": PAGE_SIZE, "sortOrder": "asc"}, body) or {}
-                rows = data.get("rows") or []
-                for row in rows:
-                    issue = self._issue({c.get("key"): c.get("value") for c in row}, stream)
-                    if issue and issue.cid not in issues and filter_matches(issue, spec):
-                        issues[issue.cid] = issue
-                offset += len(rows)
-                if not rows or offset >= (_int(data.get("totalRows")) or 0):
-                    break
+        offset = 0
+        while True:
+            data = self._rest("POST", "/api/v2/issues/search", {
+                "includeColumnLabels": "true", "offset": offset, "queryType": "bySnapshot",
+                "rowCount": PAGE_SIZE, "sortOrder": "asc"}, body) or {}
+            rows = data.get("rows") or []
+            for row in rows:
+                issue = self._issue({c.get("key"): c.get("value") for c in row}, stream)
+                if issue and issue.cid not in issues and filter_matches(issue, spec):
+                    issues[issue.cid] = issue
+            offset += len(rows)
+            if not rows or offset >= (_int(data.get("totalRows")) or 0):
+                break
         return list(issues.values())
 
     @staticmethod

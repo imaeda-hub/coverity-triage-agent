@@ -7,6 +7,7 @@ import json
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from coverity_triage.config import CoverityConfig, FilterSpec
 from coverity_triage.connect import ConnectClient
@@ -148,11 +149,10 @@ def test_search_maps_columns_and_filters(server, monkeypatch):
             "matchers": [{"type": "keyMatcher", "key": "High"}]} in body["filters"]
 
 
-def test_search_checker_pattern_is_filtered_locally_and_streams_dedupe(server):
+def test_search_checker_pattern_is_filtered_locally(server):
     client = make(server)
-    issues = client.search_issues(FilterSpec(streams=["main", "rel"], checkers=["MISRA*", "NULL_*"]))
+    issues = client.search_issues(FilterSpec(streams=["main"], checkers=["MISRA*", "NULL_*"]))
     assert sorted(i.cid for i in issues) == [101, 103]
-    assert {i.cid: i.stream for i in issues}[101] == "main"
     for r in server.requests:
         if r.url.path == "/api/v2/issues/search":
             assert all(f["columnKey"] != "checker" for f in json.loads(r.content)["filters"])
@@ -161,6 +161,11 @@ def test_search_checker_pattern_is_filtered_locally_and_streams_dedupe(server):
 def test_search_requires_streams(server):
     with pytest.raises(CoverityError, match="streams"):
         make(server).search_issues(FilterSpec(project="P"))
+
+
+def test_only_one_stream_per_run():
+    with pytest.raises(ValidationError):
+        FilterSpec(streams=["main", "rel"])
 
 
 def test_auth_error_is_explained(server, monkeypatch):

@@ -40,7 +40,7 @@
 | 項目 | 意味 |
 |---|---|
 | `name` | 表示名 |
-| `project` / `streams` | Coverity のプロジェクト・ストリーム |
+| `project` / `streams` | Coverity のプロジェクト・ストリーム（ストリームは 1 回の実行で 1 つだけ、D-79） |
 | `checkers` | チェッカー名（`*` 可。例 `"MISRA C-2012 *"`） |
 | `impacts` | `High` / `Medium` / `Low` |
 | `triage.classification` / `triage.action` / `triage.status` | 現在のトリアージ状態 |
