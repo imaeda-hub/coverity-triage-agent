@@ -131,7 +131,7 @@ python <このリポジトリ>\tools\coverity_api_probe.py ^
 | U-1 REST / SOAP | REST の列一覧と検索結果、SOAP の操作の有無（特に `getStreamDefects` のイベント、`updateTriageForCIDsInTriageStore`） |
 | U-2 認証方式 | REST（Basic 認証）と SOAP（WS-Security）のそれぞれで、認証キー / パスワードで成功したか |
 | D-17 リビジョンの記録先 | 最新スナップショットの項目（`description`、`sourceVersion` など）のうち、運用で使えそうなもの |
-| アノテーションの書式（design 5.6） | Coverity のヘルプにあるコード注釈（`coverity[...]`）の書式。バージョンは `getVersion` の結果 |
+| アノテーションの書式（design 5.6） | Coverity のヘルプにあるコード注釈（`coverity[...]`）の書式。特に、誤検知の `:FALSE` が社内のバージョンで使えるか。バージョンは `getVersion` の結果 |
 
 ---
 

@@ -36,8 +36,15 @@ description: Coverity 警告の修正案を作るときの制約と手順。C / 
 ## アノテーション（仕様 D-59 (b)、`deviation_target` が `coverity+annotation` の場合）
 
 - `annotation` 作業領域で、警告行の**直前の行**にブロックコメントで入れる。理由は逸脱コメントと同じ文章にする（skill `deviation-comment`）。
+- `[...]` の中は、★（main）のイベントの `tag` にする。判定によって次のように書き分ける（Coverity は `:FALSE` が無い注釈を「意図的（Intentional）」として扱うため）。
+
+  | 判定（`verdict.judgement`） | 書き方 |
+  |---|---|
+  | `false_positive`（誤検知） | `/* coverity[<tag>:FALSE] 誤検知。... */` |
+  | それ以外（意図的、修正しない本物のバグなど） | `/* coverity[<tag>] 意図的。... */` |
+
   ```c
-  /* coverity[misra_c_2012_rule_10_4_violation] 誤検知。... */
+  /* coverity[misra_c_2012_rule_10_4_violation:FALSE] 誤検知。... */
   ```
 - インデントは警告行に合わせる。`save_fix`（kind=`annotation`）で保存する。
 - タグ名の正確な書式は社内の Coverity バージョンで確認中です（docs/design.md 7 章）。

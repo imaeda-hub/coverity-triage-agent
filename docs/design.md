@@ -261,9 +261,11 @@ group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53
 警告行の直前の行に、ブロックコメントで埋め込む（C90 でも使え、C / C++ 共通で安全）。理由の文章は逸脱コメント（D-22〜D-24）と同じものを使う。
 
 ```c
-/* coverity[misra_c_2012_rule_10_4_violation] 誤検知。... */
+/* coverity[misra_c_2012_rule_10_4_violation:FALSE] 誤検知。... */
+/* coverity[misra_c_2012_rule_15_5_violation] 意図的。... */
 ```
 
+- `[...]` の中は main イベントのタグ。誤検知は `:FALSE` を付ける。付けない注釈を Coverity は「意図的（Intentional）」として扱う（Black Duck コミュニティ「Suppressing False Positive/Intentional defects」）。
 - Coverity が認識する正確な書式（タグ名、理由の書き方）は、社内の Coverity バージョンで実装前に確認する（7 章）。
 
 ### 5.7 ログ（確定）

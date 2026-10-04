@@ -2,7 +2,7 @@
 name: coverity-triage-worker
 description: Coverity の 1 CID（または 1 グループ）を調査し、修正案と逸脱コメント案の両方を作って提出するサブエージェント。
 model: gpt-6 luna
-user-invokable: false
+user-invocable: false
 tools:
   - coverity-triage/get_issue_detail
   - coverity-triage/prepare_workspaces
