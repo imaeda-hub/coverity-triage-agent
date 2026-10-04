@@ -52,7 +52,7 @@ description: Coverity トリアージエージェントの準備（環境の準�
    | 調べる警告 | 未トリアージ・1 回 20 件まで（`untriaged.yaml`） |
 4. 同意を得たら `write_project_config` を呼ぶ。変更したい値があれば反映してから呼ぶ。
 5. 接続後に警告のファイルパスが `C:/build/...` のような絶対パスなら、`path_strip_prefixes` の設定を提案する（[settings.md](references/settings.md)）。
-6. 「`.coverity-triage/` をコミットしてチームで共有してください（パスワード等は含まれていません）」と伝える。コミットを頼まれたら、利用者の確認を得て実行してよい。
+6. 「`.coverity-triage/` をコミットしてチームで共有してください（パスワード等は含まれていません）」と伝える。あわせて、プロジェクトの知識のファイル `knowledge.md`（ひな形）もできたこと、AI が調査の前に読むので、戻らない関数や修正・逸脱の方針などを書いておけることを 1 行で伝える（[usage.md](references/usage.md)）。コミットを頼まれたら、利用者の確認を得て実行してよい。
 
 ### 段階 3：認証情報（個人の PC ごと）
 
@@ -96,5 +96,6 @@ description: Coverity トリアージエージェントの準備（環境の準�
 ## 質問への対応（/coverity-help）
 
 - 使い方は [usage.md](references/usage.md)、エラーは [troubleshooting.md](references/troubleshooting.md) を見て答える。分からないことは推測で答えず、`doctor` や `get_run_status` で確かめる。
+- 知識の追加（例：「fatal_error は戻らないと覚えて」）は、追記する 1 行を見せて同意を得てから `.coverity-triage/knowledge.md` に書く（[usage.md](references/usage.md)）。
 - 設定の変更（例：「MISRA だけ調べたい」「出力先を変えたい」「Shift_JIS にしたい」）は、[settings.md](references/settings.md) を見て、変更内容を見せて同意を得てから `.coverity-triage/` のファイルを編集し、`doctor` で確かめる。条件ファイルは新しいファイルとして追加するのがよい。
 - 効果測定（「どれくらい役立っている？」）は `get_stats(repo_root)` を使い、承認の内訳、推奨どおりに採用された割合（全体・確信度別）、手直しの割合、1 件あたりの処理時間を伝える。
