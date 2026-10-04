@@ -106,6 +106,12 @@ def _verify_block(verify: dict[str, Any]) -> str:
 
 
 def render_item(report: ItemReport) -> str:
+    sections = [_conclusion(report), _overview(report), _evidence(report), _deviation_section(report),
+                _fix_section(report), _verify_section(report), _processing(report)]
+    return "\n".join(line for section in sections for line in section) + "\n"
+
+
+def _conclusion(report: ItemReport) -> list[str]:
     r, main = report.result, report.main
     title_cid = f"{report.item_id}（{len(report.cids)} 件）" if report.item_id.startswith("G") else f"CID {report.item_id}"
     notes = [f"リビジョンのずれ {DRIFT_JA[r.revision_drift.status]}"
@@ -113,51 +119,55 @@ def render_item(report: ItemReport) -> str:
     notes.append("制約超過 " + ("あり: " + "、".join(r.fix.exceeded_constraints) if r.fix.exceeded_constraints else "なし"))
     if r.fix.already_fixed_on_latest:
         notes.append("最新リビジョンでは解消済み")
-    path_notes = list(dict.fromkeys(n for d in report.details for n in d.issue.path_notes))
-    notes.extend(path_notes)
+    notes.extend(dict.fromkeys(n for d in report.details for n in d.issue.path_notes))
+    return [f"# {title_cid} — {main.checker}（{main.impact or '-'}）\n",
+            "## 1. 結論\n",
+            f"- 推奨: {PLAN_JA[r.recommendation]} ／ 確信度: {CONFIDENCE_JA[r.confidence]}（{r.confidence_reason}）",
+            f"- 見立て: {JUDGEMENT_JA[r.verdict.judgement]}（{r.verdict.summary}）",
+            f"- 注意: {' ／ '.join(notes)}\n"]
 
-    out = [f"# {title_cid} — {main.checker}（{main.impact or '-'}）\n",
-           "## 1. 結論\n",
-           f"- 推奨: {PLAN_JA[r.recommendation]} ／ 確信度: {CONFIDENCE_JA[r.confidence]}（{r.confidence_reason}）",
-           f"- 見立て: {JUDGEMENT_JA[r.verdict.judgement]}（{r.verdict.summary}）",
-           f"- 注意: {' ／ '.join(notes)}\n",
-           "## 2. 警告の概要\n",
+
+def _overview(report: ItemReport) -> list[str]:
+    out = ["## 2. 警告の概要\n",
            "| CID | チェッカー | ファイル | 関数 | 行 | Impact | CWE |",
            "|---|---|---|---|---|---|---|"]
     for d in report.details:
         i = d.issue
         out.append(f"| {i.cid} | {i.checker} | {i.file} | {i.function or '-'} | {i.line or '-'} | "
                    f"{i.impact or '-'} | {i.cwe or '-'} |")
-    first = report.details[0]
-    if first.checker_description:
-        out.append(f"\nチェッカーの説明: {first.checker_description}")
-    out.append("\n## 3. 真偽の根拠\n")
-    out.append("### 警告経路（Coverity のイベント）\n")
-    for e in first.events:
+    if report.details[0].checker_description:
+        out.append(f"\nチェッカーの説明: {report.details[0].checker_description}")
+    return out
+
+
+def _evidence(report: ItemReport) -> list[str]:
+    out = ["\n## 3. 真偽の根拠\n", "### 警告経路（Coverity のイベント）\n"]
+    for e in report.details[0].events:
         mark = "**★** " if e.main else ""
         out.append(f"- {mark}{e.file}:{e.line or '-'} `{e.tag}` {e.description}")
-    out.append("\n### 調査結果\n")
-    out.append(r.verdict.rationale + "\n")
-    for ev in r.verdict.evidence:
-        out.append(f"- {ev.file}:{ev.line or '-'} {ev.note}")
+    out += ["\n### 調査結果\n", report.result.verdict.rationale + "\n"]
+    out += [f"- {ev.file}:{ev.line or '-'} {ev.note}" for ev in report.result.verdict.evidence]
+    return out
 
-    out.append("\n## 4. 案A: 逸脱\n")
-    out.append("この節の Classification / Action / Severity と逸脱コメントは手直しできます。"
-               "承認の反映時に、手直し後の内容が Coverity に登録されます。\n")
-    out.append(DEV_BEGIN)
-    out.append(_attrs(r.deviation) + "- 逸脱コメント:\n")
-    out.append(r.deviation.comment.strip())
-    out.append(DEV_END + "\n")
+
+def _deviation_section(report: ItemReport) -> list[str]:
+    deviation = report.result.deviation
+    out = ["\n## 4. 案A: 逸脱\n",
+           "この節の Classification / Action / Severity と逸脱コメントは手直しできます。"
+           "承認の反映時に、手直し後の内容が Coverity に登録されます。\n",
+           DEV_BEGIN, _attrs(deviation) + "- 逸脱コメント:\n", deviation.comment.strip(), DEV_END + "\n"]
     annotation = report.fixes.get("annotation")
     if annotation:
         out.append(f"- アノテーション差分: `{report.rel(annotation['patch_path'])}`"
                    + (f" ／ ブランチ: `{annotation['branch']}`" if annotation.get("branch") else ""))
+    return out
 
-    out.append("\n## 5. 案B: 修正\n")
-    out.append(f"- 概要: {r.fix.summary}")
-    out.append(f"- 影響範囲とリスク: {r.fix.impact}")
-    if r.fix.exceeded_constraints:
-        out.append(f"- 超えた制約: {'、'.join(r.fix.exceeded_constraints)}")
+
+def _fix_section(report: ItemReport) -> list[str]:
+    plan = report.result.fix
+    out = ["\n## 5. 案B: 修正\n", f"- 概要: {plan.summary}", f"- 影響範囲とリスク: {plan.impact}"]
+    if plan.exceeded_constraints:
+        out.append(f"- 超えた制約: {'、'.join(plan.exceeded_constraints)}")
     fix = report.fixes.get("fix")
     if fix:
         out.append(f"- 差分: `{report.rel(fix['patch_path'])}`")
@@ -166,26 +176,30 @@ def render_item(report: ItemReport) -> str:
         out.append(f"- 修正後ファイル: `{report.rel(fix['mirror_dir'])}`")
     else:
         out.append("- 差分: なし（修正コードは保存されていません）")
-    out.append("\n修正した場合の Classification / Action / Severity（参考。「修正」の承認時は Coverity に書き戻しません）:\n")
-    out.append(_attrs(r.fix))
+    out += ["\n修正した場合の Classification / Action / Severity（参考。「修正」の承認時は Coverity に書き戻しません）:\n",
+            _attrs(plan)]
+    return out
 
-    out.append("## 6. 自動検証の結果\n")
-    if report.verify:
-        for kind, verify in report.verify.items():
-            out.append(f"### {'修正' if kind == 'fix' else 'アノテーション'}\n")
-            out.append(_verify_block({**verify, "log": report.rel(verify["log"])} if verify.get("log") else verify))
-    else:
-        out.append("実施していません。\n")
 
-    out.append("## 7. 処理情報\n")
-    out.append(f"- 調査の起点リビジョン: {report.analyzed_revision or '手元のコード'}")
-    out.append(f"- 修正の起点リビジョン: {report.latest_revision or '-'}")
+def _verify_section(report: ItemReport) -> list[str]:
+    out = ["## 6. 自動検証の結果\n"]
+    if not report.verify:
+        return out + ["実施していません。\n"]
+    for kind, verify in report.verify.items():
+        out.append(f"### {'修正' if kind == 'fix' else 'アノテーション'}\n")
+        out.append(_verify_block({**verify, "log": report.rel(verify["log"])} if verify.get("log") else verify))
+    return out
+
+
+def _processing(report: ItemReport) -> list[str]:
+    out = ["## 7. 処理情報\n",
+           f"- 調査の起点リビジョン: {report.analyzed_revision or '手元のコード'}",
+           f"- 修正の起点リビジョン: {report.latest_revision or '-'}"]
     if report.seconds is not None:
         out.append(f"- 処理時間: {report.seconds:.0f} 秒")
     if report.result.group_excluded_cids:
         out.append(f"- グループから外して個別処理に戻した CID: {report.result.group_excluded_cids}")
-    return "\n".join(out) + "\n"
-
+    return out
 
 def read_deviation(markdown: str) -> tuple[TriageAttributes, str]:
     """Read back the (possibly edited) deviation section of a per-item report."""

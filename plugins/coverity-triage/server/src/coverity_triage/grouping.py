@@ -35,7 +35,19 @@ def _keys(issue: Issue) -> list[tuple]:
 
 def build_work_items(issues: list[Issue], no_grouping: set[int] | None = None) -> list[WorkItem]:
     """Return work items in the order of the given issues (first CID of each item)."""
-    no_grouping = no_grouping or set()
+    items: list[WorkItem] = []
+    group_no = 0
+    for cids in _clusters(issues, no_grouping or set()):
+        if len(cids) == 1:
+            items.append(WorkItem(str(cids[0]), cids))
+        else:
+            group_no += 1
+            items.append(WorkItem(f"G{group_no}", cids))
+    return items
+
+
+def _clusters(issues: list[Issue], no_grouping: set[int]) -> list[list[int]]:
+    """CIDs joined when they share a key (union-find), in the order of their first CID."""
     parent = {issue.cid: issue.cid for issue in issues}
 
     def find(cid: int) -> int:
@@ -57,19 +69,4 @@ def build_work_items(issues: list[Issue], no_grouping: set[int] | None = None) -
     members: dict[int, list[int]] = {}
     for issue in issues:
         members.setdefault(find(issue.cid), []).append(issue.cid)
-
-    items: list[WorkItem] = []
-    group_no = 0
-    seen: set[int] = set()
-    for issue in issues:
-        root = find(issue.cid)
-        if root in seen:
-            continue
-        seen.add(root)
-        cids = members[root]
-        if len(cids) == 1:
-            items.append(WorkItem(str(cids[0]), cids))
-        else:
-            group_no += 1
-            items.append(WorkItem(f"G{group_no}", cids))
-    return items
+    return list(members.values())
