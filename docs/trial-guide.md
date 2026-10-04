@@ -29,7 +29,7 @@
 
 ```bat
 cd <このリポジトリ>\plugins\coverity-triage\server
-uv run pytest -q          # 52 passed になること（初回は依存パッケージを自動で入れます）
+uv run pytest -q          # 57 passed になること（初回は依存パッケージを自動で入れます）
 ```
 
 > 記録：`pytest` の結果（○ / ×、× ならエラーの末尾）
