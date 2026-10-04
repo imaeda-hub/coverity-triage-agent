@@ -1,6 +1,6 @@
 # 試用用の偽 Coverity データ。src/reader.c の内容に対応しています。
 snapshot:
-  version: ""
+  sourceVersion: ""
 issues:
   # 本物のバグ: fgets 失敗時に fp を閉じていない
   - cid: 20001
