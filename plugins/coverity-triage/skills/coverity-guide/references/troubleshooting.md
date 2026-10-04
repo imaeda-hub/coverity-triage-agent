@@ -8,7 +8,10 @@
 | `ファイルが見つかりません: ...config.yaml` | 対象リポジトリのフォルダを開いていない、または設定が未作成。`/coverity-setup` |
 | `条件ファイルが見つかりません` | ファイル名の誤り。`.coverity-triage/filters/` のファイル名を指定 |
 | `設定値が不正です` / `YAML の書式が不正です` | 設定ファイルの書き間違い。表示された項目を settings.md と照らして直す |
-| `Coverity Connect への接続はまだ実装されていません` | 社内 Coverity への接続部分は開発中（API 方式の調査待ち）。試用は `coverity.api: fake` と偽データで行う |
+| `条件ファイルに streams（ストリーム名）を指定してください` | 条件ファイルに `streams` が無い。ストリーム名を書く |
+| `Coverity の列に ... が見つかりません` | Coverity の列の名前が想定と違う。`tools/coverity_api_probe.py` の結果（列の名前と列キー）をプラグインの管理者に共有する |
+| `Coverity SOAP ... が失敗しました` / `Coverity REST ... が失敗しました` | 表示されたメッセージで判断する（ストリーム名の誤り、権限不足など）。分からなければ `operations.log` を添えて管理者へ |
+| `CERTIFICATE_VERIFY_FAILED` など証明書のエラー | 社内 CA が OS に入っていない。`coverity.ca_file` に CA 証明書のファイルを指定する |
 | 認証エラー・接続できない | 認証情報が未設定か誤り。SKILL の段階 3 で入れ直す |
 | `環境変数 GITHUB_TOKEN に GitHub のトークンが設定されていません` | SKILL の段階 3 でトークンを入力 |
 | `プルリクエストの作成に失敗しました (403)` など | トークンの権限不足・期限切れ。Contents と Pull requests の読み書き権限で発行し直す |

@@ -6,12 +6,30 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 CONFIG_DIR_NAME = ".coverity-triage"
 CONFIG_FILE_NAME = "config.yaml"
 FILTERS_DIR_NAME = "filters"
 NO_GROUPING_FILE_NAME = "no-grouping.yaml"
+KNOWLEDGE_FILE_NAME = "knowledge.md"
+KNOWLEDGE_TEMPLATE = """# プロジェクトの知識（Coverity トリアージエージェント）
+
+調査の前に AI が読みます（仕様 D-78）。チームで共有するため、コミットしてください。
+1 項目 1 行で、コードで確かめられる事実と、判断の方針を書きます。
+
+## 調査で使う事実
+
+<!-- 例：fatal_error()（src/common/error.c）は戻らない（内部で abort する） -->
+
+## 推奨の方針（修正か逸脱か）
+
+<!-- 例：ハードウェアレジスタへのアクセスのためのポインタ変換（MISRA Rule 11.x）は逸脱で正当化する -->
+
+## 逸脱コメントの書き方
+
+<!-- 例：誤検知の根拠には、呼び出し元の関数名と行番号を必ず書く -->
+"""
 
 
 class ConfigError(Exception):
@@ -24,11 +42,17 @@ class _Strict(BaseModel):
 
 class CoverityConfig(_Strict):
     url: str
-    # "fake" reads issues from a local file instead of a server (for trials and tests).
-    api: Literal["rest", "soap", "auto", "fake"] = "auto"
+    # "auto" connects to Coverity Connect (REST for search and write-back, SOAP for the
+    # warning path and snapshots, spec D-77). "fake" reads issues from a local file (trials, tests).
+    api: Literal["auto", "fake"] = "auto"
     user_env: str = "COV_USER"
     key_env: str = "COV_AUTH_KEY"
-    revision_field: str | None = "version"
+    # Triage store that receives write-backs (REST PUT /api/v2/issues/triage).
+    triage_store: str = "Default Triage Store"
+    # CA certificate file for the server; without it the OS certificate store is used.
+    ca_file: str | None = None
+    # Element of the SOAP snapshotInfoDataObj that holds the analyzed revision (spec D-17).
+    revision_field: str | None = "sourceVersion"
     # Prefixes removed from file paths reported by Coverity (e.g. "C:/build/product/").
     path_strip_prefixes: list[str] = Field(default_factory=list)
     fake_data: str | None = None
@@ -87,12 +111,20 @@ class FilterSpec(_Strict):
 
     name: str = ""
     project: str | None = None
+    # One stream per run (spec D-79); a list so that several can be allowed later.
     streams: list[str] = Field(default_factory=list)
     checkers: list[str] = Field(default_factory=list)
     impacts: list[str] = Field(default_factory=list)
     triage: TriageFilter = Field(default_factory=TriageFilter)
     max_items: int | None = Field(default=None, ge=1)
     revision: str = ""
+
+    @field_validator("streams")
+    @classmethod
+    def _one_stream(cls, value: list[str]) -> list[str]:
+        if len(value) > 1:
+            raise ValueError("ストリームは 1 回の実行で 1 つだけ指定してください（複数の指定は今後の拡張）")
+        return value
 
 
 def config_dir(repo_root: str | Path) -> Path:
@@ -176,3 +208,22 @@ def add_no_grouping(repo_root: str | Path, cids: list[int]) -> None:
     header = "# 却下されたグループの CID。次回以降はグループ化せず個別に処理する（自動追記）\n"
     path.write_text(header + yaml.safe_dump({"cids": merged}, allow_unicode=True),
                     encoding="utf-8")
+
+
+def load_knowledge(repo_root: str | Path) -> str:
+    """Project knowledge the worker reads before investigating (spec D-78)."""
+    path = config_dir(repo_root) / KNOWLEDGE_FILE_NAME
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def append_knowledge(repo_root: str | Path, entries: list[str], source: str) -> Path:
+    """Append entries the person approved, under a heading that says where they came from."""
+    lines = [" ".join(e.split()) for e in entries if e.strip()]
+    if not lines:
+        raise ConfigError("追記する内容がありません")
+    path = config_dir(repo_root) / KNOWLEDGE_FILE_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = path.read_text(encoding="utf-8") if path.is_file() else KNOWLEDGE_TEMPLATE
+    block = f"\n## 追記（{source}）\n\n" + "".join(f"- {line}\n" for line in lines)
+    path.write_text(current.rstrip("\n") + "\n" + block, encoding="utf-8")
+    return path

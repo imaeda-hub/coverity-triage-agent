@@ -36,7 +36,7 @@ coverity-triage/                         … プラグインのルート
    └─ coverity_triage/
       ├─ mcp_server.py                   … ツールの公開窓口
       ├─ config.py                       … 設定ファイル・条件ファイルの読み込みと検証（D-49, D-50）
-      ├─ coverity/                       … Coverity Connect 接続（REST / SOAP の差を吸収、U-1）
+      ├─ coverity/                       … Coverity Connect 接続（REST：検索・書き戻し／SOAP：警告経路・スナップショット、D-77）
       ├─ vcs/                            … git / svn / GitHub の操作（D-25〜D-29, D-57, D-58）
       ├─ grouping.py                     … グループ候補の機械的な作成（D-53）
       ├─ verify.py                       … ビルド・再解析の実行（D-10, D-42）
@@ -53,7 +53,7 @@ coverity-triage/                         … プラグインのルート
 ├─ config.yaml        … プロジェクト設定（init で生成）
 ├─ filters/*.yaml     … 絞り込み条件（複数用意可能）
 ├─ no-grouping.yaml   … グループ化しない CID（却下されたグループから自動追記）
-└─ policy.md          … 将来：推奨方針のカスタムプロンプト（D-48）
+└─ knowledge.md       … プロジェクトの知識（調査の前に AI が読む。反映後に人が選んだ知識を追記。推奨の方針（D-48）もここに書く、D-78）
 ```
 
 ## 2. 役割分担の原則（確定）
@@ -145,11 +145,13 @@ revision: ""         # 解析リビジョンの手動指定（D-17 の (2)。通
 ```yaml
 coverity:
   url: https://coverity.example.co.jp:8443
-  api: auto            # rest / soap / auto（U-1 確定後に見直し）/ fake（試用・テスト用、I-3）
+  api: auto            # auto：Coverity Connect に接続（D-77）／ fake：偽データ（試用・テスト用、I-3）
   fake_data: ""        # api: fake のときの偽データのファイル（I-3）
   user_env: COV_USER
   key_env: COV_AUTH_KEY
-  revision_field: version   # 解析リビジョンの記録項目（D-17）
+  revision_field: sourceVersion   # 解析リビジョンの記録項目（D-17。SOAP のスナップショット情報の項目名）
+  triage_store: Default Triage Store   # 書き戻し先のトリアージストア
+  ca_file: ""         # サーバの CA 証明書。空なら OS の証明書ストアを使う
   path_strip_prefixes: []   # Coverity のファイルパスから取り除く接頭辞（I-9）
 vcs:
   type: git              # git / svn
@@ -261,9 +263,11 @@ group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53
 警告行の直前の行に、ブロックコメントで埋め込む（C90 でも使え、C / C++ 共通で安全）。理由の文章は逸脱コメント（D-22〜D-24）と同じものを使う。
 
 ```c
-/* coverity[misra_c_2012_rule_10_4_violation] 誤検知。... */
+/* coverity[misra_c_2012_rule_10_4_violation:FALSE] 誤検知。... */
+/* coverity[misra_c_2012_rule_15_5_violation] 意図的。... */
 ```
 
+- `[...]` の中は main イベントのタグ。誤検知は `:FALSE` を付ける。付けない注釈を Coverity は「意図的（Intentional）」として扱う（Black Duck コミュニティ「Suppressing False Positive/Intentional defects」）。
 - Coverity が認識する正確な書式（タグ名、理由の書き方）は、社内の Coverity バージョンで実装前に確認する（7 章）。
 
 ### 5.7 ログ（確定）
@@ -300,9 +304,9 @@ docs/trial-guide.md           … 試用・確認の手順書
 
 | 部品 | 状態 |
 |---|---|
-| 設定・条件ファイル、進捗・再開、グループ化、文字コード保持、git / svn 操作、検証、レポート・サマリ、承認の反映、効果測定、MCP サーバ（18 ツール） | 実装済み・自動テスト済み（git / svn の実リポジトリで確認） |
+| 設定・条件ファイル、進捗・再開、グループ化、文字コード保持、git / svn 操作、検証、レポート・サマリ、承認の反映、効果測定、MCP サーバ（25 ツール） | 実装済み・自動テスト済み（git / svn の実リポジトリで確認） |
 | エージェント 3 つ、Skill 5 つ、コマンド 5 つ | 初版を作成。動作は未確認（試用手順書 A で確認） |
-| Coverity Connect への接続（REST / SOAP） | 未実装（U-1・U-2 の決定待ち）。代わりに偽データで動く `coverity.api: fake` を用意 |
+| Coverity Connect への接続（REST / SOAP、D-77） | 実装済み・偽サーバでの自動テスト済み（`server/src/coverity_triage/connect.py`）。社内サーバでの動作は試用手順書 B で確認。偽データで動く `coverity.api: fake` も残す |
 
 ### 8.3 実装時の判断（要確認）
 
@@ -320,6 +324,7 @@ docs/trial-guide.md           … 試用・確認の手順書
 | I-8（確定） | 承認の反映の同意確認は、`preview_apply` が返す確認用の文字列を `apply_approvals` に渡す方式。確認後にサマリやレポートが変更されたら反映を拒否する | 確認した内容と実際に反映する内容が食い違うことを防ぐため（D-63） |
 | I-9（確定） | Coverity が返すファイルパス（ビルド環境の絶対パスの場合など）は、設定 `coverity.path_strip_prefixes` の接頭辞を取り除いてリポジトリ内のパスに対応づける。設定で対応づけられない場合は、リポジトリに実在する最も長い末尾部分で自動的に対応づけ、その旨をレポートに明記する。候補が複数あり決められない場合は対応づけず、その旨を明記する | 解析環境とリポジトリでパスが違っても調査を止めないため（実装の見直しで判明、ユーザ確認済み） |
 | I-10（確定） | 英数字だけのファイル（UTF-8 か Shift_JIS か判別できない）に日本語などを追加する場合は、設定 `ascii_file_encoding`（`utf-8` / `cp932`、既定 `utf-8`）の文字コードで保存する | Shift_JIS のプロジェクトで文字コードが混在しないようにするため（実装の見直しで判明、ユーザ確認済み） |
+| I-11（確定） | Coverity Connect への接続の細部：(1) 条件のうちワイルドカードを含むチェッカー名と Status は、検索後に手元で絞り込む（サーバ側の絞り込み方が公開例で確認できないため）(2) 証明書は OS の証明書ストアを使い（社内 CA を入れた会社の PC でそのまま動くように）、`coverity.ca_file` で個別に指定もできる (3) `revision_field` の既定を、SOAP のスナップショット情報に実在する項目名 `sourceVersion` に変えた（旧既定 `version` は該当する項目が無かった。リビジョンを記録する運用は今後の拡張 E-2） (4) 書き戻し先のトリアージストアを `coverity.triage_store`（既定 `Default Triage Store`）で指定する | 推測で書かず、公開されている形だけで動くようにするため |
 
 ## 9. 使いやすさの改善（D-65〜D-70）
 

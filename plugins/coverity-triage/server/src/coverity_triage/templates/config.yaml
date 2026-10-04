@@ -2,13 +2,14 @@
 # 認証情報は値を書かず、環境変数名だけを書きます。
 coverity:
   url: https://coverity.example.co.jp:8443
-  # rest / soap / auto（U-1 確定後に見直し）。試用時は fake にして fake_data を指定します。
+  # auto：Coverity Connect に接続。試用時は fake にして fake_data を指定します。
   api: fake
   fake_data: fake-issues.yaml
   user_env: COV_USER
   key_env: COV_AUTH_KEY
-  revision_field: version
-  path_strip_prefixes: []   # Coverity のファイルパスから取り除く接頭辞（例: "C:/build/product/"）。未指定のパスは自動で対応づけ   # 解析リビジョンを記録したスナップショットの項目（D-17）
+  revision_field: sourceVersion   # 解析リビジョンを記録したスナップショットの項目（D-17）
+  triage_store: Default Triage Store   # 書き戻し先のトリアージストア
+  path_strip_prefixes: []   # Coverity のファイルパスから取り除く接頭辞（例: "C:/build/product/"）。未指定のパスは自動で対応づけ
 vcs:
   type: {{VCS_TYPE}}              # git / svn
   base_branch: main      # 修正の起点（D-58、git のみ）

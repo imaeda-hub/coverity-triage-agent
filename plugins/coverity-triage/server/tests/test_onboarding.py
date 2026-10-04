@@ -37,13 +37,19 @@ def test_write_config_then_doctor_and_run(repo, tmp_path):
         cfg.load_project_config(repo)
     out = onboarding.write_project_config(str(repo), "https://cov:8443/", "P", "S", "git",
                                           "develop", "cp932", api="fake")
-    assert len(out["written"]) == 2
+    assert len(out["written"]) == 3
+    knowledge = repo / ".coverity-triage" / "knowledge.md"
+    assert "## 推奨の方針" in knowledge.read_text(encoding="utf-8")
+    knowledge.write_text("チームの知識\n", encoding="utf-8")
     conf = cfg.load_project_config(repo)
     assert conf.coverity.url == "https://cov:8443" and conf.ascii_file_encoding == "cp932"
     spec = cfg.load_filter(repo, "untriaged.yaml")
     assert spec.project == "P" and spec.streams == ["S"] and spec.max_items == 20
     with pytest.raises(ValueError, match="overwrite"):
         onboarding.write_project_config(str(repo), "https://x", "P", "S", "git")
+    onboarding.write_project_config(str(repo), "https://cov:8443/", "P", "S", "git",
+                                    "develop", "cp932", api="fake", overwrite=True)
+    assert knowledge.read_text(encoding="utf-8") == "チームの知識\n"  # never overwritten
 
     # fake data is needed for api: fake; doctor reports the problem instead of crashing
     report = onboarding.doctor(str(repo))

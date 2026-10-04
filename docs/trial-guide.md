@@ -3,7 +3,7 @@
 この手順書では、次の 2 つを行います。所要時間の目安は合わせて 1〜2 時間です。
 
 - **A. 最小プラグインの試用**（段階 1）：偽の Coverity データで、プラグインが VS Code と Copilot CLI で動くかを確認し、`docs/design.md` 7 章の確認事項を埋めます。社内 Coverity には接続しません。
-- **B. API 調査スクリプトの実行**（段階 1'）：社内 Coverity Connect に読み取りのみで接続し、未決定事項 U-1（REST / SOAP）と U-2（認証方式）を決める材料を集めます。
+- **B. 社内 Coverity との接続確認**（段階 1'）：API 調査スクリプトを読み取りのみで実行し（U-1 の残り、U-2）、そのあと実際の警告で `/coverity-run` を試します（D-77）。
 
 結果は、各節の「記録」欄を埋めて共有してください。
 
@@ -55,12 +55,12 @@ git commit -m "init"
 
 ### A-3. プラグインをインストールする
 
-`plugins/coverity-triage` フォルダをローカルのプラグインとしてインストールします。
+README「はじめに」の 1 の手順で入れます。試用では、clone 済みのこのリポジトリのフォルダを使って構いません。
 
-- **VS Code**：コマンドパレットからエージェントプラグインのインストール（ローカルフォルダ指定）を実行する。
-- **Copilot CLI**：プラグインのインストールコマンドでローカルパスを指定する。
+- **Copilot CLI**：`copilot plugin install <このリポジトリ>\plugins\coverity-triage`（ローカルパス指定）。GitHub に置いた後は `copilot plugin install <組織>/<リポジトリ>:plugins/coverity-triage` も試す。
+- **VS Code**：CLI で入れたプラグインが、拡張機能ビューの **Agent Plugins - Installed** に自動で表示されるか確認する。表示されない場合は、設定 `chat.pluginLocations` に `<このリポジトリ>\plugins\coverity-triage` を `true` で追加する。
 
-正確な操作は一次資料（「Agent plugins in VS Code」「Creating a plugin for GitHub Copilot CLI」）に従ってください。
+参考：[Agent plugins in VS Code](https://code.visualstudio.com/docs/agent-customization/agent-plugins)、[GitHub Copilot CLI plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
 
 > 記録：インストールの手順（実際に使った操作・コマンド）、成功したか
 
@@ -71,7 +71,7 @@ git commit -m "init"
 | No | 確認すること | 確認方法 | 関係するファイル |
 |---|---|---|---|
 | C-1 | `plugin.json` が受け付けられるか（必須項目の不足がないか） | インストール時にエラーが出ないか | `plugin.json` |
-| C-2 | MCP サーバが起動するか（`mcp.json` のプラグインルートの変数 `${PLUGIN_ROOT}` の書き方が正しいか） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 23 個見えるか | `mcp.json` |
+| C-2 | MCP サーバが起動するか（`mcp.json` のプラグインルートの変数 `${PLUGIN_ROOT}` の書き方が正しいか） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 25 個見えるか | `mcp.json` |
 | C-3 | エージェントが選べるか | エージェントの一覧に `coverity-guide`、`coverity-triage`、`coverity-triage-apply` が出るか（`coverity-triage-worker` は一覧に出ない想定） | `com.github.copilot/agents/*.agent.md` |
 | C-4 | モデルの固定が効くか | エージェント選択時のモデルが `gpt-6 luna` になるか。モデル名の正しい書き方も確認 | 各 `.agent.md` の `model:` |
 | C-5 | ツールの制限が効くか | `coverity-triage` エージェントから `apply_approvals` が使えないこと | 各 `.agent.md` の `tools:` |
@@ -98,6 +98,7 @@ git commit -m "init"
 4. **承認の反映**：`/coverity-apply <実行フォルダ>`
    - 期待：反映前に件数が表示され、同意を求められる。同意すると、逸脱は `.coverity-triage\fake-issues.yaml.writes.jsonl` に書き戻しが記録される（偽データのため）。
    - 修正の反映は push とプルリクエスト作成になるため、リモートが無い試用環境ではエラーになります（想定どおり）。
+   - 期待：反映の後、却下・手直しした項目から「次回に活かす知識」の候補が示され、選んだものだけが `.coverity-triage\knowledge.md` に追記される（仕様 D-78）。
 5. **効果測定の集計**：`/coverity-help どれくらい役立っている？`
    - 期待：承認の内訳、採用率、手直しの割合が表示される。
 
@@ -114,7 +115,7 @@ set COV_USER=<あなたのユーザ名>
 set COV_AUTH_KEY=<認証キー（無ければパスワード）>
 python <このリポジトリ>\tools\coverity_api_probe.py ^
     --url https://<Coverity サーバ>:<ポート> ^
-    --project <プロジェクト名> --stream <ストリーム名> --cid <実在する CID を 1 つ> ^
+    --stream <ストリーム名> --cid <実在する CID を 1 つ> ^
     --out probe-report.md
 ```
 
@@ -128,10 +129,21 @@ python <このリポジトリ>\tools\coverity_api_probe.py ^
 
 | 未決定事項 | 判断材料 |
 |---|---|
-| U-1 REST / SOAP | REST の列一覧と検索結果、SOAP の操作の有無（特に `getStreamDefects` のイベント、`updateTriageForCIDsInTriageStore`） |
+| U-1 の残り | サーバのバージョン（REST の書き戻しは 2022.6.0 以降）、列の名前と列キー、検索結果の 1 件目、`sourceCodeInfo` の応答（使えれば警告経路を REST に切り替えを検討） |
 | U-2 認証方式 | REST（Basic 認証）と SOAP（WS-Security）のそれぞれで、認証キー / パスワードで成功したか |
 | D-17 リビジョンの記録先 | 最新スナップショットの項目（`description`、`sourceVersion` など）のうち、運用で使えそうなもの |
-| アノテーションの書式（design 5.6） | Coverity のヘルプにあるコード注釈（`coverity[...]`）の書式。バージョンは `getVersion` の結果 |
+| アノテーションの書式（design 5.6） | Coverity のヘルプにあるコード注釈（`coverity[...]`）の書式。特に、誤検知の `:FALSE` が社内のバージョンで使えるか。バージョンは `getVersion` の結果 |
+
+### B-2. 実際の警告で試す（書き込みなし）
+
+調査スクリプトで問題が無ければ、偽データではなく社内 Coverity の警告で動かします。`/coverity-apply` を実行しない限り、Coverity への書き込みは行いません。
+
+1. 対象リポジトリの `.coverity-triage/config.yaml` で `coverity.api` を `auto` にする（`/coverity-setup` で作った場合は最初から `auto`）。
+2. `/coverity-help 接続を確認して` で `doctor` を実行し、「Coverity から警告を取得」が ok になるか。
+3. 件数を絞った条件（例：`max_items: 3`）で `/coverity-run` を実行し、詳細レポートに警告経路（イベント）が載るか。
+
+> 記録：各手順の結果（○ / ×）、エラーの表示（そのまま）
+
 
 ---
 

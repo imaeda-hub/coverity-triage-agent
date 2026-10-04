@@ -2,14 +2,18 @@
 
 設定は対象リポジトリの `.coverity-triage/` にあり、コミットしてチームで共有する。パスワード等は書かない（環境変数）。
 
+`knowledge.md`（プロジェクトの知識）の使い方は usage.md を参照。
+
 ## config.yaml
 
 | 項目 | 意味 | 決め方・既定値 |
 |---|---|---|
 | `coverity.url` | Coverity Connect の URL | ブラウザで開いている Coverity のアドレス |
-| `coverity.api` | 接続方式 `auto` / `rest` / `soap` / `fake` | 通常は `auto`。`fake` は偽データでの試用（`fake_data` に偽データのファイル） |
+| `coverity.api` | `auto`：Coverity Connect に接続／`fake`：偽データ | 通常は `auto`。`fake` は偽データでの試用（`fake_data` に偽データのファイル） |
 | `coverity.user_env` / `coverity.key_env` | ユーザ名・認証キーを入れる環境変数の名前 | 既定 `COV_USER` / `COV_AUTH_KEY` のまま |
-| `coverity.revision_field` | スナップショットに解析リビジョンを記録している項目 | 記録していなければそのまま（手元のコードで調査し、ずれを報告する） |
+| `coverity.revision_field` | スナップショットに解析リビジョンを記録している項目（SOAP のスナップショット情報の項目名。例 `sourceVersion`、`description`） | 既定 `sourceVersion`。記録していなければそのまま（手元のコードで調査し、ずれを報告する） |
+| `coverity.triage_store` | 逸脱を書き戻すトリアージストアの名前 | 既定 `Default Triage Store`。社内で別のストアを使っていれば、その名前 |
+| `coverity.ca_file` | Coverity サーバの CA 証明書ファイル | 通常は空（OS の証明書ストアを使う）。証明書エラーが出る場合だけ指定 |
 | `coverity.path_strip_prefixes` | Coverity のファイルパスから取り除く先頭部分 | 警告のパスが `C:/build/product/src/a.c` なら `["C:/build/product/"]`。空でも、リポジトリに実在する末尾部分で自動対応づけを試みる |
 | `vcs.type` | `git` / `svn` | 自動判定 |
 | `vcs.base_branch` | 修正を取り込む先のブランチ（git） | 自動判定（リモートの既定ブランチ） |
@@ -36,7 +40,7 @@
 | 項目 | 意味 |
 |---|---|
 | `name` | 表示名 |
-| `project` / `streams` | Coverity のプロジェクト・ストリーム |
+| `project` / `streams` | Coverity のプロジェクト・ストリーム（ストリームは 1 回の実行で 1 つだけ、D-79） |
 | `checkers` | チェッカー名（`*` 可。例 `"MISRA C-2012 *"`） |
 | `impacts` | `High` / `Medium` / `Low` |
 | `triage.classification` / `triage.action` / `triage.status` | 現在のトリアージ状態 |

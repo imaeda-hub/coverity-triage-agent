@@ -3,8 +3,10 @@
 
 社内の Coverity Connect に対して **読み取りのみ** の要求を送り、次を調べて Markdown に出力します。
 
-* REST API v2 で、トリアージに必要な情報（仕様 D-33）が取れるか
+* REST API v2 で、トリアージに必要な情報（仕様 D-33）が取れるか（エージェントが使う検索の形で試す）
+* REST API v2 の警告経路の取得（``GET /api/v2/issues/sourceCodeInfo``、2023.9.0 以降）の応答の形
 * SOAP API（v9）に、必要な操作（警告経路の取得、トリアージの書き戻し）があるか
+* サーバのバージョンから、REST での書き戻し（2022.6.0 以降）と警告経路の取得（2023.9.0 以降）が使えるか
 * ユーザ名＋認証キー（またはパスワード）で REST / SOAP に接続できるか
 * スナップショットに解析リビジョンを記録する項目（仕様 D-17）
 
@@ -16,7 +18,7 @@ Python 3.9 以上の標準ライブラリだけで動きます。
     set COV_USER=your-name
     set COV_AUTH_KEY=xxxxxxxx
     python coverity_api_probe.py --url https://coverity.example.co.jp:8443 ^
-        --project MyProduct --stream MyProduct-main --cid 12345 --out probe-report.md
+        --stream MyProduct-main --cid 12345 --out probe-report.md
 
 社内の CA 証明書が必要な場合は ``--ca-file`` で指定してください。
 """
@@ -35,7 +37,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from html import escape
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 TIMEOUT = 30
 SOAP_NS = "http://ws.coverity.com/v9"
@@ -65,10 +67,13 @@ SOAP_OPERATIONS = {
     },
 }
 
-# 取りたい情報（D-33）に対応しそうな REST の列キー（実在するかを列一覧と突き合わせる）
-WANTED_COLUMNS = ["cid", "checker", "displayFile", "displayFunction", "lineNumber", "displayImpact",
-                  "cwe", "mergeKey", "classification", "action", "severity", "status",
-                  "displayCategory", "displayType", "stream", "project"]
+# エージェントが使う REST の列キー（server/src/coverity_triage/connect.py の COLUMN_KEYS と同じ）
+WANTED_COLUMNS = ["cid", "checker", "displayFile", "lineNumber", "displayFunction", "displayImpact",
+                  "displayCategory", "cwe", "mergeKey", "classification", "action", "severity", "status"]
+
+# REST の機能が追加されたバージョン（Black Duck コミュニティの情報）
+REST_FEATURES = [((2022, 6), "`PUT /api/v2/issues/triage`（トリアージの書き戻し）"),
+                 ((2023, 9), "`GET /api/v2/issues/sourceCodeInfo`（警告経路の取得）")]
 
 
 class Probe:
@@ -148,31 +153,50 @@ class Probe:
                 available = []
             found = [c for c in WANTED_COLUMNS if c in available]
             missing = [c for c in WANTED_COLUMNS if c not in available]
-            self.out(f"  - 利用できる列キー（{len(available)} 個）: {', '.join(sorted(filter(None, available)))}")
+            try:
+                pairs = [f"{c.get('name')}={c.get('columnKey')}" for c in json.loads(data) if isinstance(c, dict)]
+            except Exception:
+                pairs = []
+            self.out(f"  - 列の名前と列キー（{len(pairs)} 個）: {', '.join(pairs)}")
             self.out(f"  - 必要な情報に対応しそうな列のうち、ある: {', '.join(found) or 'なし'}")
             self.out(f"  - ない（別名の可能性あり）: {', '.join(missing) or 'なし'}")
 
-        if self.args.project:
+        if self.args.stream:
             columns = [c for c in WANTED_COLUMNS if c in available] or ["cid"]
             body = {
-                "filters": [{"columnKey": "project", "matchMode": "oneOrMoreMatch",
-                             "matchers": [{"class": "Project", "name": self.args.project, "type": "nameMatcher"}]}],
+                "filters": [{"columnKey": "streams", "matchMode": "oneOrMoreMatch",
+                             "matchers": [{"class": "Stream", "name": self.args.stream, "type": "nameMatcher"}]}],
                 "columns": columns,
+                "snapshotScope": {"show": {"scope": "last()", "includeOutdatedSnapshots": False}},
             }
             path = ("/api/v2/issues/search?includeColumnLabels=true&offset=0"
                     "&queryType=bySnapshot&rowCount=3&sortOrder=asc")
             status, data = self.request("POST", path, json.dumps(body).encode(),
                                         {"Content-Type": "application/json", "Accept": "application/json"})
-            self.out(f"- `POST /api/v2/issues/search`（プロジェクト {self.args.project}、3 件）→ {status} {self._brief(status, data)}")
+            self.out(f"- `POST /api/v2/issues/search`（ストリーム {self.args.stream}、3 件）→ {status} {self._brief(status, data)}")
             if status == 200:
                 try:
                     result = json.loads(data)
-                    self.out(f"  - 総件数: {result.get('totalRows')}、取得した列: "
-                             f"{', '.join(c.get('columnKey', '') for c in (result.get('columns') or [])) or columns}")
+                    self.out(f"  - 総件数: {result.get('totalRows')}")
+                    for row in (result.get("rows") or [])[:1]:
+                        self.out(f"  - 1 件目の値: {json.dumps(row, ensure_ascii=False)[:600]}")
                 except Exception:
                     pass
-        self.out("\n- 補足: REST v2 での警告経路（イベント）の取得と、トリアージの書き戻しの可否は、"
-                 "Coverity Connect の Help > API Reference（REST）で該当するエンドポイントの有無を確認してください。\n")
+
+        # 警告経路の REST（2023.9.0 以降）。パラメータと応答の形が公開されていないため、応答をそのまま記録する
+        targets = ["/api/v2/issues/sourceCodeInfo"]
+        if self.args.cid:
+            targets.append(f"/api/v2/issues/sourceCodeInfo?cid={int(self.args.cid)}")
+            if self.args.stream:
+                targets.append(f"/api/v2/issues/sourceCodeInfo?cid={int(self.args.cid)}"
+                               f"&streamName={quote(self.args.stream)}")
+        for path in targets:
+            status, data = self.request("GET", path, headers={"Accept": "application/json"})
+            self.out(f"- `GET {path}` → {status}")
+            self.out("  ```")
+            self.out("  " + data.decode("utf-8", "replace")[:2000].replace("\n", "\n  "))
+            self.out("  ```")
+        self.out("")
 
     def check_soap(self) -> None:
         self.out("## 2. SOAP API（v9）\n")
@@ -195,6 +219,12 @@ class Probe:
             version = node.text if node is not None else ""
         self.out(f"- 認証付き呼び出し `getVersion` → {status} "
                  f"{'成功 バージョン: ' + version if version else '失敗: ' + fault}")
+        match = re.match(r"(\d{4})\.(\d+)", version or "")
+        if match:
+            current = (int(match.group(1)), int(match.group(2)))
+            for since, feature in REST_FEATURES:
+                ok = current >= since
+                self.out(f"  - {'✅' if ok else '❌'} {feature}: {since[0]}.{since[1]}.0 以降で利用可能")
 
         if self.args.stream:
             self.check_snapshot()
@@ -276,8 +306,7 @@ def main() -> int:
     parser.add_argument("--url", required=True, help="Coverity Connect の URL（例: https://host:8443）")
     parser.add_argument("--user-env", default="COV_USER", help="ユーザ名の環境変数名")
     parser.add_argument("--key-env", default="COV_AUTH_KEY", help="認証キー（またはパスワード）の環境変数名")
-    parser.add_argument("--project", help="検索を試すプロジェクト名")
-    parser.add_argument("--stream", help="スナップショット・イベント取得を試すストリーム名")
+    parser.add_argument("--stream", help="検索・スナップショット・イベント取得を試すストリーム名")
     parser.add_argument("--cid", help="イベント取得を試す CID（--stream と併用）")
     parser.add_argument("--ca-file", help="社内 CA 証明書のファイル")
     parser.add_argument("--out", default="probe-report.md", help="出力する Markdown ファイル")

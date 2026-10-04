@@ -206,6 +206,18 @@ def apply_approvals(run_dir: str, confirmation_token: str) -> dict:
     return service.apply_approvals(run_dir, confirmation_token)
 
 
+@tool
+def knowledge_candidates(run_dir: str) -> dict:
+    """反映後に、人が推奨案を変えた・逸脱コメントを手直しした・却下した作業項目と、今の knowledge.md を返す。"""
+    return service.knowledge_candidates(run_dir)
+
+
+@tool
+def add_knowledge(run_dir: str, entries: list[str]) -> dict:
+    """人が選んだ知識（1 項目 1 行）を対象リポジトリの .coverity-triage/knowledge.md に追記する。必ず人の承認を得てから呼ぶ。"""
+    return service.add_knowledge(run_dir, entries)
+
+
 # ---- stats ------------------------------------------------------------------------------------
 
 
