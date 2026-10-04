@@ -180,7 +180,6 @@ verify:
   build_command: "make -f makefileXX"
   cov_build_args: "--dir idir"
   cov_analyze_args: "--dir idir --all"
-model: gpt-6 luna       # 参考表示（実際の固定は D-47 の方式）
 ```
 
 ### 5.3 CID（グループ）ごとのレポートの章立て（確定）

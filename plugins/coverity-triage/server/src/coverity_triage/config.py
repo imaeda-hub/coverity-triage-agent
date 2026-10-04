@@ -90,8 +90,6 @@ class ProjectConfig(_Strict):
     # Encoding used when non-ASCII text is added to a file that was pure ASCII.
     ascii_file_encoding: Literal["utf-8", "cp932"] = "utf-8"
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
-    # Shown for reference only; the model is pinned in the agent definitions (spec D-47).
-    model: str | None = None
 
     def secret_values(self) -> list[str]:
         """Values of the credential environment variables, for log redaction."""

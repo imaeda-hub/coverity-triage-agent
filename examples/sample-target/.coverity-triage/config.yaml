@@ -24,4 +24,3 @@ verify:
   build_command: ""
   cov_build_args: "--dir idir"
   cov_analyze_args: "--dir idir --all"
-model: gpt-6 luna
