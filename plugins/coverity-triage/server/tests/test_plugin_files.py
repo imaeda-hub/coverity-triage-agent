@@ -34,3 +34,37 @@ def test_manifests_follow_agent_plugins_1_0():
         assert server["type"] == "stdio"
         assert set(server) <= {"type", "command", "args", "env", "cwd"}
         assert " " not in server["command"]  # a single executable token
+
+
+ENTRY_SKILLS = {"coverity-setup", "coverity-run", "coverity-apply", "coverity-help"}
+
+
+def _frontmatter(path):
+    import yaml
+    return yaml.safe_load(path.read_text(encoding="utf-8").split("---")[1])
+
+
+def test_skills_entry_points_and_knowledge():
+    """Entry points are user-only skills; knowledge skills stay out of the / menu (D-69)."""
+    skills = {p.parent.name: _frontmatter(p) for p in (PLUGIN / "skills").glob("*/SKILL.md")}
+    assert ENTRY_SKILLS <= set(skills)
+    for name, fm in skills.items():
+        assert fm["name"] == name and fm["description"]
+        if name in ENTRY_SKILLS:
+            assert fm.get("disable-model-invocation") is True
+        else:
+            assert fm.get("user-invocable") is False
+    assert not (PLUGIN / "com.github.copilot" / "commands").exists()
+
+
+def test_worker_agent_tools_exist():
+    import anyio
+
+    from coverity_triage import mcp_server
+    tools = {t.name for t in anyio.run(mcp_server.mcp.list_tools)}
+    [agent] = (PLUGIN / "com.github.copilot" / "agents").glob("*.agent.md")
+    fm = _frontmatter(agent)
+    assert fm["name"] == "coverity-triage-worker" and fm["user-invocable"] is False
+    refs = [t.split("/", 1)[1] for t in fm["tools"] if t.startswith("coverity-triage/")]
+    assert refs and set(refs) <= tools
+    assert "apply_approvals" not in refs

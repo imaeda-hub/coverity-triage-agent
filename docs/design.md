@@ -5,32 +5,29 @@
 
 ## 1. プラグイン全体構成（案）
 
-Agent Plugins 1.0 の構成に従う（D-1）。どのクライアントでも共通に使える部品（Skill・MCP）はプラグイン直下に置き、Copilot 固有の部品（エージェント・コマンド）は `com.github.copilot/` に置く。
+Agent Plugins 1.0 の構成に従う（D-1）。どのクライアントでも共通に使える部品（Skill・MCP）はプラグイン直下に置き、Copilot 固有の部品（調査用サブエージェント 1 つ）は `com.github.copilot/` に置く。利用者の入口は Skill で作る（D-80）。
 
 ```
 coverity-triage/                         … プラグインのルート
 ├─ plugin.json                           … マニフェスト（$schema: agent-plugins.org 1.0.0）
 ├─ mcp.json                              … MCP サーバ起動設定（Python 製 MCP サーバ 1 つ・確定）
-├─ skills/                               … 共通に使える知識・手順（トリアージ用 5 つ・確定、案内役 1 つ）
-│  ├─ triage-investigation/SKILL.md      … 調査手順：警告経路の追跡、真偽判定、確信度基準（D-64）
+├─ skills/                               … 共通に使える手順・知識
+│  ├─ coverity-setup/SKILL.md            … 入口：準備（D-66〜D-70, D-75）。利用者だけが呼ぶ
+│  ├─ coverity-run/SKILL.md              … 入口：トリアージ実行。進捗管理・サブエージェントへの委任・集約（D-39）
+│  ├─ coverity-apply/SKILL.md            … 入口：承認の反映。反映後に知識の追記を提案（D-63, D-78）
+│  ├─ coverity-help/                     … 入口：質問・設定変更・効果測定
+│  │  ├─ SKILL.md
+│  │  └─ references/ settings.md, usage.md, troubleshooting.md（D-65）
+│  ├─ triage-investigation/SKILL.md      … 調査手順：警告経路の追跡、真偽判定、確信度基準（D-64）。以下 5 つは AI だけが読む
 │  ├─ checker-knowledge/                 … チェッカー別の判断観点（D-6）
 │  │  ├─ SKILL.md
 │  │  └─ references/ standard.md, misra.md, cert.md
 │  ├─ code-fix/SKILL.md                  … 修正方針（D-37, D-38）、文字コード保持（D-36）、社内規約（U-3）、アノテーション（D-59）
 │  ├─ deviation-comment/SKILL.md         … 逸脱コメント（D-22〜D-24）、Classification / Action / Severity の選び方
-│  ├─ triage-report/SKILL.md             … レポートに書く内容の基準（D-20, D-55）
-│  └─ coverity-guide/                    … 案内役の手順と知識（設定・使い方・困ったとき、D-65）
+│  └─ triage-report/SKILL.md             … レポートに書く内容の基準（D-20, D-55）
 ├─ com.github.copilot/                   … Copilot 固有の部品
-│  ├─ agents/
-│  │  ├─ coverity-triage.agent.md        … 親エージェント：進捗管理・グループ化・サブエージェント起動・集約（D-39）
-│  │  ├─ coverity-triage-worker.agent.md … サブエージェント：1 CID / 1 グループの調査 → 2 案作成（検証は親がまとめて行う、D-72）
-│  │  ├─ coverity-triage-apply.agent.md  … 承認の反映専用（apply_approvals を使えるのはこのエージェントだけ）。反映後に知識の追記を提案（D-78）
-│  │  └─ coverity-guide.agent.md         … 案内役（準備と質問、D-66）
-│  └─ commands/                          … 利用者向けの 4 つのコマンド（D-69）
-│     ├─ coverity-setup   … 準備（案内役）
-│     ├─ coverity-run     … トリアージ実行（未完了なら再開を提案）
-│     ├─ coverity-apply   … 承認の反映
-│     └─ coverity-help    … 質問・設定変更・効果測定（案内役）
+│  └─ agents/
+│     └─ coverity-triage-worker.agent.md … サブエージェント：1 CID / 1 グループの調査 → 2 案作成（検証は親がまとめて行う、D-72）。ツールを調査用に限定、モデル固定（D-47）
 └─ server/                               … Python 製 MCP サーバ（D-40, D-41, D-42）
    ├─ pyproject.toml                     … Python 3.12 以上（D-46）
    └─ src/coverity_triage/
@@ -74,7 +71,7 @@ coverity-triage/                         … プラグインのルート
 ## 3. MCP ツール一覧（案）
 
 - MCP サーバは 1 つにまとめる（確定）。実行フォルダや進捗などの状態をサーバ内で共有する。
-- 外部に変更を加える `apply_approvals` は、承認の反映（apply）専用のエージェントだけに渡す（確定）。エージェント定義の `tools` で制限し、さらにツール側でも `preview_apply` で件数を提示して利用者の同意を得たことを確認できない限り実行しない（二重の防止）。
+- 外部に変更を加える `apply_approvals` は、`preview_apply` で件数を提示して利用者の同意を得たこと（確認用の文字列）を確認できない限り実行しない（D-63）。調査用サブエージェントには渡さない（D-80）。
 - 調査用サブエージェントにはターミナル（任意のコマンド実行）を許可しない（確定）。VCS・ビルド・再解析は MCP ツール経由でのみ行う。
 - 作業領域のソースの読み取り・検索・編集は MCP ツール（`read_source` / `search_source` / `edit_source`）で行う（確定）。VS Code・CLI で同じ動きになり、ワークスペース外のファイルに対する許可確認で処理が止まらない。
 
@@ -104,7 +101,7 @@ coverity-triage/                         … プラグインのルート
 ```
 利用者: run（条件ファイル＋チャットでの上書き）
   │
-親エージェント
+メインの AI（Skill coverity-run に従う親）
   ├─ start_run ………………… CID 検索 → 上限で切る → グループ候補 → 進捗ファイル
   └─ 繰り返し: next_work_item
         │
@@ -292,7 +289,7 @@ group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53
 
 - `plugin.json` の必須フィールドと `$schema` の正確な URL（`https://agent-plugins.org/schemas/1.0.0/plugin.schema.json` と報じられている）
 - `mcp.json` 内でプラグインのルートを参照する変数の書き方（Python サーバの起動パス指定に必要）
-- `com.github.copilot/commands/` のファイル形式（VS Code と Copilot CLI の両方でコマンドとして使えるか）
+- 入口の Skill（`disable-model-invocation: true`）が VS Code と Copilot CLI の両方でスラッシュコマンドとして呼べるか（D-80）
 - `.agent.md` のフロントマター（`model`、`tools`、`agents` など）のうち、Copilot CLI でも有効なもの（D-47 のモデル固定、D-39 のサブエージェントに関係）
 - サブエージェントの起動方法が VS Code と Copilot CLI で共通に書けるか
 - アノテーション（5.6）の正確な書式が社内の Coverity バージョンで認識されるか
@@ -314,7 +311,7 @@ docs/trial-guide.md           … 試用・確認の手順書
 | 部品 | 状態 |
 |---|---|
 | 設定・条件ファイル、進捗・再開、グループ化、文字コード保持、git / svn 操作、検証、レポート・サマリ、承認の反映、効果測定、MCP サーバ（25 ツール） | 実装済み・自動テスト済み（git / svn の実リポジトリで確認） |
-| エージェント 4 つ、Skill 6 つ、コマンド 4 つ | 作成済み。動作は未確認（試用手順書 A で確認） |
+| 入口の Skill 4 つ、調査用の Skill 5 つ、サブエージェント 1 つ | 作成済み。動作は未確認（試用手順書 A で確認） |
 | Coverity Connect への接続（REST / SOAP、D-77） | 実装済み・偽サーバでの自動テスト済み（`server/src/coverity_triage/connect.py`）。社内サーバでの動作は試用手順書 B で確認。偽データで動く `coverity.api: fake` も残す |
 
 ### 8.3 実装時の判断（要確認）
@@ -339,17 +336,17 @@ docs/trial-guide.md           … 試用・確認の手順書
 
 | 変更 | 内容 |
 |---|---|
-| 資料 | 人が読むのは README だけ（5 分以内）。設定項目・使い方・困ったときの対処は Skill `coverity-guide`（references/settings.md・usage.md・troubleshooting.md）に移し、利用者は `/coverity-help` で AI に聞く。導入手順書・利用手順書は廃止 |
-| 案内役エージェント | `coverity-guide`：`/coverity-setup`（準備）と `/coverity-help`（質問）を担当。ターミナル実行（毎回利用者が確認）とファイル編集ができる |
+| 資料 | 人が読むのは README だけ（5 分以内）。設定項目・使い方・困ったときの対処は Skill `coverity-help`（references/settings.md・usage.md・troubleshooting.md）に移し、利用者は `/coverity-help` で AI に聞く。導入手順書・利用手順書は廃止 |
+| 入口の Skill | `/coverity-setup`（準備）と `/coverity-help`（質問）は、利用者が選んでいるモデルのチャットで動き、ターミナル実行（毎回利用者が確認）とファイル編集ができる（D-80） |
 | 準備の流れ | 段階 0：uv（無ければ AI がインストール → MCP サーバを再起動。Python とライブラリは uv が自動で用意）→ 段階 1：`doctor` で診断 → 段階 2：設定が無ければ URL・プロジェクト・ストリームだけ聞き、残りは `detect_project` で自動判定して確認 → `write_project_config` → 段階 3：認証情報を伏せ字で入力（値はチャットに出ない）→ 段階 4：`doctor` で確認 |
 | 環境変数 | Windows では利用者の環境変数をレジストリから直接読むため、準備中に保存した値が VS Code の再起動なしで有効になる（`envvars.get_env`） |
-| コマンド | `/coverity-setup`・`/coverity-run`（未完了なら再開を提案）・`/coverity-apply`（省略時は最新の実行）・`/coverity-help` の 4 つ |
+| 入口（Skill） | `/coverity-setup`・`/coverity-run`（未完了なら再開を提案）・`/coverity-apply`（省略時は最新の実行）・`/coverity-help` の 4 つ |
 
 ## 10. 自動検証のまとめ実行（D-71〜D-75）
 
 | 項目 | 内容 |
 |---|---|
-| タイミング | 全件の調査が終わった後、親エージェントが `verify_run` を 1 回呼ぶ。サブエージェントは検証しない |
+| タイミング | 全件の調査が終わった後、`/coverity-run` に従う親が `verify_run` を 1 回呼ぶ。サブエージェントは検証しない |
 | 修正案の合成 | 最新コードのコピーに、各修正案の差分ファイルを順に適用する（git は `-p1`、svn は `-p0`）。同じ箇所を変更していて適用できない修正案は「適用不可」とし、まとめた検証から外す |
 | 実行するコマンド | 1 つのシェルで `setup_command`（`{root}` をコピー先に置換、Windows では `call`）→ `build_dir` へ絶対パスで移動（Windows では `cd /d`、D-76）→ ビルドのみ：`build_command`／再解析：`cov-build <引数> <build_command>` → `cov-analyze` → `cov-format-errors --json-output-v7` |
 | 比較の基準 | 再解析の場合は、修正前の最新コードも 1 回ビルド・解析する（1 回の実行で解析 2 回分） |

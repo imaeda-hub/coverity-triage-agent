@@ -1,6 +1,7 @@
 ---
 name: triage-report
 description: Coverity トリアージの判断結果を submit_result で提出するときの形式と、各項目に書く内容の基準。
+user-invocable: false
 ---
 
 # 判断結果の提出（submit_result）

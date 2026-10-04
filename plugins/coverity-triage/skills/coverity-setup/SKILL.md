@@ -1,17 +1,24 @@
 ---
-name: coverity-guide
-description: Coverity トリアージエージェントの準備（環境の準備、設定ファイルの作成、認証情報の入力、接続確認）と、利用者からの質問（使い方、エラーの意味、設定の変更、効果測定）に対応するための手順と知識。
+name: coverity-setup
+description: Coverity トリアージを使えるように準備する（必要なものの準備、設定ファイルの作成、認証情報の入力、接続確認、任意で自動検証の設定）。何度実行してもよく、足りないものだけを補う。
+argument-hint: 省略可
+disable-model-invocation: true
 ---
 
-# 案内役の手順と知識
+# Coverity トリアージの準備
 
-| 知りたいこと | 資料 |
-|---|---|
-| 設定項目の意味と決め方 | [references/settings.md](references/settings.md) |
-| 使い方（実行・サマリの読み方・承認・反映・再開） | [references/usage.md](references/usage.md) |
-| エラー・困ったときの対処 | [references/troubleshooting.md](references/troubleshooting.md) |
+利用者はこのプラグインの仕組みを知りません。専門用語を避け、**一度に 1 つずつ**、短く案内してください。
+何度実行されてもよい。`doctor` で足りないものだけを補う。
 
-## 準備の流れ（/coverity-setup）
+## 守ること
+
+- ターミナルでコマンドを実行する前に、**何のために何をするか**を 1 行で説明する（実行の確認は Copilot が利用者に求める）。
+- git / svn / Coverity / VS Code 自体のインストールや設定変更はしない。足りない場合は社内の手順で入れてもらうよう伝える。
+- **パスワード・認証キー・トークンをチャットで尋ねない。** 入力は skill の「秘密情報の入力」の方法で、利用者がターミナルの伏せ字欄に入力する。チャットに貼られた場合は、使わずに「漏えいの恐れがあるので再発行を」と伝える。
+- 設定ファイルを書く前に、書く値を一覧で見せて同意を得る。
+- 機械的に確かめられることは、推測せず `doctor` で確かめる。
+
+## 準備の流れ
 
 対象リポジトリのルート（`.git` または `.svn` があるフォルダ）を `repo_root` とする。開いているワークスペースがそうでなければ、利用者に確認する。
 
@@ -51,8 +58,8 @@ description: Coverity トリアージエージェントの準備（環境の準�
    | 結果の出力先 | リポジトリの隣のフォルダ（`../coverity-triage-out`） |
    | 調べる警告 | 未トリアージ・1 回 20 件まで（`untriaged.yaml`） |
 4. 同意を得たら `write_project_config` を呼ぶ。変更したい値があれば反映してから呼ぶ。
-5. 接続後に警告のファイルパスが `C:/build/...` のような絶対パスなら、`path_strip_prefixes` の設定を提案する（[settings.md](references/settings.md)）。
-6. 「`.coverity-triage/` をコミットしてチームで共有してください（パスワード等は含まれていません）」と伝える。あわせて、プロジェクトの知識のファイル `knowledge.md`（ひな形）もできたこと、AI が調査の前に読むので、戻らない関数や修正・逸脱の方針などを書いておけることを 1 行で伝える（[usage.md](references/usage.md)）。コミットを頼まれたら、利用者の確認を得て実行してよい。
+5. 接続後に警告のファイルパスが `C:/build/...` のような絶対パスなら、`path_strip_prefixes` の設定を提案する（[settings.md](../coverity-help/references/settings.md)）。
+6. 「`.coverity-triage/` をコミットしてチームで共有してください（パスワード等は含まれていません）」と伝える。あわせて、プロジェクトの知識のファイル `knowledge.md`（ひな形）もできたこと、AI が調査の前に読むので、戻らない関数や修正・逸脱の方針などを書いておけることを 1 行で伝える（[usage.md](../coverity-help/references/usage.md)）。コミットを頼まれたら、利用者の確認を得て実行してよい。
 
 ### 段階 3：認証情報（個人の PC ごと）
 
@@ -92,10 +99,3 @@ description: Coverity トリアージエージェントの準備（環境の準�
 ### 段階 6：次の案内
 
 「準備ができました。`/coverity-run` で始められます。最初は件数の少ない条件で試すのがおすすめです」と伝える。
-
-## 質問への対応（/coverity-help）
-
-- 使い方は [usage.md](references/usage.md)、エラーは [troubleshooting.md](references/troubleshooting.md) を見て答える。分からないことは推測で答えず、`doctor` や `get_run_status` で確かめる。
-- 知識の追加（例：「fatal_error は戻らないと覚えて」）は、追記する 1 行を見せて同意を得てから `.coverity-triage/knowledge.md` に書く（[usage.md](references/usage.md)）。
-- 設定の変更（例：「MISRA だけ調べたい」「出力先を変えたい」「Shift_JIS にしたい」）は、[settings.md](references/settings.md) を見て、変更内容を見せて同意を得てから `.coverity-triage/` のファイルを編集し、`doctor` で確かめる。条件ファイルは新しいファイルとして追加するのがよい。
-- 効果測定（「どれくらい役立っている？」）は `get_stats(repo_root)` を使い、承認の内訳、推奨どおりに採用された割合（全体・確信度別）、手直しの割合、1 件あたりの処理時間を伝える。

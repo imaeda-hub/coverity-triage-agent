@@ -1,6 +1,7 @@
 ---
 name: code-fix
 description: Coverity 警告の修正案を作るときの制約と手順。C / C++ のコードを修正して save_fix で保存するときに使う。
+user-invocable: false
 ---
 
 # 修正案の作り方
