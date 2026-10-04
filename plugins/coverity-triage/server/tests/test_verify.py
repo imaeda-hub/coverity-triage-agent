@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from coverity_triage import config as cfg
-from coverity_triage import service
+from coverity_triage import onboarding, runs, worker
 from coverity_triage.models import Issue
 from coverity_triage.verify import intermediate_dir, load_analysis, matches
 
@@ -128,22 +128,22 @@ def result(item, confidence="high"):
 def triage(run_dir, edits):
     """Act as the worker for each item: edits = {item_id: (path, old, new)}."""
     while True:
-        item = service.next_work_item(run_dir)["item"]
+        item = runs.next_work_item(run_dir)["item"]
         if item is None:
             return
         path, old, new = edits[item]
-        service.edit_source(run_dir, item, "fix", path, old, new)
-        service.save_fix(run_dir, item, "fix", f"fix {item}")
-        service.submit_result(run_dir, item, result(item))
+        worker.edit_source(run_dir, item, "fix", path, old, new)
+        worker.save_fix(run_dir, item, "fix", f"fix {item}")
+        worker.submit_result(run_dir, item, result(item))
 
 
 def test_batch_reanalysis_attributes_results(repo):
-    run_dir = service.start_run(str(repo), "all.yaml")["run_dir"]
+    run_dir = runs.start_run(str(repo), "all.yaml")["run_dir"]
     triage(run_dir, {
         "1": ("src/a.c", "return 1; /* WARN:NULL_RETURNS:f1 */", "return 1;"),          # resolves CID 1
         "2": ("src/b.c", "    return 3;", "    return 3; /* WARN:NEW_CHECK:g */"),     # CID 2 stays, new warning
     })
-    out = service.verify_run(run_dir)
+    out = runs.verify_run(run_dir)
     assert out["build_ok"] is True and out["downgraded_to_low"] == ["2"]
 
     v1 = json.loads((Path(run_dir) / "results" / "1.verify.json").read_text(encoding="utf-8"))["fix"]
@@ -158,50 +158,50 @@ def test_batch_reanalysis_attributes_results(repo):
     report = (Path(run_dir) / "cid" / "2.md").read_text(encoding="utf-8")
     assert "要確認: 警告が残っています" in report and "確信度: 低" in report
 
-    service.build_summary(run_dir)
+    runs.build_summary(run_dir)
     summary = (Path(run_dir) / "summary.md").read_text(encoding="utf-8")
     assert "| 修正 | 2 | 修正 | 低 |" in summary and "警告残" in summary and "成功" in summary
 
     # running again keeps the original confidence as the base
-    service.verify_run(run_dir)
+    runs.verify_run(run_dir)
     r2 = json.loads((Path(run_dir) / "results" / "2.json").read_text(encoding="utf-8"))
     assert r2["confidence_before_verify"] == "high" and r2["confidence_reason"].count("自動検証で問題") == 1
 
 
 def test_build_failure_is_attributed_to_the_changed_file(repo):
-    run_dir = service.start_run(str(repo), "all.yaml", verify_mode="build")["run_dir"]
+    run_dir = runs.start_run(str(repo), "all.yaml", verify_mode="build")["run_dir"]
     triage(run_dir, {
         "1": ("src/a.c", "return 1; /* WARN:NULL_RETURNS:f1 */", "return 1;"),
         "2": ("src/b.c", "    return 3;", "    SYNTAX_ERROR return 3;"),
     })
-    out = service.verify_run(run_dir)
+    out = runs.verify_run(run_dir)
     assert out["build_ok"] is False and out["downgraded_to_low"] == ["2"]
     v1 = json.loads((Path(run_dir) / "results" / "1.verify.json").read_text(encoding="utf-8"))["fix"]
     assert v1["build_ok"] is None and "確認できませんでした" in v1["note"]
 
 
 def test_conflicting_fixes_are_reported(repo):
-    run_dir = service.start_run(str(repo), "all.yaml", verify_mode="build")["run_dir"]
+    run_dir = runs.start_run(str(repo), "all.yaml", verify_mode="build")["run_dir"]
     same_line = ("src/a.c", "    return 1;", "    return 10;")
     triage(run_dir, {"1": same_line, "2": ("src/a.c", "    return 1;", "    return 11;")})
-    service.verify_run(run_dir)
+    runs.verify_run(run_dir)
     v2 = json.loads((Path(run_dir) / "results" / "2.verify.json").read_text(encoding="utf-8"))["fix"]
     assert v2["applied"] is False and "まとめた検証に含められません" in v2["problems"][0]
 
 
 def test_trial_build_and_saving_settings(repo):
-    ok = service.trial_build(str(repo), "", f'"{sys.executable}" build.py')
+    ok = onboarding.trial_build(str(repo), "", f'"{sys.executable}" build.py')
     assert ok["build_ok"] is True
-    ng = service.trial_build(str(repo), "", f'"{sys.executable}" -c "raise SystemExit(3)"')
+    ng = onboarding.trial_build(str(repo), "", f'"{sys.executable}" -c "raise SystemExit(3)"')
     assert ng["build_ok"] is False
-    service.write_verify_config(str(repo), "envset.bat \"{root}\"", "make -f makefileXX", default="build")
+    onboarding.write_verify_config(str(repo), "envset.bat \"{root}\"", "make -f makefileXX", default="build")
     conf = cfg.load_project_config(repo)
     assert conf.verify.setup_command == 'envset.bat "{root}"' and conf.verify.default == "build"
 
 
 def test_verify_none_does_nothing(repo):
-    run_dir = service.start_run(str(repo), "all.yaml", verify_mode="none")["run_dir"]
-    assert service.verify_run(run_dir)["mode"] == "none"
+    run_dir = runs.start_run(str(repo), "all.yaml", verify_mode="none")["run_dir"]
+    assert runs.verify_run(run_dir)["mode"] == "none"
 
 
 def test_analysis_parsing_and_matching(tmp_path):
@@ -245,12 +245,12 @@ def test_batch_build_with_svn_patches(tmp_path, fake_tools):
     sh("svn", "commit", "-qm", "init", cwd=wc)
     sh("svn", "update", "-q", cwd=wc)
 
-    run_dir = service.start_run(str(wc), "all.yaml")["run_dir"]
+    run_dir = runs.start_run(str(wc), "all.yaml")["run_dir"]
     triage(run_dir, {
         "1": ("src/a.c", "    return 1; /* WARN:NULL_RETURNS:f1 */", "    return 1;"),
         "2": ("src/b.c", "    return 3;", "    return 30;"),
     })
-    out = service.verify_run(run_dir)
+    out = runs.verify_run(run_dir)
     assert out["build_ok"] is True and out["downgraded_to_low"] == []
     after = Path(run_dir) / "work" / "verify" / "after"
     assert (after / "src" / "a.c").read_bytes() == A_C.replace(" /* WARN:NULL_RETURNS:f1 */", "").replace("\n", "\r\n").encode()
@@ -263,7 +263,7 @@ def test_setup_command_passes_two_arguments(repo):
     """envset.bat takes two arguments (D-71): {root} is replaced, the other is passed as is."""
     setup = (f'"{sys.executable}" -c "import sys; open(sys.argv[1] + \'/args.txt\', \'w\').write(\'|\'.join(sys.argv[1:]))" '
              '"{root}" SECOND_ARG')
-    result = service.trial_build(str(repo), setup, f'"{sys.executable}" build.py')
+    result = onboarding.trial_build(str(repo), setup, f'"{sys.executable}" build.py')
     assert result["build_ok"] is True
     written = (Path(result["built_in"]) / "args.txt").read_text(encoding="utf-8").split("|")
     assert written == [str(Path(result["built_in"])), "SECOND_ARG"]
@@ -286,18 +286,18 @@ def test_build_dir_is_entered_after_setup(repo):
     sh("git", "commit", "-qm", "add firmware", cwd=repo)
     # a setup command that leaves the current directory somewhere else, like an envset that cds
     setup = "cd .."
-    result = service.trial_build(str(repo), setup, f'"{sys.executable}" build_here.py', "firmware/target")
+    result = onboarding.trial_build(str(repo), setup, f'"{sys.executable}" build_here.py', "firmware/target")
     assert result["build_ok"] is True, result.get("log_tail")
     built = Path(result["built_in"]) / "firmware" / "target" / "built_here.txt"
     assert built.read_text().endswith("/firmware/target")
 
-    service.write_verify_config(str(repo), setup, f'"{sys.executable}" build_here.py',
+    onboarding.write_verify_config(str(repo), setup, f'"{sys.executable}" build_here.py',
                                 default="build", build_dir="firmware/target")
     assert cfg.load_project_config(repo).verify.build_dir == "firmware/target"
-    run_dir = service.start_run(str(repo), "all.yaml")["run_dir"]
+    run_dir = runs.start_run(str(repo), "all.yaml")["run_dir"]
     triage(run_dir, {"1": ("src/a.c", "    return 1;", "    return 10;"),
                      "2": ("src/b.c", "    return 3;", "    return 30;")})
-    assert service.verify_run(run_dir)["build_ok"] is True
+    assert runs.verify_run(run_dir)["build_ok"] is True
 
 
 def test_build_dir_in_command_line_and_validation(tmp_path):

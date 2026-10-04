@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 from coverity_triage import config as cfg
-from coverity_triage import onboarding, service
+from coverity_triage import onboarding, runs
 
 
 def sh(*args, cwd):
@@ -71,9 +71,9 @@ def test_write_config_then_doctor_and_run(repo, tmp_path):
     assert onboarding.list_runs(str(repo))["runs"] == []
     sh("git", "add", ".", cwd=repo)
     sh("git", "-c", "user.name=t", "-c", "user.email=t@e", "commit", "-qm", "i", cwd=repo)
-    run_dir = service.start_run(str(repo), "untriaged.yaml")["run_dir"]
-    runs = onboarding.list_runs(str(repo))["runs"]
-    assert runs[0]["run_dir"] == run_dir and runs[0]["unfinished"] is True
+    run_dir = runs.start_run(str(repo), "untriaged.yaml")["run_dir"]
+    listed = onboarding.list_runs(str(repo))["runs"]
+    assert listed[0]["run_dir"] == run_dir and listed[0]["unfinished"] is True
 
 
 def test_doctor_without_config(tmp_path):

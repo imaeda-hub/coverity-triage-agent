@@ -33,11 +33,17 @@ coverity-triage/                         … プラグインのルート
 │     └─ coverity-help    … 質問・設定変更・効果測定（案内役）
 └─ server/                               … Python 製 MCP サーバ（D-40, D-41, D-42）
    ├─ pyproject.toml                     … Python 3.12 以上（D-46）
-   └─ coverity_triage/
+   └─ src/coverity_triage/
       ├─ mcp_server.py                   … ツールの公開窓口
+      ├─ runs.py                         … 実行の開始・再開・進捗・一覧サマリ・まとめた検証（D-15, D-72）
+      ├─ worker.py                       … 作業項目の調査の道具（ソースの参照・編集・提出）
+      ├─ apply.py                        … 承認の反映（D-27〜D-31, D-63）
+      ├─ knowledge.py                    … プロジェクトの知識の候補と追記（D-78）
+      ├─ onboarding.py                   … 準備・診断・試しのビルド（D-66〜D-70, D-75）
       ├─ config.py                       … 設定ファイル・条件ファイルの読み込みと検証（D-49, D-50）
-      ├─ coverity/                       … Coverity Connect 接続（REST：検索・書き戻し／SOAP：警告経路・スナップショット、D-77）
-      ├─ vcs/                            … git / svn / GitHub の操作（D-25〜D-29, D-57, D-58）
+      ├─ coverity.py / connect.py        … Coverity Connect 接続（REST：検索・書き戻し／SOAP：警告経路・スナップショット、D-77）
+      ├─ vcs.py / workspace.py           … git / svn / GitHub の操作と作業領域（D-25〜D-29, D-57, D-58）
+      ├─ pathmap.py                      … Coverity のパスとリポジトリのパスの対応づけ（I-9）
       ├─ grouping.py                     … グループ候補の機械的な作成（D-53）
       ├─ verify.py                       … ビルド・再解析の実行（D-10, D-42）
       ├─ run_state.py                    … 実行フォルダ・進捗・再開（D-15, D-43, D-51）

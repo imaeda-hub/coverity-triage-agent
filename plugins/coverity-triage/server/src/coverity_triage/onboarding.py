@@ -20,6 +20,9 @@ from .coverity import make_client
 from .encoding import decode
 from .envvars import get_env
 from .run_state import RUN_FILE
+from .runs import output_dir_of
+from .vcs import make_vcs
+from .verify import trial_build as run_trial_build
 
 SOURCE_SUFFIXES = {".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".inl"}
 MAX_SCANNED_FILES = 3000
@@ -257,3 +260,44 @@ def list_runs(repo_root: str, limit: int = 10) -> dict[str, Any]:
                      "applied_items": applied,
                      "summary_exists": (run_file.parent / "summary.md").is_file()})
     return {"output_dir": str(output), "runs": runs}
+
+
+# ---- verification settings (spec D-75, D-76) ---------------------------------------------------
+
+
+def trial_build(repo_root: str, setup_command: str, build_command: str,
+                build_dir: str = "") -> dict[str, Any]:
+    """Build the latest code once with the given commands, before saving them (spec D-75, D-76)."""
+    config = cfg.load_project_config(repo_root)
+    verify = config.verify.model_copy(update={"setup_command": setup_command,
+                                              "build_command": build_command,
+                                              "build_dir": build_dir})
+    work = Path(output_dir_of(repo_root)) / "_trial-build"
+    if work.exists():
+        shutil.rmtree(work)
+    vcs = make_vcs(repo_root, config.vcs, work, "trial")
+    _, root = vcs.latest()
+    result = run_trial_build(verify, root, work / "trial-build.log")
+    result["built_in"] = str(root)
+    return result
+
+
+def write_verify_config(repo_root: str, setup_command: str, build_command: str,
+                        default: str = "none", cov_build_args: str | None = None,
+                        cov_analyze_args: str | None = None, build_dir: str = "") -> dict[str, Any]:
+    """Save verification settings into config.yaml after the person agreed (spec D-75)."""
+    path = cfg.config_dir(repo_root) / cfg.CONFIG_FILE_NAME
+    text = path.read_text(encoding="utf-8")
+    header = "".join(line + "\n" for line in text.splitlines() if line.startswith("#"))
+    data = yaml.safe_load(text) or {}
+    verify = dict(data.get("verify") or {})
+    verify.update(default=default, setup_command=setup_command, build_dir=build_dir,
+                  build_command=build_command)
+    if cov_build_args is not None:
+        verify["cov_build_args"] = cov_build_args
+    if cov_analyze_args is not None:
+        verify["cov_analyze_args"] = cov_analyze_args
+    data["verify"] = verify
+    cfg.ProjectConfig.model_validate(data)
+    path.write_text(header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    return {"written": str(path), "verify": verify}
