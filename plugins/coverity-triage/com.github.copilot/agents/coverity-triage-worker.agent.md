@@ -27,7 +27,7 @@ tools:
 
 ## 手順
 
-1. `get_issue_detail` で警告の情報（イベント＝警告経路、チェッカー説明）を取得する。
+1. `get_issue_detail` で警告の情報（イベント＝警告経路、チェッカー説明）と、プロジェクトの知識（`project_knowledge`）を取得する。知識は調査・推奨・逸脱コメントのすべてで参考にする（skill: `triage-investigation`）。
 2. `prepare_workspaces` で作業領域を用意する。`drift_check` が返ってきた場合（手元のコードで調査する場合）は、ずれの有無を必ず確認する。
 3. **調査**（skill: `triage-investigation`、`checker-knowledge`）
    - `analyzed` で、イベントの各行と、関係する呼び出し元・呼び出し先を読み、警告経路が実際に成立するかを判断する。

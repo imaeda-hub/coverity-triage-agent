@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from coverity_triage import config as cfg
 from coverity_triage import service
 from coverity_triage.service import ServiceError
 
@@ -93,6 +94,7 @@ def test_full_flow(repo):
     assert first["item"] == "G1" and first["cids"] == [1, 2]
     detail = service.get_issue_detail(run_dir, "G1")
     assert detail["details"][0]["events"][0]["tag"] == "dereference"
+    assert detail["project_knowledge"] == ""
     prep = service.prepare_workspaces(run_dir, "G1")
     assert "drift_check" in prep
     lines = service.read_source(run_dir, "G1", "analyzed", "src/sample.c", 5, 6)
@@ -147,6 +149,23 @@ def test_full_flow(repo):
     assert stats["deviation_edited_rate"] == 1.0
     # only the fake client's write log appears; the user's code is untouched
     assert sh("git", "status", "--porcelain", cwd=repo) == "?? .coverity-triage/fake-issues.yaml.writes.jsonl\n"
+
+    # lessons from the person's changes (spec D-78)
+    found = service.knowledge_candidates(run_dir)
+    by_item = {c["item"]: c for c in found["candidates"]}
+    assert set(by_item) == {"G1", "3"}
+    assert by_item["G1"]["human_comment"] == "誤検知。呼び出し元 main() で保証。"
+    assert (by_item["3"]["ai_recommendation"], by_item["3"]["human_decision"]) == ("修正", "却下")
+    assert by_item["3"]["checker"] and by_item["3"]["file"] == "src/sample.c"
+    with pytest.raises(cfg.ConfigError):
+        service.add_knowledge(run_dir, ["  "])
+    added = service.add_knowledge(run_dir, ["get_buf() の呼び出し元は main() だけで、\n常に有効なバッファを渡す"])
+    text = Path(added["file"]).read_text(encoding="utf-8")
+    assert "## 調査で使う事実" in text and "- get_buf() の呼び出し元は main() だけで、 常に有効なバッファを渡す\n" in text
+    assert "実行 " + Path(run_dir).name in text
+    later = service.start_run(str(repo), "all.yaml")["run_dir"]
+    item = service.next_work_item(later)["item"]
+    assert "常に有効なバッファ" in service.get_issue_detail(later, item)["project_knowledge"]
 
 
 def test_resume_retries_errors(repo):

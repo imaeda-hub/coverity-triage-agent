@@ -161,7 +161,12 @@ def write_project_config(repo_root: str, coverity_url: str, project: str, stream
     if overwrite or not filter_path.exists():
         filter_path.write_text(yaml.safe_dump(filter_data, allow_unicode=True, sort_keys=False),
                                encoding="utf-8")
-    return {"written": [str(config_path), str(filter_path)],
+    written = [str(config_path), str(filter_path)]
+    knowledge_path = target / cfg.KNOWLEDGE_FILE_NAME
+    if not knowledge_path.exists():  # never overwrite what the team has written
+        knowledge_path.write_text(cfg.KNOWLEDGE_TEMPLATE, encoding="utf-8")
+        written.append(str(knowledge_path))
+    return {"written": written,
             "next": "内容を確認してコミットし、チームで共有してください（パスワード等は含まれていません）"}
 
 

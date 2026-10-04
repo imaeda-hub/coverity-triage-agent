@@ -71,7 +71,7 @@ README「はじめに」の 1 の手順で入れます。試用では、clone �
 | No | 確認すること | 確認方法 | 関係するファイル |
 |---|---|---|---|
 | C-1 | `plugin.json` が受け付けられるか（必須項目の不足がないか） | インストール時にエラーが出ないか | `plugin.json` |
-| C-2 | MCP サーバが起動するか（`mcp.json` のプラグインルートの変数 `${PLUGIN_ROOT}` の書き方が正しいか） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 23 個見えるか | `mcp.json` |
+| C-2 | MCP サーバが起動するか（`mcp.json` のプラグインルートの変数 `${PLUGIN_ROOT}` の書き方が正しいか） | Copilot の MCP サーバ一覧に `coverity-triage` が表示され、ツールが 25 個見えるか | `mcp.json` |
 | C-3 | エージェントが選べるか | エージェントの一覧に `coverity-guide`、`coverity-triage`、`coverity-triage-apply` が出るか（`coverity-triage-worker` は一覧に出ない想定） | `com.github.copilot/agents/*.agent.md` |
 | C-4 | モデルの固定が効くか | エージェント選択時のモデルが `gpt-6 luna` になるか。モデル名の正しい書き方も確認 | 各 `.agent.md` の `model:` |
 | C-5 | ツールの制限が効くか | `coverity-triage` エージェントから `apply_approvals` が使えないこと | 各 `.agent.md` の `tools:` |
@@ -98,6 +98,7 @@ README「はじめに」の 1 の手順で入れます。試用では、clone �
 4. **承認の反映**：`/coverity-apply <実行フォルダ>`
    - 期待：反映前に件数が表示され、同意を求められる。同意すると、逸脱は `.coverity-triage\fake-issues.yaml.writes.jsonl` に書き戻しが記録される（偽データのため）。
    - 修正の反映は push とプルリクエスト作成になるため、リモートが無い試用環境ではエラーになります（想定どおり）。
+   - 期待：反映の後、却下・手直しした項目から「次回に活かす知識」の候補が示され、選んだものだけが `.coverity-triage\knowledge.md` に追記される（仕様 D-78）。
 5. **効果測定の集計**：`/coverity-help どれくらい役立っている？`
    - 期待：承認の内訳、採用率、手直しの割合が表示される。
 

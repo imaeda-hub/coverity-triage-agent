@@ -8,6 +8,8 @@ tools:
   - coverity-triage/build_summary
   - coverity-triage/preview_apply
   - coverity-triage/apply_approvals
+  - coverity-triage/knowledge_candidates
+  - coverity-triage/add_knowledge
 ---
 
 # Coverity トリアージ（承認の反映）
@@ -23,6 +25,11 @@ tools:
    - 同意が得られなかった場合は何もしない。
    - 「前回の確認以降に変更された」というエラーが返った場合は、2 からやり直す。
 4. 結果を報告する：作成したプルリクエストの URL、svn patch を適用したこと（コミットは人が行う）、Coverity に登録した件数、失敗した項目とその理由。
+5. **知識の追記の提案**（仕様 D-78）：`knowledge_candidates(run_dir)` を呼ぶ。`candidates` が空なら何も言わずに終わる。
+   - 候補ごとに、AI の案と人の判断の違い（推奨を変えた、逸脱コメントを手直しした、却下した）から、**次回の調査で使える一般的な知識**を 1 行で下書きする。例：「fatal_error()（src/common/error.c）は戻らない」「レジスタアクセスのためのポインタ変換（MISRA Rule 11.x）は逸脱で正当化する」「誤検知の逸脱コメントには呼び出し元の関数名と行番号を書く」。
+   - 1 件だけの事情（その CID にしか当てはまらないこと）は書かない。`current_knowledge` にすでにある内容も書かない。却下は理由が分からないことが多いので、推測で書かず「却下した理由で今後に活かせるものがあれば教えてください」と添える。
+   - 下書きを番号付きで見せ、「追記するものを選んでください（直してもかまいません。不要なら『なし』）」と尋ねる。
+   - 人が選んだもの（直した場合はその文）だけを `add_knowledge(run_dir, entries)` で追記し、「`.coverity-triage/knowledge.md` に追記しました。確認してコミットしてください」と伝える。**人の承認なしに追記しない。**
 
 ## 反映の内容（仕様 D-27、D-29〜D-31、D-60）
 

@@ -12,6 +12,24 @@ CONFIG_DIR_NAME = ".coverity-triage"
 CONFIG_FILE_NAME = "config.yaml"
 FILTERS_DIR_NAME = "filters"
 NO_GROUPING_FILE_NAME = "no-grouping.yaml"
+KNOWLEDGE_FILE_NAME = "knowledge.md"
+KNOWLEDGE_TEMPLATE = """# プロジェクトの知識（Coverity トリアージエージェント）
+
+調査の前に AI が読みます（仕様 D-78）。チームで共有するため、コミットしてください。
+1 項目 1 行で、コードで確かめられる事実と、判断の方針を書きます。
+
+## 調査で使う事実
+
+<!-- 例：fatal_error()（src/common/error.c）は戻らない（内部で abort する） -->
+
+## 推奨の方針（修正か逸脱か）
+
+<!-- 例：ハードウェアレジスタへのアクセスのためのポインタ変換（MISRA Rule 11.x）は逸脱で正当化する -->
+
+## 逸脱コメントの書き方
+
+<!-- 例：誤検知の根拠には、呼び出し元の関数名と行番号を必ず書く -->
+"""
 
 
 class ConfigError(Exception):
@@ -182,3 +200,22 @@ def add_no_grouping(repo_root: str | Path, cids: list[int]) -> None:
     header = "# 却下されたグループの CID。次回以降はグループ化せず個別に処理する（自動追記）\n"
     path.write_text(header + yaml.safe_dump({"cids": merged}, allow_unicode=True),
                     encoding="utf-8")
+
+
+def load_knowledge(repo_root: str | Path) -> str:
+    """Project knowledge the worker reads before investigating (spec D-78)."""
+    path = config_dir(repo_root) / KNOWLEDGE_FILE_NAME
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+def append_knowledge(repo_root: str | Path, entries: list[str], source: str) -> Path:
+    """Append entries the person approved, under a heading that says where they came from."""
+    lines = [" ".join(e.split()) for e in entries if e.strip()]
+    if not lines:
+        raise ConfigError("追記する内容がありません")
+    path = config_dir(repo_root) / KNOWLEDGE_FILE_NAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = path.read_text(encoding="utf-8") if path.is_file() else KNOWLEDGE_TEMPLATE
+    block = f"\n## 追記（{source}）\n\n" + "".join(f"- {line}\n" for line in lines)
+    path.write_text(current.rstrip("\n") + "\n" + block, encoding="utf-8")
+    return path
