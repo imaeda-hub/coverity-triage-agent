@@ -5,7 +5,19 @@ Coverity の警告を AI が調査し、警告ごとに **「修正案」と「�
 
 ## はじめに（初回だけ・約 15 分）
 
-1. **プラグインを入れる**：VS Code の GitHub Copilot に、社内配布の `coverity-triage` プラグインをインストールします。（正確な操作は試用後に記載します）
+1. **プラグインを入れる**：次のどちらかで入れます（`<組織>/<リポジトリ>` はこのリポジトリの置き場所）。
+   - **Copilot CLI がある場合**：次を 1 回実行します。CLI で入れたプラグインは VS Code でも自動で使えます。
+
+     ```
+     copilot plugin install <組織>/<リポジトリ>:plugins/coverity-triage
+     ```
+
+   - **VS Code だけの場合**：このリポジトリを `git clone` し、VS Code の設定（settings.json）に次を追加します。
+
+     ```json
+     "chat.pluginLocations": { "<clone したフォルダ>/plugins/coverity-triage": true }
+     ```
+
 2. **対象リポジトリを VS Code で開き、Copilot Chat で次を入力します。**
 
    ```

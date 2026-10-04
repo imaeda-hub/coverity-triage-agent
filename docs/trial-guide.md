@@ -55,12 +55,12 @@ git commit -m "init"
 
 ### A-3. プラグインをインストールする
 
-`plugins/coverity-triage` フォルダをローカルのプラグインとしてインストールします。
+README「はじめに」の 1 の手順で入れます。試用では、clone 済みのこのリポジトリのフォルダを使って構いません。
 
-- **VS Code**：コマンドパレットからエージェントプラグインのインストール（ローカルフォルダ指定）を実行する。
-- **Copilot CLI**：プラグインのインストールコマンドでローカルパスを指定する。
+- **Copilot CLI**：`copilot plugin install <このリポジトリ>\plugins\coverity-triage`（ローカルパス指定）。GitHub に置いた後は `copilot plugin install <組織>/<リポジトリ>:plugins/coverity-triage` も試す。
+- **VS Code**：CLI で入れたプラグインが、拡張機能ビューの **Agent Plugins - Installed** に自動で表示されるか確認する。表示されない場合は、設定 `chat.pluginLocations` に `<このリポジトリ>\plugins\coverity-triage` を `true` で追加する。
 
-正確な操作は一次資料（「Agent plugins in VS Code」「Creating a plugin for GitHub Copilot CLI」）に従ってください。
+参考：[Agent plugins in VS Code](https://code.visualstudio.com/docs/agent-customization/agent-plugins)、[GitHub Copilot CLI plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
 
 > 記録：インストールの手順（実際に使った操作・コマンド）、成功したか
 
