@@ -13,7 +13,6 @@ dependencies = [
 
 [project.scripts]
 coverity-triage-mcp = "coverity_triage.mcp_server:main"
-coverity-triage = "coverity_triage.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

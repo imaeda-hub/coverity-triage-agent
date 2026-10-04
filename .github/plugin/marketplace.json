@@ -1,0 +1,17 @@
+{
+  "name": "coverity-triage-agent",
+  "owner": {
+    "name": "imaeda-hub"
+  },
+  "metadata": {
+    "description": "Coverity のトリアージを支援するプラグイン"
+  },
+  "plugins": [
+    {
+      "name": "coverity-triage",
+      "description": "Coverity Connect の警告をトリアージし、修正案と逸脱コメント案の両方を作るエージェント（C / C++、標準・MISRA・CERT）",
+      "version": "0.1.0",
+      "source": "plugins/coverity-triage"
+    }
+  ]
+}

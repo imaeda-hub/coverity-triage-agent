@@ -5,7 +5,7 @@ Coverity の警告を AI が調査し、警告ごとに **「修正案」と「�
 
 ## はじめに（初回だけ・約 15 分）
 
-1. **プラグインを入れる**：このリポジトリの `plugins/coverity-triage` を、VS Code または Copilot CLI にプラグインとしてインストールします。
+1. **プラグインを入れる**：このリポジトリを VS Code または Copilot CLI にプラグインのマーケットプレイスとして登録し、`coverity-triage` をインストールします。
 2. **対象リポジトリを VS Code で開き、Copilot Chat で次を入力します。**
 
    ```
@@ -81,6 +81,7 @@ flowchart LR
 | [docs/design.md](docs/design.md) | 構成設計と実装の状況 |
 | [docs/trial-guide.md](docs/trial-guide.md) | 開発時の試用・確認の手順 |
 | `plugins/coverity-triage/` | プラグイン本体（エージェント、Skill、コマンド、MCP サーバ） |
+| `.github/plugin/marketplace.json` | マーケットプレイスの定義（プラグインを更新するときは `plugin.json` と `version` をそろえる） |
 | `examples/sample-target/` | 試用用の対象リポジトリ（偽の Coverity データ付き） |
 | `tools/coverity_api_probe.py` | Coverity Connect の API 調査スクリプト（読み取りのみ） |
 

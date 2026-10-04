@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from coverity_triage import apply, knowledge, onboarding, runs, worker
 from coverity_triage import config as cfg
-from coverity_triage import service
-from coverity_triage.service import ServiceError
+from coverity_triage.run_state import RunStore
+from coverity_triage.runs import ServiceError
+from coverity_triage.vcs import GitVcs
 
 SOURCE = (
     "#include <stddef.h>\n"
@@ -47,13 +49,14 @@ def repo(tmp_path):
     sh("git", "init", "-q", "-b", "main", cwd=repo)
     sh("git", "config", "user.name", "t", cwd=repo)
     sh("git", "config", "user.email", "t@e", cwd=repo)
-    service.init_project(str(repo), "git")
+    onboarding.write_project_config(str(repo), "https://cov.example", "P", "S", "git", "main", api="fake")
     conf = repo / ".coverity-triage"
     (conf / "fake-issues.yaml").write_text(yaml.safe_dump({
-        "snapshot": {"version": ""},
+        "snapshot": {"sourceVersion": ""},
         "issues": [fake_issue(1, "read_all", 6), fake_issue(2, "read_all", 5), fake_issue(3, "other", 11)],
     }), encoding="utf-8")
     config = yaml.safe_load((conf / "config.yaml").read_text(encoding="utf-8"))
+    config["coverity"]["fake_data"] = "fake-issues.yaml"
     config["output_dir"] = str(tmp_path / "out")
     (conf / "config.yaml").write_text(yaml.safe_dump(config, allow_unicode=True), encoding="utf-8")
     (conf / "filters" / "all.yaml").write_text("project: P\n", encoding="utf-8")
@@ -78,46 +81,46 @@ def result(item, recommendation="deviation", confidence="high", excluded=()):
 
 
 def work(run_dir, item_id, old, new, **kwargs):
-    service.prepare_workspaces(run_dir, item_id)
-    service.edit_source(run_dir, item_id, "fix", "src/sample.c", old, new)
-    service.save_fix(run_dir, item_id, "fix", f"Fix {item_id}")
-    return service.submit_result(run_dir, item_id, result(item_id, **kwargs))
+    worker.prepare_workspaces(run_dir, item_id)
+    worker.edit_source(run_dir, item_id, "fix", "src/sample.c", old, new)
+    worker.save_fix(run_dir, item_id, "fix", f"Fix {item_id}")
+    return worker.submit_result(run_dir, item_id, result(item_id, **kwargs))
 
 
 def test_full_flow(repo):
-    started = service.start_run(str(repo), "all.yaml")
+    started = runs.start_run(str(repo), "all.yaml")
     run_dir = started["run_dir"]
     assert (started["found"], started["items"], started["groups"]) == (3, 2, 1)
     assert started["analyzed_revision_source"] == "local"
 
-    first = service.next_work_item(run_dir)
+    first = runs.next_work_item(run_dir)
     assert first["item"] == "G1" and first["cids"] == [1, 2]
-    detail = service.get_issue_detail(run_dir, "G1")
+    detail = worker.get_issue_detail(run_dir, "G1")
     assert detail["details"][0]["events"][0]["tag"] == "dereference"
-    assert detail["project_knowledge"] == ""
-    prep = service.prepare_workspaces(run_dir, "G1")
+    assert "## 調査で使う事実" in detail["project_knowledge"]  # template from setup
+    prep = worker.prepare_workspaces(run_dir, "G1")
     assert "drift_check" in prep
-    lines = service.read_source(run_dir, "G1", "analyzed", "src/sample.c", 5, 6)
+    lines = worker.read_source(run_dir, "G1", "analyzed", "src/sample.c", 5, 6)
     assert lines["content"].startswith("5:     char *buf")
-    hits = service.search_source(run_dir, "G1", "analyzed", r"get_buf\(\)")
+    hits = worker.search_source(run_dir, "G1", "analyzed", r"get_buf\(\)")
     assert len(hits["hits"]) == 2
     with pytest.raises(ServiceError):
-        service.edit_source(run_dir, "G1", "analyzed", "src/sample.c", "a", "b")
+        worker.edit_source(run_dir, "G1", "analyzed", "src/sample.c", "a", "b")
     with pytest.raises(ServiceError, match="修正案のコード"):
-        service.submit_result(run_dir, "G1", result("G1"))
+        worker.submit_result(run_dir, "G1", result("G1"))
     out = work(run_dir, "G1", "    return buf[0];", "    return buf ? buf[0] : 0;", excluded=[2])
     assert out["split_into_new_items"] == ["2"]
 
-    second = service.next_work_item(run_dir)
+    second = runs.next_work_item(run_dir)
     assert second["item"] == "3"
     work(run_dir, "3", "    return buf[1];", "    return buf ? buf[1] : 0;",
          recommendation="fix", confidence="low")
-    third = service.next_work_item(run_dir)
+    third = runs.next_work_item(run_dir)
     assert third["item"] == "2"
-    service.report_error(run_dir, "2", "ソースが見つからない")
-    assert service.next_work_item(run_dir)["item"] is None
+    runs.report_error(run_dir, "2", "ソースが見つからない")
+    assert runs.next_work_item(run_dir)["item"] is None
 
-    summary = service.build_summary(run_dir)
+    summary = runs.build_summary(run_dir)
     text = Path(summary["summary"]).read_text(encoding="utf-8")
     rows = [l for l in text.splitlines() if l.startswith("| 修正") or l.startswith("| 逸脱")]
     assert rows[0].startswith("| 修正 | 3 |") and rows[1].startswith("| 逸脱 | G1（1 件） |")
@@ -127,23 +130,23 @@ def test_full_flow(repo):
     report = Path(run_dir) / "cid" / "G1.md"
     report.write_text(report.read_text(encoding="utf-8").replace("呼び出し元で保証されている。", "呼び出し元 main() で保証。"), encoding="utf-8")
     Path(summary["summary"]).write_text(text.replace("| 修正 | 3 |", "| 却下 | 3 |"), encoding="utf-8")
-    service.build_summary(run_dir)
+    runs.build_summary(run_dir)
     assert "| 却下 | 3 |" in Path(summary["summary"]).read_text(encoding="utf-8")
 
-    preview = service.preview_apply(run_dir)
+    preview = apply.preview_apply(run_dir)
     assert preview["counts"] == {"修正": 0, "逸脱": 1, "却下": 1}
     with pytest.raises(ServiceError, match="preview_apply"):
-        service.apply_approvals(run_dir, "wrong")
-    applied = service.apply_approvals(run_dir, preview["confirmation_token"])
+        apply.apply_approvals(run_dir, "wrong")
+    applied = apply.apply_approvals(run_dir, preview["confirmation_token"])
     assert all(r["ok"] for r in applied["results"])
 
     writes = (repo / ".coverity-triage" / "fake-issues.yaml.writes.jsonl").read_text(encoding="utf-8").splitlines()
     assert json.loads(writes[0]) == {"cids": [1], "classification": "False Positive", "action": "Ignore",
                                      "severity": "Unspecified", "comment": "誤検知。呼び出し元 main() で保証。"}
     # already applied items are not applied twice
-    assert service.preview_apply(run_dir)["items"] == []
+    assert apply.preview_apply(run_dir)["items"] == []
 
-    stats = service.get_stats(str(Path(run_dir).parent))
+    stats = runs.get_stats(str(Path(run_dir).parent))
     assert stats["approvals"] == {"fix": 0, "deviation": 1, "reject": 1}
     assert stats["recommendation_adopted_rate"] == 0.5
     assert stats["deviation_edited_rate"] == 1.0
@@ -151,30 +154,30 @@ def test_full_flow(repo):
     assert sh("git", "status", "--porcelain", cwd=repo) == "?? .coverity-triage/fake-issues.yaml.writes.jsonl\n"
 
     # lessons from the person's changes (spec D-78)
-    found = service.knowledge_candidates(run_dir)
+    found = knowledge.knowledge_candidates(run_dir)
     by_item = {c["item"]: c for c in found["candidates"]}
     assert set(by_item) == {"G1", "3"}
     assert by_item["G1"]["human_comment"] == "誤検知。呼び出し元 main() で保証。"
     assert (by_item["3"]["ai_recommendation"], by_item["3"]["human_decision"]) == ("修正", "却下")
     assert by_item["3"]["checker"] and by_item["3"]["file"] == "src/sample.c"
     with pytest.raises(cfg.ConfigError):
-        service.add_knowledge(run_dir, ["  "])
-    added = service.add_knowledge(run_dir, ["get_buf() の呼び出し元は main() だけで、\n常に有効なバッファを渡す"])
+        knowledge.add_knowledge(run_dir, ["  "])
+    added = knowledge.add_knowledge(run_dir, ["get_buf() の呼び出し元は main() だけで、\n常に有効なバッファを渡す"])
     text = Path(added["file"]).read_text(encoding="utf-8")
     assert "## 調査で使う事実" in text and "- get_buf() の呼び出し元は main() だけで、 常に有効なバッファを渡す\n" in text
     assert "実行 " + Path(run_dir).name in text
-    later = service.start_run(str(repo), "all.yaml")["run_dir"]
-    item = service.next_work_item(later)["item"]
-    assert "常に有効なバッファ" in service.get_issue_detail(later, item)["project_knowledge"]
+    later = runs.start_run(str(repo), "all.yaml")["run_dir"]
+    item = runs.next_work_item(later)["item"]
+    assert "常に有効なバッファ" in worker.get_issue_detail(later, item)["project_knowledge"]
 
 
 def test_resume_retries_errors(repo):
-    run_dir = service.start_run(str(repo), "all.yaml")["run_dir"]
-    item = service.next_work_item(run_dir)["item"]
-    service.report_error(run_dir, item, "x")
-    resumed = service.resume_run(run_dir)
+    run_dir = runs.start_run(str(repo), "all.yaml")["run_dir"]
+    item = runs.next_work_item(run_dir)["item"]
+    runs.report_error(run_dir, item, "x")
+    resumed = runs.resume_run(run_dir)
     assert resumed["reset"] == {"in_progress": 0, "error": 1}
-    assert service.next_work_item(run_dir)["item"] == item
+    assert runs.next_work_item(run_dir)["item"] == item
 
 
 def test_fix_approval_pushes_branch_and_creates_pr(repo, tmp_path, monkeypatch):
@@ -188,26 +191,26 @@ def test_fix_approval_pushes_branch_and_creates_pr(repo, tmp_path, monkeypatch):
         created.update(branch=branch, title=title)
         return "https://github.example/pr/1"
 
-    monkeypatch.setattr(service.GitVcs, "create_pull_request", fake_pr)
-    run_dir = service.start_run(str(repo), "all.yaml", {"checkers": ["NULL_RETURNS"]})["run_dir"]
-    service.next_work_item(run_dir)
+    monkeypatch.setattr(GitVcs, "create_pull_request", fake_pr)
+    run_dir = runs.start_run(str(repo), "all.yaml", {"checkers": ["NULL_RETURNS"]})["run_dir"]
+    runs.next_work_item(run_dir)
     work(run_dir, "G1", "    return buf[0];", "    return buf ? buf[0] : 0;", recommendation="fix")
-    service.build_summary(run_dir)
-    token = service.preview_apply(run_dir)["confirmation_token"]
-    out = service.apply_approvals(run_dir, token)["results"][0]
+    runs.build_summary(run_dir)
+    token = apply.preview_apply(run_dir)["confirmation_token"]
+    out = apply.apply_approvals(run_dir, token)["results"][0]
     assert out["ok"] and out["fix"]["pull_request"] == "https://github.example/pr/1"
     assert created["branch"] == "coverity-fix/" + Path(run_dir).name + "-G1"
     assert "coverity-fix/" in sh("git", "ls-remote", "--heads", str(remote), cwd=repo)
 
 
 def test_retry_does_not_write_coverity_twice(repo, monkeypatch):
-    run_dir = service.start_run(str(repo), "all.yaml")["run_dir"]
-    service.next_work_item(run_dir)
+    run_dir = runs.start_run(str(repo), "all.yaml")["run_dir"]
+    runs.next_work_item(run_dir)
     work(run_dir, "G1", "    return buf[0];", "    return buf ? buf[0] : 0;")
-    service.build_summary(run_dir)
+    runs.build_summary(run_dir)
 
     # a step after the Coverity write fails once
-    original = service.RunStore.mark_applied
+    original = RunStore.mark_applied
     calls = []
 
     def flaky(self, item_id, result):
@@ -216,13 +219,13 @@ def test_retry_does_not_write_coverity_twice(repo, monkeypatch):
             raise RuntimeError("後続の処理で失敗")
         return original(self, item_id, result)
 
-    monkeypatch.setattr(service.RunStore, "mark_applied", flaky)
-    token = service.preview_apply(run_dir)["confirmation_token"]
-    first = service.apply_approvals(run_dir, token)["results"][0]
+    monkeypatch.setattr(RunStore, "mark_applied", flaky)
+    token = apply.preview_apply(run_dir)["confirmation_token"]
+    first = apply.apply_approvals(run_dir, token)["results"][0]
     assert first["ok"] is False and first["coverity"] == "登録済み"
 
-    token = service.preview_apply(run_dir)["confirmation_token"]
-    second = service.apply_approvals(run_dir, token)["results"][0]
+    token = apply.preview_apply(run_dir)["confirmation_token"]
+    second = apply.apply_approvals(run_dir, token)["results"][0]
     assert second["ok"] is True and "省略" in second["coverity"]
     writes = (repo / ".coverity-triage" / "fake-issues.yaml.writes.jsonl").read_text(encoding="utf-8")
     assert len(writes.splitlines()) == 1

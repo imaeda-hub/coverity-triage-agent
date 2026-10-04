@@ -16,15 +16,15 @@ coverity-triage/                         … プラグインのルート
 │  ├─ checker-knowledge/                 … チェッカー別の判断観点（D-6）
 │  │  ├─ SKILL.md
 │  │  └─ references/ standard.md, misra.md, cert.md
-│  ├─ code-fix/SKILL.md                  … 修正方針（D-37, D-38）、文字コード保持（D-36）、社内規約（U-3）
-│  ├─ deviation-comment/SKILL.md         … 逸脱コメント（D-22〜D-24）、アノテーション（D-59）
+│  ├─ code-fix/SKILL.md                  … 修正方針（D-37, D-38）、文字コード保持（D-36）、社内規約（U-3）、アノテーション（D-59）
+│  ├─ deviation-comment/SKILL.md         … 逸脱コメント（D-22〜D-24）、Classification / Action / Severity の選び方
 │  ├─ triage-report/SKILL.md             … レポートに書く内容の基準（D-20, D-55）
 │  └─ coverity-guide/                    … 案内役の手順と知識（設定・使い方・困ったとき、D-65）
 ├─ com.github.copilot/                   … Copilot 固有の部品
 │  ├─ agents/
 │  │  ├─ coverity-triage.agent.md        … 親エージェント：進捗管理・グループ化・サブエージェント起動・集約（D-39）
-│  │  ├─ coverity-triage-worker.agent.md … サブエージェント：1 CID / 1 グループの調査 → 2 案作成 → 検証
-│  │  ├─ coverity-triage-apply.agent.md  … 承認の反映専用（apply_approvals を使えるのはこのエージェントだけ）
+│  │  ├─ coverity-triage-worker.agent.md … サブエージェント：1 CID / 1 グループの調査 → 2 案作成（検証は親がまとめて行う、D-72）
+│  │  ├─ coverity-triage-apply.agent.md  … 承認の反映専用（apply_approvals を使えるのはこのエージェントだけ）。反映後に知識の追記を提案（D-78）
 │  │  └─ coverity-guide.agent.md         … 案内役（準備と質問、D-66）
 │  └─ commands/                          … 利用者向けの 4 つのコマンド（D-69）
 │     ├─ coverity-setup   … 準備（案内役）
@@ -33,11 +33,17 @@ coverity-triage/                         … プラグインのルート
 │     └─ coverity-help    … 質問・設定変更・効果測定（案内役）
 └─ server/                               … Python 製 MCP サーバ（D-40, D-41, D-42）
    ├─ pyproject.toml                     … Python 3.12 以上（D-46）
-   └─ coverity_triage/
+   └─ src/coverity_triage/
       ├─ mcp_server.py                   … ツールの公開窓口
+      ├─ runs.py                         … 実行の開始・再開・進捗・一覧サマリ・まとめた検証（D-15, D-72）
+      ├─ worker.py                       … 作業項目の調査の道具（ソースの参照・編集・提出）
+      ├─ apply.py                        … 承認の反映（D-27〜D-31, D-63）
+      ├─ knowledge.py                    … プロジェクトの知識の候補と追記（D-78）
+      ├─ onboarding.py                   … 準備・診断・試しのビルド（D-66〜D-70, D-75）
       ├─ config.py                       … 設定ファイル・条件ファイルの読み込みと検証（D-49, D-50）
-      ├─ coverity/                       … Coverity Connect 接続（REST：検索・書き戻し／SOAP：警告経路・スナップショット、D-77）
-      ├─ vcs/                            … git / svn / GitHub の操作（D-25〜D-29, D-57, D-58）
+      ├─ coverity.py / connect.py        … Coverity Connect 接続（REST：検索・書き戻し／SOAP：警告経路・スナップショット、D-77）
+      ├─ vcs.py / workspace.py           … git / svn / GitHub の操作と作業領域（D-25〜D-29, D-57, D-58）
+      ├─ pathmap.py                      … Coverity のパスとリポジトリのパスの対応づけ（I-9）
       ├─ grouping.py                     … グループ候補の機械的な作成（D-53）
       ├─ verify.py                       … ビルド・再解析の実行（D-10, D-42）
       ├─ run_state.py                    … 実行フォルダ・進捗・再開（D-15, D-43, D-51）
@@ -50,7 +56,7 @@ coverity-triage/                         … プラグインのルート
 
 ```
 <対象リポジトリ>/.coverity-triage/
-├─ config.yaml        … プロジェクト設定（init で生成）
+├─ config.yaml        … プロジェクト設定（/coverity-setup で生成）
 ├─ filters/*.yaml     … 絞り込み条件（複数用意可能）
 ├─ no-grouping.yaml   … グループ化しない CID（却下されたグループから自動追記）
 └─ knowledge.md       … プロジェクトの知識（調査の前に AI が読む。反映後に人が選んだ知識を追記。推奨の方針（D-48）もここに書く、D-78）
@@ -84,9 +90,11 @@ coverity-triage/                         … プラグインのルート
 | ソース操作 | `read_source` / `search_source` / `edit_source` | その CID / グループの作業領域に範囲を限定した読み取り・検索・編集。文字コード・改行コードを保持して保存する（確定） | D-36, D-57 |
 | 検証 | `verify_run`（全件の調査後に 1 回、D-72） / `trial_build` / `write_verify_config` | 設定に従いビルド / 再解析を実行し、警告の消滅・新規警告を返す | D-10, D-42 |
 | 結果 | `submit_result` | サブエージェントの判断結果（構造化データ）を受け取り、CID レポートを生成し、進捗を更新 | D-20 |
+| | `report_error` | 処理できなかった作業項目をエラーとして記録（再開時にやり直す） | D-51 |
 | | `build_summary` | 一覧サマリを生成（確信度の低い順、承認列に推奨案を下書き） | D-54〜D-56, D-62 |
 | 反映 | `preview_apply` | 承認列を読み取り、反映件数を返す | D-63 |
 | | `apply_approvals` | Coverity 書き戻し、push＋PR 作成、svn patch 適用 | D-27, D-29〜D-31, D-60 |
+| 知識 | `knowledge_candidates` / `add_knowledge` | 反映後に人が変えた・直した・却下した項目を返す／人が選んだ知識を `knowledge.md` に追記 | D-78 |
 | 集計 | `get_stats` | 効果測定の集計 | D-44 |
 
 ## 4. 処理フロー（トリアージ実行・案）
@@ -112,6 +120,7 @@ coverity-triage/                         … プラグインのルート
 
 利用者: 一覧サマリの承認列を確認・修正 → apply
   └─ preview_apply → 件数確認（D-63）→ apply_approvals
+     → knowledge_candidates → 知識の候補を提示 → 人が選んだものだけ add_knowledge（D-78）
 ```
 
 ## 5. 設定ファイルの書式
@@ -171,7 +180,6 @@ verify:
   build_command: "make -f makefileXX"
   cov_build_args: "--dir idir"
   cov_analyze_args: "--dir idir --all"
-model: gpt-6 luna       # 参考表示（実際の固定は D-47 の方式）
 ```
 
 ### 5.3 CID（グループ）ごとのレポートの章立て（確定）
@@ -254,7 +262,7 @@ fix:
   exceeded_constraints: []  # 超えた制約（D-38）
   already_fixed_on_latest: false  # D-58
   classification / action / severity
-revision_drift: none | detected (内容)
+revision_drift: none | detected | unknown（detected のときは内容）
 group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53）
 ```
 
@@ -276,7 +284,8 @@ group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53
 
 ## 6. 配布（確定）
 
-- 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。
+- 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。マーケットプレイスの定義は `.github/plugin/marketplace.json`（プラグイン `coverity-triage` の場所は `plugins/coverity-triage`）。
+- プラグインを更新するときは、`plugin.json` と `marketplace.json` の `version` をそろえて上げる（自動テストで一致を確認）。
 - MCP サーバの Python 環境は uv で自動構築する（`mcp.json` で uv 経由で起動）。利用者は uv を入れるだけでよい。
 
 ## 7. 実装前に確認する事項（一次資料での確認が必要）
@@ -305,7 +314,7 @@ docs/trial-guide.md           … 試用・確認の手順書
 | 部品 | 状態 |
 |---|---|
 | 設定・条件ファイル、進捗・再開、グループ化、文字コード保持、git / svn 操作、検証、レポート・サマリ、承認の反映、効果測定、MCP サーバ（25 ツール） | 実装済み・自動テスト済み（git / svn の実リポジトリで確認） |
-| エージェント 3 つ、Skill 5 つ、コマンド 5 つ | 初版を作成。動作は未確認（試用手順書 A で確認） |
+| エージェント 4 つ、Skill 6 つ、コマンド 4 つ | 作成済み。動作は未確認（試用手順書 A で確認） |
 | Coverity Connect への接続（REST / SOAP、D-77） | 実装済み・偽サーバでの自動テスト済み（`server/src/coverity_triage/connect.py`）。社内サーバでの動作は試用手順書 B で確認。偽データで動く `coverity.api: fake` も残す |
 
 ### 8.3 実装時の判断（要確認）

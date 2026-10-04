@@ -171,87 +171,103 @@ class Verifier:
         log.unlink(missing_ok=True)
         result = BatchResult(mode=mode, build_ok=False, log=str(log))
 
-        # baseline (unmodified latest code), only for re-analysis
-        baseline: list[dict[str, Any]] | None = None
+        baseline: list[dict[str, Any]] = []
         if mode == "build+analyze":
-            before = self._copy(latest_root, "before")
-            before_log = self.log_dir / "before.log"
-            before_log.unlink(missing_ok=True)
-            before_json = self.dir / "before.json"
-            if not _run_shell(build_command_line(self.config, before, mode, before_json), before, before_log):
-                result.error = "修正前のコードのビルド・解析に失敗しました（設定のコマンドを確認してください）"
-                result.log = str(before_log)
+            baseline = self._analyze_baseline(latest_root, items, result)
+            if result.error:
                 result.seconds = time.time() - started
-                for item in items:
-                    result.items[item.item_id] = {"mode": mode, "batch": True, "build_ok": False,
-                                                  "problems": [result.error], "log": str(before_log),
-                                                  "log_tail": _tail(before_log)}
                 return result
-            baseline = load_analysis(before_json)
 
-        # all fixes applied together
         after = self._copy(latest_root, "after")
-        applied: list[BatchItem] = []
+        applied = self._apply_all(after, items, result)
+        after_json = self.dir / "after.json"
+        result.build_ok = _run_shell(build_command_line(self.config, after, mode, after_json), after, log)
+        result.seconds = time.time() - started
+
+        if not result.build_ok:
+            _assign_build_failure(result, applied, log)
+        elif mode == "build":
+            for item in applied:
+                result.items[item.item_id] = {"mode": mode, "batch": True, "applied": True,
+                                              "build_ok": True, "problems": [], "log": str(log)}
+        else:
+            _assign_analysis(result, applied, baseline, load_analysis(after_json), log)
+        return result
+
+    def _analyze_baseline(self, latest_root: Path, items: list[BatchItem],
+                          result: BatchResult) -> list[dict[str, Any]]:
+        """Build and analyze the unmodified latest code once; on failure every item gets the error."""
+        before = self._copy(latest_root, "before")
+        before_log = self.log_dir / "before.log"
+        before_log.unlink(missing_ok=True)
+        before_json = self.dir / "before.json"
+        if _run_shell(build_command_line(self.config, before, result.mode, before_json), before, before_log):
+            return load_analysis(before_json)
+        result.error = "修正前のコードのビルド・解析に失敗しました（設定のコマンドを確認してください）"
+        result.log = str(before_log)
         for item in items:
-            error = apply_patch(after, item.patch_path, item.strip)
+            result.items[item.item_id] = {"mode": result.mode, "batch": True, "build_ok": False,
+                                          "problems": [result.error], "log": str(before_log),
+                                          "log_tail": _tail(before_log)}
+        return []
+
+    @staticmethod
+    def _apply_all(root: Path, items: list[BatchItem], result: BatchResult) -> list[BatchItem]:
+        """Apply every fix to one copy; fixes that clash with an earlier one are left out."""
+        applied = []
+        for item in items:
+            error = apply_patch(root, item.patch_path, item.strip)
             if error:
                 result.items[item.item_id] = {
-                    "mode": mode, "batch": True, "applied": False, "build_ok": None,
+                    "mode": result.mode, "batch": True, "applied": False, "build_ok": None,
                     "problems": ["他の修正案と同じ箇所を変更しているため、まとめた検証に含められませんでした"],
                     "detail": error[:500]}
             else:
                 applied.append(item)
+        return applied
 
-        after_json = self.dir / "after.json"
-        result.build_ok = _run_shell(build_command_line(self.config, after, mode, after_json), after, log)
-        result.seconds = time.time() - started
-        tail = _tail(log)
 
-        if not result.build_ok:
-            text = log.read_text(encoding="utf-8", errors="replace").lower()
-            error_lines = [line for line in text.splitlines() if "error" in line]
-            blamed = [i for i in applied
-                      if any(Path(f).name.lower() in line for f in i.files for line in error_lines)]
-            for item in applied:
-                entry = {"mode": mode, "batch": True, "applied": True, "log": str(log)}
-                if blamed and item not in blamed:
-                    entry.update(build_ok=None, problems=[],
-                                 note="他の修正案のビルドエラーのため、この修正案は確認できませんでした")
-                elif blamed:
-                    entry.update(build_ok=False, log_tail=tail,
-                                 problems=["ビルドエラーがこの修正案の変更したファイルで出ています"])
-                else:
-                    entry.update(build_ok=False, log_tail=tail,
-                                 problems=["ビルドに失敗しました（原因の修正案を特定できません）"])
-                result.items[item.item_id] = entry
-            return result
+def _assign_build_failure(result: BatchResult, applied: list[BatchItem], log: Path) -> None:
+    """Blame the fixes whose files appear in the error lines (spec D-73)."""
+    tail = _tail(log)
+    text = log.read_text(encoding="utf-8", errors="replace").lower()
+    error_lines = [line for line in text.splitlines() if "error" in line]
+    blamed = [i for i in applied if any(Path(f).name.lower() in line for f in i.files for line in error_lines)]
+    for item in applied:
+        entry = {"mode": result.mode, "batch": True, "applied": True, "log": str(log)}
+        if blamed and item not in blamed:
+            entry.update(build_ok=None, problems=[],
+                         note="他の修正案のビルドエラーのため、この修正案は確認できませんでした")
+        elif blamed:
+            entry.update(build_ok=False, log_tail=tail,
+                         problems=["ビルドエラーがこの修正案の変更したファイルで出ています"])
+        else:
+            entry.update(build_ok=False, log_tail=tail,
+                         problems=["ビルドに失敗しました（原因の修正案を特定できません）"])
+        result.items[item.item_id] = entry
 
-        if mode == "build":
-            for item in applied:
-                result.items[item.item_id] = {"mode": mode, "batch": True, "applied": True,
-                                              "build_ok": True, "problems": [], "log": str(log)}
-            return result
 
-        records = load_analysis(after_json)
-        known = {_key(r) for r in baseline or []}
-        new = [r for r in records if _key(r) not in known]
-        assigned: set[int] = set()
-        for item in applied:
-            remaining = [i.cid for i in item.issues if any(matches(i, r) for r in records)]
-            own_new = [r for n, r in enumerate(new) if _touches(r["file"], item.files)]
-            assigned |= {n for n, r in enumerate(new) if _touches(r["file"], item.files)}
-            problems = []
-            if remaining:
-                problems.append(f"警告が残っています: CID {remaining}")
-            if own_new:
-                problems.append(f"この修正案が変更したファイルで新しい警告が {len(own_new)} 件出ています")
-            result.items[item.item_id] = {
-                "mode": mode, "batch": True, "applied": True, "build_ok": True,
-                "resolved_cids": [i.cid for i in item.issues if i.cid not in remaining],
-                "remaining_cids": remaining, "new_issues": own_new[:20],
-                "new_issue_count": len(own_new), "problems": problems, "log": str(log)}
-        result.unassigned_new_issues = [r for n, r in enumerate(new) if n not in assigned][:50]
-        return result
+def _assign_analysis(result: BatchResult, applied: list[BatchItem], baseline: list[dict[str, Any]],
+                     records: list[dict[str, Any]], log: Path) -> None:
+    """Per fix: which warnings are gone, and which new warnings are in files it changed (spec D-73)."""
+    known = {_key(r) for r in baseline}
+    new = [r for r in records if _key(r) not in known]
+    assigned: set[int] = set()
+    for item in applied:
+        remaining = [i.cid for i in item.issues if any(matches(i, r) for r in records)]
+        own = [n for n, r in enumerate(new) if _touches(r["file"], item.files)]
+        assigned |= set(own)
+        problems = []
+        if remaining:
+            problems.append(f"警告が残っています: CID {remaining}")
+        if own:
+            problems.append(f"この修正案が変更したファイルで新しい警告が {len(own)} 件出ています")
+        result.items[item.item_id] = {
+            "mode": result.mode, "batch": True, "applied": True, "build_ok": True,
+            "resolved_cids": [i.cid for i in item.issues if i.cid not in remaining],
+            "remaining_cids": remaining, "new_issues": [new[n] for n in own][:20],
+            "new_issue_count": len(own), "problems": problems, "log": str(log)}
+    result.unassigned_new_issues = [r for n, r in enumerate(new) if n not in assigned][:50]
 
 
 def trial_build(config: VerifyConfig, root: Path, log: Path) -> dict[str, Any]:
