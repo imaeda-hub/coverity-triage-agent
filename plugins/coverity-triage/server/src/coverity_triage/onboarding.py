@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +20,7 @@ from .encoding import decode
 from .envvars import get_env
 from .run_state import RUN_FILE
 from .runs import output_dir_of
-from .vcs import make_vcs
+from .vcs import VcsError, make_vcs, run_cmd
 from .verify import trial_build as run_trial_build
 
 SOURCE_SUFFIXES = {".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".inl"}
@@ -30,12 +29,11 @@ DEFAULT_OUTPUT_DIR = "../coverity-triage-out"
 DEFAULT_FILTER = "untriaged.yaml"
 
 
-def _run(args: list[str], cwd: Path) -> str | None:
+def _git_ref(root: Path, ref: str) -> str | None:
     try:
-        proc = subprocess.run(args, cwd=cwd, capture_output=True, check=False)
-    except FileNotFoundError:
+        return run_cmd(["git", "symbolic-ref", "--short", ref], root).decode("utf-8", "replace").strip() or None
+    except VcsError:
         return None
-    return proc.stdout.decode("utf-8", "replace").strip() if proc.returncode == 0 else None
 
 
 # ---- detection -------------------------------------------------------------------------------
@@ -50,10 +48,10 @@ def detect_vcs(root: Path) -> str | None:
 
 
 def detect_base_branch(root: Path) -> str:
-    head = _run(["git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root)
+    head = _git_ref(root, "refs/remotes/origin/HEAD")
     if head and "/" in head:
         return head.split("/", 1)[1]
-    current = _run(["git", "symbolic-ref", "--short", "HEAD"], root)  # also on a branch without commits
+    current = _git_ref(root, "HEAD")  # also on a branch without commits
     return current or "main"
 
 
