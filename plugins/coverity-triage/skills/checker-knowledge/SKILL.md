@@ -14,4 +14,4 @@ user-invocable: false
 | `CERT ...` で始まるもの | [references/cert.md](references/cert.md) |
 | 上記以外（`NULL_RETURNS`、`RESOURCE_LEAK`、`OVERRUN` などの標準チェッカー） | [references/standard.md](references/standard.md) |
 
-資料にないチェッカーは、`get_issue_detail` の `checker_description` を読み、`triage-investigation` の手順で調べます。
+資料にないチェッカーは、指示ファイルの「チェッカーの説明（Coverity）」を読み、スキル `triage-investigation` の手順で調べます。

@@ -1,33 +1,34 @@
 ---
 name: coverity-help
-description: Coverity トリアージの使い方・エラーの意味・設定の変更・知識の追加・効果測定について、利用者の質問に答える。
-argument-hint: 聞きたいこと（例：このエラーは？ / MISRA だけ調べたい / どれくらい役立っている？）
+description: Coverity トリアージの使い方、エラーの意味と対処、設定の変更、知識の追加、効果の集計について、利用者の質問に答える。
+argument-hint: 聞きたいこと（例 このエラーは？ / MISRA だけ調べたい / 知識を追加したい）
 disable-model-invocation: true
+allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 ---
 
-# Coverity トリアージの質問への対応
+# Coverity トリアージの質問への答え方
 
-利用者はこのプラグインの仕組みを知りません。専門用語を避け、**一度に 1 つずつ**、短く案内してください。
-準備が足りないと分かったら、skill `coverity-setup` の手順で準備を進めてよい。
+利用者はこのプラグインの仕組みを知りません。**一度に 1 つずつ**、短く、ふつうの言葉で答えます。
 
 | 知りたいこと | 資料 |
 |---|---|
-| 設定項目の意味と決め方 | [references/settings.md](references/settings.md) |
-| 使い方（実行・サマリの読み方・承認・反映・再開） | [references/usage.md](references/usage.md) |
-| エラー・困ったときの対処 | [references/troubleshooting.md](references/troubleshooting.md) |
+| 使い方（実行、一覧の読み方、承認、反映、再開、知識） | [references/usage.md](references/usage.md) |
+| 設定の項目と変え方 | [references/settings.md](references/settings.md) |
+| エラー、困ったとき | [references/troubleshooting.md](references/troubleshooting.md) |
+
+コマンドを使うときは、スキル `coverity-triage-scripts` を読んで `ct.py` の使い方を確かめます。
 
 ## 守ること
 
-- ターミナルでコマンドを実行する前に、**何のために何をするか**を 1 行で説明する（実行の確認は Copilot が利用者に求める）。
-- git / svn / Coverity / VS Code 自体のインストールや設定変更はしない。足りない場合は社内の手順で入れてもらうよう伝える。
-- **パスワード・認証キー・トークンをチャットで尋ねない。** 入力は skill の「秘密情報の入力」の方法で、利用者がターミナルの伏せ字欄に入力する。チャットに貼られた場合は、使わずに「漏えいの恐れがあるので再発行を」と伝える。
-- 設定ファイルを書く前に、書く値を一覧で見せて同意を得る。
-- 機械的に確かめられることは、推測せず `doctor` で確かめる。認証だけを確かめたいときは `check_coverity_auth`（10 秒以内に、設定の有無と Coverity に 1 回問い合わせた結果・秒数を返す）。
-- 時間のかかるツール（`start_run`・`doctor`・`verify_run`・`trial_build`・`apply_approvals`・`selftest_step` など）が `status: running` と `job_id` を返したら、処理は続いている。元のツールを呼び直さず、`wait_job(job_id)` を結果が返るまで繰り返し呼ぶ。1 分以上かかるときは、ときどき「処理中です（○分経過）」と利用者に伝える。
+- 分からないことを推測で答えない。資料を読み、`ct.py doctor`・`ct.py status`・MCP の `check_connection` で確かめる。
+- ターミナルでコマンドを実行する前に、何のためかを 1 行で伝える。
+- 認証キーをチャットで聞かない（入れ方はスキル `coverity-setup` の手順と同じ。ターミナルの伏せ字の欄で入れる）。
+- 設定ファイル（`.coverity-triage/` の中）を変える前に、変える内容を見せて同意を得る。変えたら `ct.py doctor` で確かめる。
+- 準備が足りないと分かったら、`/coverity-setup` を使うよう案内する。
 
-## 質問への対応
+## よくある頼まれごと
 
-- 使い方は [usage.md](references/usage.md)、エラーは [troubleshooting.md](references/troubleshooting.md) を見て答える。分からないことは推測で答えず、`doctor` や `get_run_status` で確かめる。
-- 知識の追加（例：「fatal_error は戻らないと覚えて」）は、追記する 1 行を見せて同意を得てから `.coverity-triage/knowledge.md` に書く（[usage.md](references/usage.md)）。
-- 設定の変更（例：「MISRA だけ調べたい」「出力先を変えたい」「Shift_JIS にしたい」）は、[settings.md](references/settings.md) を見て、変更内容を見せて同意を得てから `.coverity-triage/` のファイルを編集し、`doctor` で確かめる。条件ファイルは新しいファイルとして追加するのがよい。
-- 効果測定（「どれくらい役立っている？」）は `get_stats(repo_root)` を使い、承認の内訳、推奨どおりに採用された割合（全体・確信度別）、手直しの割合、1 件あたりの処理時間を伝える。
+- **設定を変えたい**（例「MISRA だけ調べたい」「結果の置き場所を変えたい」）：[settings.md](references/settings.md) を見て、変える内容を見せて同意を得てから編集する。条件は、新しい条件ファイルを足すのがよい。
+- **知識を足したい**（例「fatal_error は戻らないと覚えて」）：`.coverity-triage/knowledge.md` に足す 1 行を見せ、同意を得てから追記する。コミットして共有するよう伝える。
+- **どれくらい役に立っているか**：設定 `options.metrics` が true なら `ct.py stats --repo <repo_root>` で、推奨がそのまま採用された割合、手直しの割合、1 件あたりの時間を伝える。false なら、オプションで記録できることを伝える。
+- **エラーが出た**：[troubleshooting.md](references/troubleshooting.md) の表で探す。無ければ、実行フォルダの `operations.log`（認証情報は伏せてある）を添えて、プラグインの管理者に連絡するよう伝える。

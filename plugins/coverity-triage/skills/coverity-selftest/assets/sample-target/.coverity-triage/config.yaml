@@ -1,26 +1,13 @@
-# 試用用の設定。output_dir は必要に応じて変更してください。
+# 動作確認（/coverity-selftest）の見本の設定。偽の Coverity データ（fake-issues.yaml）を使います。
 coverity:
   url: https://coverity.example.co.jp:8443
   api: fake
   fake_data: fake-issues.yaml
-  user_env: COV_USER
-  key_env: COV_AUTH_KEY
   revision_field: sourceVersion
-  path_strip_prefixes: []   # Coverity のファイルパスから取り除く接頭辞（例: "C:/build/product/"）。未指定のパスは自動で対応づけ
 vcs:
   type: git
   base_branch: main
-  branch_mode: per_cid
   branch_prefix: coverity-fix/
-  github_token_env: GITHUB_TOKEN
 output_dir: ../coverity-triage-out
 max_items: 100
 parallel: 1
-deviation_target: coverity
-ascii_file_encoding: utf-8
-verify:
-  default: none
-  build_dir: ""           # ビルド前に移動するディレクトリ（リポジトリからの相対パス）
-  build_command: ""
-  cov_build_args: "--dir idir"
-  cov_analyze_args: "--dir idir --all"

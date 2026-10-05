@@ -1,71 +1,78 @@
 ---
 name: coverity-selftest
-description: このプラグインが利用者の環境（VS Code / Copilot CLI、社内 Coverity、社内のビルド）で動くかを実際に動かして確かめ、原因分析に使える結果フォルダ（report.md と生データ）を作る。
-argument-hint: 省略可。範囲 ①〜④（①組み込み ②偽データの流れ ③社内 Coverity ④実ビルドの検証）と結果の出力先（例：② / ③④ / ① D:\selftest）
+description: このプラグインが利用者の PC（VS Code / Copilot CLI、社内の Coverity、社内のビルド）で動くかを確かめ、結果を report.md にまとめる。
+argument-hint: 省略可。範囲 ①〜④（① 組み込み ② 偽データでの一連の流れ ③ 社内の Coverity ④ ビルドでの検証）。例 ①② / ③
 disable-model-invocation: true
+allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 ---
 
-# プラグインの動作確認（動的テスト）
+# 動作確認
 
-利用者の環境でプラグインを実際に動かし、確認項目ごとに結果を記録します（仕様 D-81）。判定と記録は `selftest_*` ツールが行います。あなたは、手順を進めることと、ツールでは確かめられないこと（サブエージェントの起動、利用者への確認）を担います。確認項目の一覧と期待する結果は、結果フォルダの `report.md` に出ます。
+確認項目ごとに結果を記録し、最後に `report.md` を作ります。決まった判定は `ct.py selftest` が行い、あなたは手順を進めることと、スクリプトでは確かめられないこと（MCP のツール、サブエージェント、利用者への質問）を担います。
+
+最初にスキル `coverity-triage-scripts` を読み、`ct.py` の場所と使い方を確かめます。以下の `ct.py X` はそこに書かれた方法で実行します。
 
 ## 守ること
 
-- **Coverity に書き込まない。** 社内のリポジトリで `preview_apply` / `apply_approvals` / `add_knowledge` を呼ばない（反映を試すのは ② の偽データだけで、`selftest_step` が行う）。
-- 社内のリポジトリのファイルを編集しない。パスワード・認証キー・トークンをチャットで尋ねない。
-- 途中でツールがエラーを返したら、止まらずに、関係する確認項目を `selftest_record(result_dir, 確認項目, "fail", エラーの内容)` で記録して次へ進む。
-- 利用者への質問は**一度に 1 つ**。答えはそのまま記録する。
-- 時間のかかるツール（`start_run`・`doctor`・`verify_run`・`trial_build`・`apply_approvals`・`selftest_step` など）が `status: running` と `job_id` を返したら、処理は続いている。元のツールを呼び直さず、`wait_job(job_id)` を結果が返るまで繰り返し呼ぶ。1 分以上かかるときは、ときどき「処理中です（○分経過）」と利用者に伝える。
+- **社内の Coverity に書き込まない。** ③ では `ct.py preview`・`ct.py apply-code`・MCP の `update_triage` を使わない（反映を試すのは ② の偽データだけ）。
+- 社内のリポジトリのファイルを変えない。認証キーをチャットで聞かない。
+- エラーが出ても止まらずに、関係する項目を `ct.py selftest record --dir <dir> --id <項目> --status fail --actual "<エラーの内容>"` で記録して次へ進む。
+- 利用者への質問は一度に 1 つ。答えはそのまま記録する。
 
-## 開始
+## 始める
 
-0. `selftest_start` などの `coverity-triage` のツールが見えない場合は、何もせずに止まり、次をそのまま利用者に伝える：「`coverity-triage` の MCP サーバが動いていないため、動作確認を始められません。多くの場合、uv が入っていないことが原因です。`/coverity-setup` を実行して uv を入れ、VS Code（または Copilot CLI）を再起動してから、もう一度 `/coverity-selftest` を実行してください。」
-1. 引数から範囲（①〜④、省略時はすべて）と出力先（省略時は既定）を読み取る。
-2. `repo_root` は開いているワークスペースのフォルダ（無ければ省略）。使っている Copilot（`VS Code` か `Copilot CLI`）が分からなければ利用者に尋ねる。
-3. `selftest_start(sections, repo_root, client, out_dir)` を呼ぶ。返ってきた `result_dir` を以降すべてで使う。`skipped` にある範囲は、理由を伝えて飛ばす。
-4. 「結果は `<result_dir>` に保存します」と伝え、選ばれた範囲を ①→②→③→④ の順に進める。
+1. 範囲を決める（指定が無ければ ①〜④ すべて）。③④ は対象のリポジトリ（`/coverity-setup` 済み）を開いているときだけ。
+2. 使っているもの（VS Code か Copilot CLI）が分からなければ、利用者に聞く。
+3. `ct.py selftest start --sections <1,2,3,4 のうち> --client "<VS Code か Copilot CLI>" [--repo <リポジトリ>]` を実行する。結果の `dir` をこの後ずっと使う。
+4. 「結果は `<dir>` にまとめます」と伝え、①→②→③→④ の順に進める。
 
-## ① プラグインの組み込み
+## ① 組み込み
 
-1. **ツール**：あなたに見えている `coverity-triage` の MCP ツールの名前をすべて、カンマ区切りで `selftest_step("plugin", result_dir, answer=名前の一覧)` に渡す（1-1、1-2）。
-2. **サブエージェント**：カスタムエージェント `coverity-triage-worker` を名前で指定してサブエージェントとして起動し、次の指示を渡す（汎用のサブエージェントで代用しない）。
-   > これは動作確認です。作業項目の処理はしません。次の 2 行だけを返して終了してください。
+1. `ct.py selftest static --dir <dir>`（1-7：サブエージェントの定義と MCP サーバの Python 環境）。
+2. ② で作る見本のリポジトリを先に作る：`ct.py selftest sample --dir <dir>`（2-1）。結果の `repo_root` を「見本のリポジトリ」とする。
+3. 1-1：MCP の `check_connection` を見本のリポジトリで呼ぶ。`ok` が true なら pass、ツールが無い・失敗なら fail（エラーの内容を記録）。
+4. サブエージェント `coverity-triage-worker` を名前を指定して起動し、次を渡す（汎用のサブエージェントで代わりにしない）。
+   > これは動作確認です。作業はしません。次の 3 行だけを返してください。
    > 1 行目：`TOOLS: ` に続けて、あなたが使えるツールの名前をすべてカンマ区切りで（推測で足さない）
-   > 2 行目：Skill `triage-investigation` を読み込み、`SKILL: ` に続けて、その本文の最初の見出し（`# ` の行）をそのまま
-   - 返答をそのまま `selftest_step("worker", result_dir, answer=返答)` に渡す（1-5〜1-7）。
-   - 起動できなかった場合は、理由（例：サブエージェントを起動するツールが無効、カスタムエージェントを名前で指定できない）を `selftest_record(result_dir, "1-5", "fail", 理由)` で記録する。1-6・1-7・1-8 はツールが「未実施」と記録するので、1-8 の質問はしない。終了の報告で「`/coverity-setup` で調査役の AI を入れ、VS Code を再起動してから再実行してください」と伝える。
-3. **利用者への確認**（1 つずつ尋ね、`selftest_record` で記録する。分からないという答えは `review`）
-   - 1-3：「チャット欄に `/` を入力してください。`coverity-setup`・`coverity-run`・`coverity-apply`・`coverity-help`・`coverity-selftest` の 5 つは出ていますか？ また、`triage-investigation`・`checker-knowledge`・`code-fix`・`deviation-comment`・`triage-report` が出ていないか確認してください」。VS Code ではプラグイン名が前に付く（`/coverity-triage:coverity-run` など）。表示された呼び方も `actual` に書く。
-   - 1-4：「エージェントを選ぶ一覧に `coverity-triage-worker` が出ていないか確認してください」
-   - 1-8：「さきほどのサブエージェントの実行の表示（またはログ）に、モデル名は出ていますか？ 出ていれば教えてください」。`gpt-6 luna` なら `pass`、別のモデルなら `fail`、表示が無ければ `review`。
+   > 2 行目：スキル `triage-investigation` を読み、`SKILL: ` に続けて、その本文の最初の見出し（`# ` の行）をそのまま
+   > 3 行目：`MODEL: ` に続けて、あなたが動いているモデルの名前
+   - 1-3：起動できて返事が返れば pass。起動できなければ fail（理由を記録）し、1-4〜1-6 は skip にする。
+   - 1-4：`TOOLS` に、ターミナル（`execute`、`shell`、`run_in_terminal`、`bash`、`powershell` など）と `coverity-triage` のツールが無ければ pass、あれば fail。返事をそのまま `--actual` に書く。
+   - 1-5：`SKILL` が `# 警告の真偽の調べ方` なら pass。
+   - 1-6：`MODEL` が GPT-6 Luna なら pass、ほかのモデルなら fail、分からなければ review。
+5. 1-2：利用者に「チャット欄に `/` を入力してください。`coverity-setup`・`coverity-run`・`coverity-apply`・`coverity-help`・`coverity-selftest` の 5 つは出ていますか？」と聞く（VS Code では `/coverity-triage:coverity-run` のようにプラグイン名が前に付く）。出ていれば pass、分からなければ review。表示された呼び方も記録する。
+
+それぞれ `ct.py selftest record --dir <dir> --id <項目> --status <pass|fail|review|skip> --actual "<見たこと>"` で記録する。
 
 ## ② 偽データでの一連の流れ
 
-1. `selftest_step("sample", result_dir)` で偽データの作業リポジトリを作る（2-1）。返ってきた `repo_root`（以下「偽データのリポジトリ」）と `filter_file` を使う。
-2. `start_run(偽データのリポジトリ, filter_file)` を呼び、`/coverity-run` と同じ処理ループで全件を処理する：`next_work_item` で作業項目を取り、項目ごとにサブエージェント `coverity-triage-worker` を起動して「run_dir: `<run_dir>` / item_id: `<item>` を処理してください。」と指示する。`item` が `null` になったら `build_summary(run_dir)` を呼ぶ。サブエージェントが提出せずに終わった項目は `report_error` で記録する。
-3. `selftest_step("flow_run", result_dir, run_dir)`（2-2〜2-5）。
-4. `selftest_step("flow_apply", result_dir, run_dir)`（2-6、2-7）。このツールが利用者の代わりに承認列と逸脱コメントを変えて反映する。
-5. 返ってきた `knowledge_candidates` から、`/coverity-apply` の「知識の追記の提案」と同じ考え方で、次回の調査に使える一般的な知識を 1 行ずつ下書きし、`add_knowledge(run_dir, 下書き)` で追記する。**偽データのリポジトリなので、利用者の承認は不要。**
-6. `selftest_step("flow_knowledge", result_dir, run_dir)`（2-8、2-9）。
+見本のリポジトリ（① の 2 で作ったもの。① をしないときはここで `ct.py selftest sample` を実行）で、`/coverity-run` と同じ手順を進めます。条件ファイルは `sample` の結果の `filter`（`all.yaml`）です。
 
-## ③ 社内 Coverity 接続（読み取りのみ）
+1. `ct.py new-run --repo <見本のリポジトリ> --filter all.yaml` → MCP の `search_issues` → `ct.py plan` → 作業ごとに `next` → `get_issues` → `brief` → サブエージェント `coverity-triage-worker` → `finish` → 最後に `ct.py summary`。
+2. `ct.py selftest check-run --dir <dir> --run <run_dir>`（2-2〜2-6）。
+3. 2-7：MCP の `update_triage` を、`ct.py preview --run <run_dir>` の `plan_file` と、わざと違う確認用の文字列 `000000000000` で呼ぶ。書き込みを断られれば pass、書き込んでしまったら fail。記録する。
+4. 見本のリポジトリなので、利用者に聞かずに反映まで進める：`preview` の `confirmation_token` で MCP の `update_triage` を `done` まで呼び、`ct.py apply-code --run <run_dir> --token <confirmation_token>`。プルリクエストは作らない。
+5. `ct.py selftest check-apply --dir <dir> --run <run_dir>`（2-8）。
 
-1. `selftest_step("coverity", result_dir, repo_root=repo_root)`（3-1〜3-8。3-2 は認証だけの確認で、失敗したら 3-3〜3-9 は未実施になる）。
-2. 返ってきた `filter_file` が `null` なら、3-9 がまだ記録されていなければ `selftest_record(result_dir, "3-9", "skip", "検索結果が 0 件のため")` を記録して ④ へ。
-3. そうでなければ、実際の警告 1 件で試す：`start_run(repo_root, filter_file, overrides={"max_items": 1}, verify_mode="none")` を呼び、② の 2 と同じ処理ループで 1 件を処理して `build_summary` を呼ぶ。続けて `selftest_step("real_run", result_dir, run_dir)`（3-9）。この `run_dir` は ④ で使う。
+## ③ 社内の Coverity（読み取りだけ）
 
-## ④ 実ビルドでの自動検証
+対象のリポジトリで、警告 1 件だけを調べます。
 
-1. ③ を行っていない場合は、③ の 3 と同じ手順で 1 件のトリアージを行う（`selftest_step("real_run")` は呼ばない）。
-2. `selftest_step("build", result_dir, repo_root=repo_root)`（4-1〜4-3）。
-3. 返ってきた `ready` が `false` なら、`selftest_record(result_dir, "4-4", "skip", "試しのビルドまたは Coverity のコマンドが使えないため")` を記録して終了へ。
-4. 3 の `run_dir` の修正案が無い場合（調査がエラーになった等）は、`4-4` を `skip` で記録して終了へ。
-5. 「修正案を当ててビルドと再解析をします。10〜60 分程度かかります」と伝え、`verify_run(run_dir, "build+analyze")` を呼ぶ。続けて `selftest_step("verify", result_dir, run_dir)`（4-4）。
+1. 3-2：MCP の `check_connection` を `repo_root` で呼ぶ。`ok` が true で `seconds` が 10 以下なら pass。結果をそのまま記録する。失敗したら 3-3〜3-5 を skip にして ④ へ。
+2. `ct.py new-run --repo <repo_root> --limit 1` → MCP の `search_issues` を `done` まで → `ct.py plan` → `ct.py next` → MCP の `get_issues` を `done` まで → `ct.py brief` → サブエージェント → `ct.py finish` → `ct.py summary`。検索が 0 件なら、そこで止めてよい。
+3. `ct.py selftest check-coverity --dir <dir> --run <run_dir>`（3-1、3-3〜3-5）。
 
-## 終了
+## ④ ビルドでの検証（オプション）
 
-次を短く報告する。
+設定 `verify.build_command` があるときだけ行います。無ければ 4-1・4-2 を skip にします。
 
-- 結果フォルダ `<result_dir>` と `report.md` のパス
-- 成功・失敗・要確認・記録・未実施の件数と、失敗・要確認の項目（ID と 1 行の内容）
-- 「ホスト名・ユーザ名・認証情報は伏せ字にし、社内のソースコードは記録していません。ストリーム名やファイルのパスは残るので、確認してからフォルダごと共有してください」
+1. `ct.py selftest check-build --dir <dir>`（4-2：Coverity のコマンドが見つかるか）。
+2. 4-1：「修正前のコードを試しにビルドします（時間がかかることがあります）」と伝え、`ct.py trial-build --repo <repo_root> --build-command "<設定の値>" [--setup-command ...] [--build-dir ...]` を実行する。`build_ok` が true なら pass。失敗したら `log_tail` の要点を記録する。
+
+## 終わる
+
+1. `ct.py selftest report --dir <dir>` を実行する。`not_recorded` に項目が残っていれば、記録し忘れていないか確かめる。
+2. 次を短く伝える。
+   - `report.md` の場所
+   - 成功・失敗・要確認・未実施の件数と、失敗・要確認の項目（ID と 1 行）
+   - 「ホスト名・ユーザ名・認証情報は伏せてあり、社内のソースコードは記録していません。ストリーム名やファイルのパスは残るので、確かめてからフォルダごと共有してください」

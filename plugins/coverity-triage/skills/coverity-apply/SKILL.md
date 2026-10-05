@@ -1,33 +1,54 @@
 ---
 name: coverity-apply
-description: 一覧サマリの承認列に従って反映する（逸脱は Coverity に登録、修正は git のプルリクエスト作成または svn への差分適用）。反映前に件数を見せて同意を得る。反映後に知識の追記を提案する。
-argument-hint: 省略可。実行フォルダ（省略時は最新の実行）
+description: 一覧 summary.md の承認欄に従って反映する。逸脱は Coverity にトリアージを書き戻し、修正は git ならブランチを push してプルリクエストを作り、svn ならワーキングコピーに差分を当てる。
+argument-hint: 省略可。実行フォルダ（省略時はいちばん新しい実行）
 disable-model-invocation: true
+allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 ---
 
-# Coverity トリアージの承認の反映
+# 承認の反映
 
-Coverity・リポジトリ・GitHub に変更を加える手順です。**必ず人の同意を得てから** `apply_approvals` を呼びます（ツール側も、`preview_apply` の確認用の文字列が無いと反映しません）。
+最初にスキル `coverity-triage-scripts` を読み、`ct.py` の場所と使い方を確かめます。以下の `ct.py X` はそこに書かれた方法で実行します。
 
-時間のかかるツール（`start_run`・`doctor`・`verify_run`・`trial_build`・`apply_approvals`・`selftest_step` など）が `status: running` と `job_id` を返したら、処理は続いている。元のツールを呼び直さず、`wait_job(job_id)` を結果が返るまで繰り返し呼ぶ。1 分以上かかるときは、ときどき「処理中です（○分経過）」と利用者に伝える。
+## 1. 反映する内容を確かめる
 
-## 手順
+1. 対象リポジトリの一番上のフォルダ（`repo_root`）を決める。
+2. 実行フォルダ（`run_dir`）を決める。利用者が指定しなければ、`ct.py runs --repo <repo_root>` で一覧を見て、`summary` が true のうちいちばん新しいものにする。
+3. `ct.py preview --run <run_dir>` を実行する。
+   - `problems` があれば（承認欄の書き間違いなど）、そのまま伝えて、直してからもう一度 `/coverity-apply` を使うよう案内して終わる。
+   - 件数がすべて 0 なら、「反映するものはありません（承認欄が空か、もう反映済みです）」と伝えて終わる。
+4. 件数（修正・逸脱・却下）と、作業の ID を見せて、「この内容で反映しますか？」と聞く。逸脱は Coverity の分類とコメントが書き換わること、修正は git ならブランチを push すること（svn ならワーキングコピーのファイルが変わること）を添える。
+5. 同意が得られなければ終わる。
 
-1. 実行フォルダ（`run_dir`）を決める。指定が無ければ `list_runs(repo_root)` で、一覧サマリがある最新の実行を使い、「〇〇（日時・条件）の結果を反映します」と伝える。
-2. `preview_apply` を呼び、返ってきた `message`（修正 n 件 / 逸脱 n 件 / 却下 n 件）と対象の一覧を人に見せ、反映してよいか尋ねる。
-   - エラーが返った場合（承認列の書き間違い、逸脱の節の目印が消えている等）は、内容を伝えて人に直してもらう。
-3. 人が同意したら、`preview_apply` の `confirmation_token` を渡して `apply_approvals` を呼ぶ。
-   - 同意が得られなかった場合は何もしない。
-   - 「前回の確認以降に変更された」というエラーが返った場合は、2 からやり直す。
-4. 結果を報告する：作成したプルリクエストの URL、svn patch を適用したこと（コミットは人が行う）、Coverity に登録した件数、失敗した項目とその理由。
-5. **知識の追記の提案**（仕様 D-78）：`knowledge_candidates(run_dir)` を呼ぶ。`candidates` が空なら何も言わずに終わる。
-   - 候補ごとに、AI の案と人の判断の違い（推奨を変えた、逸脱コメントを手直しした、却下した）から、**次回の調査で使える一般的な知識**を 1 行で下書きする。例：「fatal_error()（src/common/error.c）は戻らない」「レジスタアクセスのためのポインタ変換（MISRA Rule 11.x）は逸脱で正当化する」「誤検知の逸脱コメントには呼び出し元の関数名と行番号を書く」。
-   - 1 件だけの事情（その CID にしか当てはまらないこと）は書かない。`current_knowledge` にすでにある内容も書かない。却下は理由が分からないことが多いので、推測で書かず「却下した理由で今後に活かせるものがあれば教えてください」と添える。
-   - 下書きを番号付きで見せ、「追記するものを選んでください（直してもかまいません。不要なら『なし』）」と尋ねる。
-   - 人が選んだもの（直した場合はその文）だけを `add_knowledge(run_dir, entries)` で追記し、「`.coverity-triage/knowledge.md` に追記しました。確認してコミットしてください」と伝える。**人の承認なしに追記しない。**
+## 2. 反映する
 
-## 反映の内容（仕様 D-27、D-29〜D-31、D-60）
+1. 逸脱が 1 件以上あれば、MCP の `update_triage` を `repo_root`、`plan_file`、`confirmation_token`（`preview` の結果）で、`done` が true になるまで呼ぶ。`failed` があれば、ID と理由を覚えておく。
+2. `ct.py apply-code --run <run_dir> --token <confirmation_token>` を実行する。
 
-- 修正：git は push とプルリクエスト作成、svn はワーキングコピーへの適用（Coverity には書き戻さない）
-- 逸脱：Coverity に Classification / Action / Severity と逸脱コメントを登録（詳細レポートで手直しされた内容）。アノテーション方式の場合は、アノテーションの差分も修正と同じ流れで反映
-- 却下：何もしない（グループの場合は次回から個別に処理するよう記録）
+## 3. プルリクエスト（git のとき）
+
+`apply-code` の結果の `pull_requests` の項目ごとに、`branch` から `base` へのプルリクエストを、`title` と `body` で作ります。
+
+- あなたが GitHub でプルリクエストを作るツールを使えるなら、それで作る（決定 3）。
+- 使えないときは、`compare_url` を一覧で示し、「リンクを開くと、題名と本文が入った作成画面が出ます。内容を確かめて作成してください」と伝える。`compare_url` が null のとき（GitHub 以外のリモート）は、ブランチ名を伝える。
+
+GitHub のトークンを利用者に聞いてはいけません。
+
+## 4. 結果を伝える
+
+次を短く伝えます。
+
+- Coverity に書き戻した件数（`coverity.registered`）と、書き戻せなかったもの（`update_triage` の `failed`、`coverity.not_registered`）
+- 作ったプルリクエスト（または作成用のリンク）
+- svn のとき：`svn_applied` の差分をワーキングコピーに当てたこと。「内容を確かめてから、ご自身でコミットしてください」
+- `errors` があればそのまま。反映できなかったものは、もう一度 `/coverity-apply` を使うと、残りだけを反映できること
+
+## 5. オプション
+
+設定 `options.knowledge_suggestions` が true のとき（`.coverity-triage/config.yaml`）：
+
+1. `ct.py knowledge-candidates --run <run_dir>` を実行する。`candidates` が空なら何もしない。
+2. 人が推奨を変えた、または逸脱コメントを直した作業から、ほかの警告にも使える短い知識（1 項目 1 行。例「read_config() は path を必ず検証してから渡す」）を考え、`current_knowledge` と重ならないものを示す。
+3. 人が選んだものだけ、`ct.py add-knowledge --run <run_dir> --entry "<知識>"` で追記する（`--entry` は 1 項目ごと）。コミットして共有するよう伝える。
+
+設定 `options.metrics` が true のときは、反映のたびに記録されます。集計は `ct.py stats --repo <repo_root>` で見られます。

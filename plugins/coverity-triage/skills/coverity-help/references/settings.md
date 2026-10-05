@@ -1,64 +1,62 @@
-# 設定項目の意味と決め方
+# 設定の項目と変え方
 
-設定は対象リポジトリの `.coverity-triage/` にあり、コミットしてチームで共有する。パスワード等は書かない（環境変数）。
-
-`knowledge.md`（プロジェクトの知識）の使い方は usage.md を参照。
+設定は対象リポジトリの `.coverity-triage/` にあり、コミットしてチームで共有します。認証情報は書きません（環境変数に置きます）。
 
 ## config.yaml
 
-| 項目 | 意味 | 決め方・既定値 |
+| 項目 | 意味 | 決め方・既定 |
 |---|---|---|
-| `coverity.url` | Coverity Connect の URL | ブラウザで開いている Coverity のアドレス |
-| `coverity.api` | `auto`：Coverity Connect に接続／`fake`：偽データ | 通常は `auto`。`fake` は偽データでの試用（`fake_data` に偽データのファイル） |
-| `coverity.user_env` / `coverity.key_env` | ユーザ名・認証キーを入れる環境変数の名前 | 既定 `COV_USER` / `COV_AUTH_KEY` のまま |
-| `coverity.revision_field` | スナップショットに解析リビジョンを記録している項目（SOAP のスナップショット情報の項目名。例 `sourceVersion`、`description`） | 既定 `sourceVersion`。記録していなければそのまま（手元のコードで調査し、ずれを報告する） |
-| `coverity.triage_store` | 逸脱を書き戻すトリアージストアの名前 | 既定 `Default Triage Store`。社内で別のストアを使っていれば、その名前 |
-| `coverity.ca_file` | Coverity サーバの CA 証明書ファイル | 通常は空（OS の証明書ストアを使う）。証明書エラーが出る場合だけ指定 |
-| `coverity.path_strip_prefixes` | Coverity のファイルパスから取り除く先頭部分 | 警告のパスが `C:/build/product/src/a.c` なら `["C:/build/product/"]`。空でも、リポジトリに実在する末尾部分で自動対応づけを試みる |
-| `vcs.type` | `git` / `svn` | 自動判定 |
-| `vcs.base_branch` | 修正を取り込む先のブランチ（git） | 自動判定（リモートの既定ブランチ） |
-| `vcs.branch_mode` | `per_cid`：CID ごとに 1 プルリクエスト／`per_run`：承認した修正をまとめて 1 つ | 既定 `per_cid` |
-| `vcs.branch_prefix` | 修正ブランチ名の先頭 | 既定 `coverity-fix/`。社内の命名規則があれば合わせる |
-| `vcs.github_token_env` | GitHub トークンの環境変数名 | 既定 `GITHUB_TOKEN` |
-| `output_dir` | 結果の出力先 | **リポジトリの外**。既定 `../coverity-triage-out`（リポジトリの隣） |
-| `max_items` | 1 回の上限件数（条件ファイルで上書き可） | 既定 100 |
-| `parallel` | 同時に調査する数 | 既定 1。速くしたいとき 2〜3 |
-| `deviation_target` | `coverity`：逸脱は Coverity にだけ登録／`coverity+annotation`：ソースに注釈コメントも入れる | 既定 `coverity` |
-| `ascii_file_encoding` | 英数字だけのファイルに日本語を入れるときの文字コード `utf-8` / `cp932` | 自動判定（Shift_JIS のプロジェクトなら `cp932`） |
-| `verify.default` | 自動検証 `none` / `build` / `build+analyze` | 既定 `none` |
-| `verify.setup_command` | ビルド前の環境設定のコマンド（同じコマンドプロンプトで先に実行）。`{root}` はビルド用にコピーしたフォルダに置き換わる | 例 `envset.bat "{root}" <2つ目の引数>`。引数はいくつでも書ける（`{root}` 以外はそのまま渡される）。不要なら空 |
-| `verify.build_dir` | `setup_command` の後に移動して、ビルド（`cov-build`）を実行するディレクトリ。makefile がある場所をリポジトリからの相対パスで書く | 例 `firmware/target`。空ならリポジトリのルート |
-| `verify.build_command` | ビルドのコマンド（`build_dir` で実行） | 例 `make -f makefileXX` |
-| `verify.cov_build_args` / `verify.cov_analyze_args` | `cov-build` / `cov-analyze` の引数（`--dir` 必須） | 例 `--dir idir` / `--dir idir --all` |
+| `coverity.url` | Coverity Connect の URL | ブラウザで開く Coverity のアドレス |
+| `coverity.api` | `auto`：Coverity Connect につなぐ／`fake`：偽データ（動作確認用） | 既定 `auto` |
+| `coverity.user_env` / `coverity.key_env` | ユーザ名・認証キーを入れる環境変数の名前 | 既定 `COV_USER` / `COV_AUTH_KEY` |
+| `coverity.triage_store` | 逸脱を書き戻すトリアージストアの名前 | 既定 `Default Triage Store` |
+| `coverity.revision_field` | スナップショットで解析リビジョンを記録している項目 | 既定 `sourceVersion`。記録が無ければ、手元のコードで調べてずれを確かめる |
+| `coverity.path_strip_prefixes` | Coverity のファイルパスから取り除く先頭部分 | 警告のパスが `C:/build/product/src/a.c` なら `["C:/build/product/"]`。空でも、リポジトリにある末尾の部分で自動で対応づける |
+| `coverity.ca_file` | Coverity の CA 証明書のファイル | 空（OS の証明書を使う）。証明書のエラーが出るときだけ指定 |
+| `vcs.type` | `git` / `svn` | 自動で判定 |
+| `vcs.base_branch` | 修正を取り込む先のブランチ（git） | 自動で判定 |
+| `vcs.branch_prefix` | 修正のブランチ名の先頭（git） | 既定 `coverity-fix/` |
+| `output_dir` | 結果を置く場所 | 既定 `../coverity-triage-out`（リポジトリの隣）。**リポジトリの外**にする |
+| `max_items` | 1 回で調べる警告の上限 | 既定 100 |
+| `parallel` | 同時に調べる数 | 既定 1。速くしたいとき 2〜3 |
+| `options.annotation` | 逸脱案として、ソースに Coverity の注釈を入れる差分も作る | 既定 false |
+| `options.per_run_branch` | 修正を警告ごとではなく、1 つのブランチにまとめる（git） | 既定 false |
+| `options.knowledge_suggestions` | 反映のあと、知識の追記の候補を示す | 既定 false |
+| `options.metrics` | 推奨の採用率などを記録する | 既定 false |
+| `verify.default` | ビルドでの検証：`none` / `build` / `build+analyze` | 既定 `none` |
+| `verify.setup_command` | ビルドの前に実行する環境設定のコマンド。`{root}` はビルド用のフォルダに置き換わる | 例 `envset.bat "{root}" <引数>`。不要なら空 |
+| `verify.build_dir` | ビルドするフォルダ（リポジトリからの相対パス） | 空なら一番上 |
+| `verify.build_command` | ビルドのコマンド | 例 `make -f makefileXX` |
+| `verify.cov_build_args` / `verify.cov_analyze_args` | `cov-build` / `cov-analyze` の引数（`--dir` が必要） | 既定 `--dir idir` / `--dir idir --all` |
 
-自動検証の仕組み：全件の調査が終わった後に、その実行の修正案を**すべてまとめて適用したコピー**で 1 回だけビルド（＋解析）する。再解析では修正前のコードも 1 回解析して比べるため、1 回の実行で解析 2 回分の時間がかかる。利用者の PC でビルドと Coverity の解析ツールが動く必要がある。設定を変えたら `trial_build` で試しにビルドしてから `write_verify_config` で保存する。
+ビルドでの検証の設定は、`/coverity-setup` の「ビルドでの検証」で、試しにビルドしてから保存するのが安全です。
 
 ## 条件ファイル（filters/*.yaml）
 
-同じ項目の中の複数の値は「どれか」、項目同士は「すべて」。書かない項目は条件にしない。
+同じ項目の中の値は「どれか」、項目どうしは「すべて」を満たすものを選びます。書かない項目は条件にしません。
 
 | 項目 | 意味 |
 |---|---|
-| `name` | 表示名 |
-| `project` / `streams` | Coverity のプロジェクト・ストリーム（ストリームは 1 回の実行で 1 つだけ、D-79） |
-| `checkers` | チェッカー名（`*` 可。例 `"MISRA C-2012 *"`） |
+| `name` | 表示する名前 |
+| `project` / `streams` | Coverity のプロジェクトとストリーム（ストリームは 1 つだけ） |
+| `checkers` | チェッカー名（`*` が使える。例 `"MISRA C-2012 *"`） |
 | `impacts` | `High` / `Medium` / `Low` |
-| `triage.classification` / `triage.action` / `triage.status` | 現在のトリアージ状態 |
-| `max_items` | この条件での上限件数 |
-| `revision` | 解析リビジョンの手動指定（通常は空） |
+| `triage.classification` / `triage.action` / `triage.status` | 今のトリアージの状態 |
+| `limit` | この条件で調べる上限（`max_items` より多くはならない） |
 
-例（MISRA の未トリアージだけ）：
+例（MISRA の未分類だけ、20 件まで）：
 
 ```yaml
-name: MISRA の未トリアージ
+name: MISRA の未分類
 project: MyProduct
 streams: [MyProduct-main]
 checkers: ["MISRA C-2012 *"]
 triage:
   classification: [Unclassified]
-max_items: 20
+limit: 20
 ```
 
-## no-grouping.yaml
+## そのほかのファイル
 
-却下されたグループの CID が自動で追記される（次回から 1 件ずつ調査する）。コミットして共有する。
+- `knowledge.md`：AI が調べる前に読む、プロジェクトの知識（[usage.md](usage.md)）。
+- `no-grouping.yaml`：却下されたグループの CID。次の実行から 1 件ずつ調べます（自動で追記されます）。

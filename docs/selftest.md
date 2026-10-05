@@ -1,86 +1,54 @@
-# テスト手順書（社内の環境での動作確認）
+# 社内の環境での動作確認の手順
 
-社内の環境でプラグインが動くかを確かめる手順です。確認のほとんどは Skill `/coverity-selftest` が行い、結果を 1 つのフォルダにまとめます（仕様 D-81）。所要時間の目安は 1〜2 時間です（④ のビルドと再解析の時間を含む）。
+社内の PC でプラグインが動くかを確かめる手順です。確かめることのほとんどは `/coverity-selftest` が行い、結果を 1 つのフォルダにまとめます。かかる時間は 1 時間くらいです（④ のビルドを除く）。
 
-確認は VS Code と Copilot CLI の**両方**で行ってください（仕様 D-2）。コマンドの例は Windows のコマンドプロンプト（cmd）の書き方です。
-
----
+VS Code と Copilot CLI の**両方**で行ってください。
 
 ## 1. 必要なもの
 
-| 必要なもの | 確認方法 |
-|---|---|
-| VS Code ＋ GitHub Copilot（エージェントモードが使えること） | Copilot Chat でエージェントを選べる |
-| GitHub Copilot CLI | `copilot --version` |
-| git | `git --version` |
-| このリポジトリを読める GitHub アカウント | ブラウザで https://github.com/imaeda-hub/coverity-triage-agent を開ける |
-| uv（プラグインの MCP サーバを動かす道具） | `uv --version`。無ければ手順 3 の後に `/coverity-setup` で入れる |
+[README](../README.md) の「必要なもの」と同じです。③④ には、`/coverity-setup` を済ませた社内のリポジトリが要ります。
 
-## 2. リポジトリをクローンする
+## 2. プラグインを入れる
 
-```bat
-cd C:\work
-git clone https://github.com/imaeda-hub/coverity-triage-agent.git
-```
+[README](../README.md) の「はじめての準備」の 1 のとおりに入れます。
 
-以降、`C:\work\coverity-triage-agent` を「このリポジトリ」と書きます。
+> 記録：実際にした操作と、うまくいったか（エラーが出たら、その表示をそのまま）
 
-## 3. プラグインを入れる
+新しい PC では、ここで `/coverity-setup` を最後まで済ませます（uv、サブエージェント、再起動）。
 
-- **Copilot CLI**
-
-  ```bat
-  copilot plugin marketplace add C:\work\coverity-triage-agent
-  copilot plugin install coverity-triage@coverity-triage-agent
-  ```
-
-- **VS Code**：設定 `chat.plugins.marketplaces` に `C:\work\coverity-triage-agent` を追加し、拡張機能ビューで `@agentPlugins` を検索して `coverity-triage` をインストールします。
-- 調査役の AI（`coverity-triage-worker`）は、`/coverity-setup` が `%USERPROFILE%\.copilot\agents` にコピーします（VS Code の Session Target「Copilot」は、プラグインの中のエージェントを使わないため）。
-
-参考：[Agent plugins in VS Code](https://code.visualstudio.com/docs/agent-customization/agent-plugins)、[GitHub Copilot CLI plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
-
-> 記録：実際に使った操作・コマンドと、成功したか（エラーが出た場合はその表示をそのまま）
-
-**新しい PC では**、ここで `/coverity-setup` を実行し、AI の案内に沿って uv と調査役の AI を入れてから VS Code（または Copilot CLI）を再起動します。uv が無いと MCP サーバが起動せず（VS Code の「MCP: List Servers」で `coverity-triage` が Error になる）、`/coverity-selftest` は何もできません。
-
-## 4. `/coverity-selftest` を実行する
+## 3. `/coverity-selftest` を実行する
 
 | 範囲 | 確かめること | 開いておくフォルダ |
 |---|---|---|
-| ① プラグインの組み込み | MCP サーバとツール、Python 環境の場所、サブエージェントの起動・ツールの制限・Skill の読み込み、`/` メニュー、モデル | どこでもよい |
-| ② 偽データでの一連の流れ | 実行 → 結論の照合 → 反映の安全策 → 反映 → 知識の追記 → 効果測定。偽データは結果フォルダの中に作るので、開いているリポジトリには触れません | どこでもよい |
-| ③ 社内 Coverity 接続（読み取りのみ） | doctor、REST / SOAP の接続と認証、列キー、警告の検索、警告経路、`sourceCodeInfo` の応答の形、スナップショットのリビジョン、実際の警告 1 件の調査 | `/coverity-setup` 済みの社内リポジトリ |
-| ④ 実ビルドでの自動検証 | 試しのビルド、`cov-build` / `cov-analyze` / `cov-format-errors --json-output-v7`、修正案を当てたビルド＋再解析 | ③ と同じ（`/coverity-setup` の段階 5 で検証を設定済み） |
+| ① 組み込み | MCP サーバ、`/` メニュー、サブエージェントの起動・使えるツール・スキルの読み込み・モデル、配置 | どこでもよい |
+| ② 偽データでの一連の流れ | 実行 → 一覧とレポートの形 → グループ → AI の結論 → 利用者のファイルが変わらないこと → 書き戻しの安全策 → 反映。見本のリポジトリは結果のフォルダの中に作るので、開いているリポジトリには触れません | どこでもよい |
+| ③ 社内の Coverity（読み取りだけ） | 準備の状況、接続と認証、検索、警告経路、解析リビジョン、実際の警告 1 件の調査 | `/coverity-setup` 済みの社内のリポジトリ |
+| ④ ビルドでの検証（オプション） | Coverity のコマンド、試しのビルド | ③ と同じ（ビルドでの検証を設定してあるときだけ） |
 
-1. ③④ を行う場合は、社内リポジトリを開いて `/coverity-setup` を済ませる。
-2. 社内リポジトリ（①② だけなら任意のフォルダ）を開き、`/coverity-selftest` を実行する。範囲を絞るときは `/coverity-selftest ①②` のように指定する。
-3. 途中で、`/` メニューの表示やサブエージェントのモデル名を 1 つずつ聞かれるので答える。
-4. 終わると結果フォルダ（既定は `%USERPROFILE%\coverity-triage-selftest\<日時>\`）の場所と、成功・失敗などの件数が表示される。
+1. 社内のリポジトリ（①② だけなら、どのフォルダでもよい）を開き、`/coverity-selftest` を実行する。範囲を絞るときは `/coverity-selftest ①②` のように書く。
+2. 途中で、`/` メニューの表示などを 1 つずつ聞かれるので答える。
+3. 終わると、結果のフォルダ（既定は `%USERPROFILE%\coverity-triage-selftest\<日時>\`）の場所と、成功・失敗などの件数が出る。
 
-③ でも Coverity への書き込みは行いません。④ は 10〜60 分程度かかります。
+③ でも Coverity には書き込みません。
 
-## 5. 結果を共有する
+## 4. 結果を渡す
 
-結果フォルダには次の 2 つがあります。
+結果のフォルダには `report.md`（項目ごとの結果）と `raw/`（原因を調べるための記録）があります。フォルダごと渡してください。ホスト名・ユーザ名・認証情報は伏せてあり、社内のソースコードは入っていませんが、ストリーム名やファイルのパスは残るので、確かめてから渡してください。
 
-- `report.md`：確認項目ごとの結果（成功・失敗・要確認・記録・未実施）、期待、実際。失敗・要確認は詳細と生データへのリンク付き
-- `raw/`：原因分析のための生データ
+## 5. 手で確かめること
 
-フォルダごと共有してください。ホスト名・ユーザ名・認証情報は伏せ字にし、社内のソースコードは記録していませんが、ストリーム名やファイルのパスは残るので、確認してから共有してください。
+`/coverity-selftest` では確かめられないことです。
 
-## 6. 手作業で確かめること
-
-`/coverity-selftest` では確かめられないものです。
-
-| 確認すること | 確認方法 |
+| 確かめること | 方法 |
 |---|---|
-| AI による準備の案内 | 新しい PC（または uv を消した状態）で `/coverity-setup` を実行し、uv のインストール → MCP サーバの再起動 → 設定ファイルの作成 → 認証情報の伏せ字入力 → `doctor` がすべて ok、まで案内されるか |
-| 伏せ字入力 | 認証キーの入力時に、Copilot のターミナルで伏せ字の入力欄に入力できるか（できない場合は、コマンドを渡されて自分の PowerShell で実行する流れになるか） |
-| 入口の Skill の流れと使い勝手 | 社内リポジトリで `/coverity-run` → `summary.md` の確認 → `/coverity-apply` を一度通し、気になった点（遅い、質問が多い、レポートが読みにくい等）を記録する |
+| 準備の案内 | 新しい PC（または uv を消した状態）で `/coverity-setup` を実行し、uv を入れる → サブエージェントを置く → 設定ファイル → 認証情報（伏せ字の欄） → 再起動 → もう一度 `/coverity-setup` → 接続の確認、まで迷わずに進めるか。かかった時間 |
+| 伏せ字の入力 | 認証キーを入れるとき、ターミナルの伏せ字の欄に入れられるか（入れられないときは、渡されたコマンドを自分の PowerShell で実行する流れになるか） |
+| ふだんの流れ | 社内のリポジトリで `/coverity-run` → `summary.md` の確認 → `/coverity-apply` を一度通す。確認の画面が何回出たか、1 件の確認にかかった時間、気になった点（遅い、読みにくいなど） |
+| 夜間の処理 | 件数の多い条件で `/coverity-run` を始めて離れ、朝に終わっているか（止まっていたら、どこで何が出ていたか） |
 
-> 記録：各項目の結果（○ / ×）と、エラーの表示（そのまま）
+> 記録：項目ごとの結果（○ / ×）と、エラーの表示（そのまま）
 
-## 7. あわせて共有してほしいもの
+## 6. あわせて教えてほしいこと
 
-- **U-3**：社内コーディング規約の資料（`skills/code-fix` に取り込みます）
-- 社内 Coverity Connect の **Classification / Action / Severity の選択肢**（`skills/deviation-comment` の表を社内の値に合わせます）
+- 社内のコーディング規約の資料（スキル `code-fix` に取り込みます）
+- 社内の Coverity Connect の Classification / Action / Severity の選択肢（スキル `deviation-comment` の表を社内の値に合わせます）
