@@ -10,6 +10,7 @@ whose schema is published in the WSDL of Coverity Connect.
 from __future__ import annotations
 
 import ssl
+import time
 import xml.etree.ElementTree as ET
 from html import escape
 from typing import Any
@@ -22,6 +23,7 @@ from .envvars import get_env
 from .models import Event, Issue, IssueDetail, TriageAttributes
 
 TIMEOUT = 60.0
+AUTH_CHECK_TIMEOUT = 10.0
 PAGE_SIZE = 200
 SOAP_NS = "http://ws.coverity.com/v9"
 WSSE = "http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"
@@ -91,6 +93,47 @@ def _int(value: Any) -> int | None:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return None
+
+
+def check_auth(config: CoverityConfig, transport: httpx.BaseTransport | None = None) -> dict[str, Any]:
+    """Credentials set, and one light authenticated request with its time (spec D-84).
+
+    Separates "credentials wrong" from "cannot connect / slow" within a few seconds.
+    """
+    user, key = get_env(config.user_env), get_env(config.key_env)
+    out: dict[str, Any] = {
+        "user": f"環境変数 {config.user_env}: " + ("設定あり" if user else "なし"),
+        "key": f"環境変数 {config.key_env}: " + (f"設定あり（{len(key)} 文字）" if key else "なし"),
+        "ok": False, "seconds": None}
+    if not user or not key:
+        out["result"] = "ユーザ名または認証キーが設定されていません（/coverity-setup の段階 3 で入力します）"
+        return out
+    kwargs: dict[str, Any] = {"base_url": config.url.rstrip("/"), "timeout": AUTH_CHECK_TIMEOUT}
+    if transport is not None:
+        kwargs["transport"] = transport
+    else:
+        kwargs["verify"] = _ssl_context(config.ca_file)
+    started = time.monotonic()
+    try:
+        with httpx.Client(**kwargs) as http:
+            resp = http.get("/api/v2/issues/columns", auth=(user, key), headers={"Accept": "application/json"},
+                            params={"queryType": "bySnapshot", "retrieveGroupByColumns": "false"})
+    except httpx.TimeoutException:
+        out["result"] = f"{AUTH_CHECK_TIMEOUT:.0f} 秒以内に応答がありません（URL、社内のネットワーク・プロキシを確認してください）"
+        return out
+    except httpx.HTTPError as exc:
+        out["result"] = f"Coverity に接続できません: {exc}"
+        return out
+    finally:
+        out["seconds"] = round(time.monotonic() - started, 1)
+    if resp.status_code in (401, 403):
+        out["result"] = f"認証に失敗しました（HTTP {resp.status_code}）。ユーザ名・認証キーを確認してください"
+    elif resp.status_code >= 400:
+        out["result"] = f"Coverity が HTTP {resp.status_code} を返しました"
+    else:
+        out["ok"] = True
+        out["result"] = f"認証できました（HTTP {resp.status_code}、{out['seconds']} 秒）"
+    return out
 
 
 class ConnectClient(CoverityClient):

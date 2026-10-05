@@ -65,7 +65,7 @@ flowchart LR
 | | `code-fix` | 修正案を作るときの制約と手順 |
 | | `deviation-comment` | 逸脱コメントの書き方、Classification / Action / Severity の選び方 |
 | | `triage-report` | レポートの書式と記載基準 |
-| MCP サーバ | `coverity-triage`（ツール 29 個） | Coverity との通信、git / svn の操作、文字コードを保った編集、ビルド・再解析、レポート作成 |
+| MCP サーバ | `coverity-triage`（ツール 31 個） | Coverity との通信、git / svn の操作、文字コードを保った編集、ビルド・再解析、レポート作成 |
 
 ## 安心して使うために
 

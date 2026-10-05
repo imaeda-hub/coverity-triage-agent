@@ -72,7 +72,7 @@ def test_plugin_and_worker_steps(tmp_path, monkeypatch):
     result_dir = selftest.start(["1"], out_dir=str(tmp_path / "out"))["result_dir"]
     monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", sys.prefix)
     names = list(mcp_server.TOOL_NAMES)
-    assert len(names) == 29 and "selftest_step" in names
+    assert len(names) == 31 and "selftest_step" in names
     visible = ", ".join(f"coverity-triage/{n}" for n in names)
     selftest.step("plugin", result_dir, answer=visible, tool_names=names)
     assert status(result_dir, "1-1") == "pass"
@@ -223,6 +223,9 @@ def connect_repo(tmp_path, monkeypatch):
 
     monkeypatch.setattr(selftest, "ConnectClient", client)
     monkeypatch.setattr(onboarding, "make_client", lambda config: client(config))
+    real_check = connect.check_auth
+    monkeypatch.setattr(connect, "check_auth",
+                        lambda config, transport=None: real_check(config, httpx.MockTransport(server)))
     return repo
 
 

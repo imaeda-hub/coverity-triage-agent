@@ -203,6 +203,15 @@ def write_project_config(repo_root: str, coverity_url: str, project: str, stream
 # ---- diagnosis -------------------------------------------------------------------------------
 
 
+def check_coverity_auth(repo_root: str) -> dict[str, Any]:
+    """Only the credentials and one light request to Coverity, within about 10 seconds (spec D-84)."""
+    config = cfg.load_project_config(Path(repo_root).resolve())
+    if config.coverity.api == "fake":
+        return {"ok": None, "result": "偽データ（coverity.api: fake）で動作中のため、確認しません"}
+    from .connect import check_auth
+    return check_auth(config.coverity)
+
+
 def _check(name: str, ok: bool | None, detail: str, fix: str = "") -> dict[str, Any]:
     status = "ok" if ok else ("warning" if ok is None else "ng")
     return {"check": name, "status": status, "detail": detail, "how_to_fix": fix}
@@ -259,6 +268,12 @@ def doctor(repo_root: str) -> dict[str, Any]:
             checks.append(_check("GitHub トークン", True if has_token else None,
                                  f"環境変数 {config.vcs.github_token_env}",
                                  "" if has_token else "プルリクエストを作るときに必要です（/coverity-setup で入力）"))
+        if config.coverity.api != "fake":
+            auth = check_coverity_auth(str(root))
+            checks.append(_check("Coverity の認証", auth["ok"], auth["result"],
+                                 "" if auth["ok"] else "/coverity-help に表示内容を伝えてください"))
+            if not auth["ok"]:
+                return {"ready": False, "checks": checks}
         try:
             client = make_client(config.coverity)
             name = DEFAULT_FILTER if DEFAULT_FILTER in filters else (filters[0] if filters else None)

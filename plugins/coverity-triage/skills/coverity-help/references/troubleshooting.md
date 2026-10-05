@@ -12,6 +12,8 @@
 | `Coverity の列に ... が見つかりません` | Coverity の列の名前が想定と違う。`/coverity-selftest ③` を実行し、結果フォルダ（3-2 に列の名前と列キー）をプラグインの管理者に共有する |
 | `Coverity SOAP ... が失敗しました` / `Coverity REST ... が失敗しました` | 表示されたメッセージで判断する（ストリーム名の誤り、権限不足など）。分からなければ `operations.log` を添えて管理者へ |
 | `CERTIFICATE_VERIFY_FAILED` など証明書のエラー | 社内 CA が OS に入っていない。`coverity.ca_file` に CA 証明書のファイルを指定する |
+| `Request timed out`（MCP error -32001） | ツールの実行が 30 秒で打ち切られた。プラグインを最新にする（時間のかかる処理は `wait_job` で待つ作りになっている） |
+| 認証が正しいか分からない | `check_coverity_auth` で、設定の有無と Coverity に 1 回問い合わせた結果・秒数を確かめる（10 秒以内） |
 | 認証エラー・接続できない | 認証情報が未設定か誤り。skill `coverity-setup` の段階 3 で入れ直す |
 | `環境変数 GITHUB_TOKEN に GitHub のトークンが設定されていません` | skill `coverity-setup` の段階 3 でトークンを入力 |
 | `プルリクエストの作成に失敗しました (403)` など | トークンの権限不足・期限切れ。Contents と Pull requests の読み書き権限で発行し直す |

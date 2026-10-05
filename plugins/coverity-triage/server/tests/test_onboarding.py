@@ -109,3 +109,15 @@ def test_install_worker_agent_and_doctor(tmp_path, user_agents):
     out = onboarding.install_worker_agent()
     assert out["status"] == "installed" and "再起動" in out["next"]
     assert agent_check()["status"] == "ok"
+
+
+def test_doctor_stops_at_failed_auth(repo, monkeypatch):
+    onboarding.write_project_config(str(repo), "http://cov.example:8080", "P", "S", "git")
+    monkeypatch.delenv("COV_USER", raising=False)
+    monkeypatch.delenv("COV_AUTH_KEY", raising=False)
+    report = onboarding.doctor(str(repo))
+    names = [c["check"] for c in report["checks"]]
+    auth = next(c for c in report["checks"] if c["check"] == "Coverity の認証")
+    assert auth["status"] == "ng" and "設定されていません" in auth["detail"]
+    assert "Coverity から警告を取得" not in names and not report["ready"]
+    assert onboarding.check_coverity_auth(str(repo))["ok"] is False

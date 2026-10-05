@@ -9,6 +9,8 @@ disable-model-invocation: true
 
 Coverity・リポジトリ・GitHub に変更を加える手順です。**必ず人の同意を得てから** `apply_approvals` を呼びます（ツール側も、`preview_apply` の確認用の文字列が無いと反映しません）。
 
+時間のかかるツール（`start_run`・`doctor`・`verify_run`・`trial_build`・`apply_approvals`・`selftest_step` など）が `status: running` と `job_id` を返したら、処理は続いている。元のツールを呼び直さず、`wait_job(job_id)` を結果が返るまで繰り返し呼ぶ。1 分以上かかるときは、ときどき「処理中です（○分経過）」と利用者に伝える。
+
 ## 手順
 
 1. 実行フォルダ（`run_dir`）を決める。指定が無ければ `list_runs(repo_root)` で、一覧サマリがある最新の実行を使い、「〇〇（日時・条件）の結果を反映します」と伝える。
