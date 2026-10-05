@@ -34,7 +34,7 @@ Coverity の警告を AI が調査し、警告ごとに **「修正案」と「�
 - `/coverity-help MISRA の警告だけ調べたい`
 - `/coverity-help どれくらい役立っている？`
 
-この PC でプラグインが正しく動くかは `/coverity-selftest` で確かめられます。結果は `report.md` にまとまるので、うまく動かないときはその結果フォルダをプラグインの管理者に共有してください。
+この PC でプラグインが正しく動くかは `/coverity-selftest` で確かめられます。結果は `report.md` にまとまるので、うまく動かないときはその結果フォルダをプラグインの管理者に共有してください。手順（クローンから）：[テスト手順書](docs/selftest.md)
 
 ## このプラグインの仕組み
 
@@ -81,7 +81,7 @@ flowchart LR
 |---|---|
 | [docs/spec.md](docs/spec.md) | 要件仕様 |
 | [docs/design.md](docs/design.md) | 構成設計と実装の状況 |
-| [docs/trial-guide.md](docs/trial-guide.md) | 社内での試用・確認の手順（`/coverity-selftest` を使う） |
+| [docs/selftest.md](docs/selftest.md) | テスト手順書（クローンから `/coverity-selftest` の実行・結果の共有まで） |
 | `plugins/coverity-triage/` | プラグイン本体（Skill、サブエージェント、MCP サーバ） |
 | `.github/plugin/marketplace.json` | マーケットプレイスの定義（プラグインを更新するときは `plugin.json` と `version` をそろえる） |
 

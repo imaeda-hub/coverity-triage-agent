@@ -56,7 +56,7 @@ COV_COMMANDS = ["cov-build", "cov-analyze", "cov-format-errors"]
 @dataclass(frozen=True)
 class Check:
     id: str
-    ref: str        # number in docs/trial-guide.md or docs/spec.md
+    ref: str        # check number (C-x, A-x, B-x) or decision in docs/spec.md
     title: str
     expected: str
 
