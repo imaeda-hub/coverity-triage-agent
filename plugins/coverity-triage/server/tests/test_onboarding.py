@@ -66,7 +66,7 @@ def test_write_config_then_doctor_and_run(repo, tmp_path):
          "classification": "Unclassified"}]}), encoding="utf-8")
     report = onboarding.doctor(str(repo))
     fetched = next(c for c in report["checks"] if c["check"] == "Coverity から警告を取得")
-    assert fetched["status"] == "ok" and fetched["detail"].startswith("1 件")
+    assert fetched["status"] == "ok" and fetched["detail"].startswith("条件に合う警告 1 件")
 
     assert onboarding.list_runs(str(repo))["runs"] == []
     sh("git", "add", ".", cwd=repo)
@@ -121,3 +121,11 @@ def test_doctor_stops_at_failed_auth(repo, monkeypatch):
     assert auth["status"] == "ng" and "設定されていません" in auth["detail"]
     assert "Coverity から警告を取得" not in names and not report["ready"]
     assert onboarding.check_coverity_auth(str(repo))["ok"] is False
+
+
+def test_doctor_warns_about_http(repo, monkeypatch):
+    onboarding.write_project_config(str(repo), "http://cov.example:8080", "P", "S", "git")
+    monkeypatch.delenv("COV_USER", raising=False)
+    report = onboarding.doctor(str(repo))
+    http = next(c for c in report["checks"] if c["check"] == "Coverity の接続方式")
+    assert http["status"] == "warning" and "暗号化" in http["detail"] and "https://" in http["how_to_fix"]

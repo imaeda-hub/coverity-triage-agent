@@ -47,6 +47,10 @@ class Run:
             self._client = make_client(self.config.coverity)
         return self._client
 
+    def coverity_requests(self) -> list[dict[str, Any]]:
+        """Requests this run sent to Coverity since the last call, with their time (spec D-85)."""
+        return self._client.take_request_log() if self._client is not None else []
+
     def log(self, event: str, **fields: Any) -> None:
         oplog.log(self.dir, event, self.config.secret_values(), **fields)
 
@@ -128,13 +132,13 @@ def start_run(repo_root: str, filter_file: str, overrides: dict[str, Any] | None
     client = client or make_client(config.coverity)
 
     mapper = PathMapper(repo_root, config.coverity.path_strip_prefixes)
+    limit = spec.max_items or config.max_items
     issues = []
-    for found_issue in client.search_issues(spec):
+    for found_issue in client.search_issues(spec, limit=limit):  # stops paging at the limit (D-85)
         mapped, notes = mapper.map_issue(found_issue)
         issues.append(mapped.model_copy(update={"path_notes": notes}))
-    limit = spec.max_items or config.max_items
-    found = len(issues)
-    issues = issues[:limit]
+    found = max(client.last_total or 0, len(issues))
+    search_log = client.take_request_log()
     items = build_work_items(issues, cfg.load_no_grouping(repo_root))
 
     output_dir = Path(output_dir_of(repo_root))
@@ -148,7 +152,8 @@ def start_run(repo_root: str, filter_file: str, overrides: dict[str, Any] | None
     shutil.copy2(cfg.config_dir(repo_root) / cfg.CONFIG_FILE_NAME, store.run_dir / "config.snapshot.yaml")
     run = Run(store.run_dir, client)
     run.log("start_run", filter=spec.model_dump(), found=found, limit=limit,
-            items=len(items), analyzed_revision=revision, revision_source=source)
+            items=len(items), analyzed_revision=revision, revision_source=source,
+            coverity_requests=search_log + client.take_request_log())
     return {
         "run_dir": str(store.run_dir), "found": found, "processing": len(issues),
         "truncated_by_limit": found > limit, "items": len(items),

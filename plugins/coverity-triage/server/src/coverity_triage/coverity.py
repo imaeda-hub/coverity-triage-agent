@@ -12,6 +12,7 @@ import json
 import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -39,9 +40,18 @@ def filter_matches(issue: Issue, spec: FilterSpec, project: str | None = None) -
 
 
 class CoverityClient(ABC):
+    #: Number of matching issues the server reported for the last search (None if unknown).
+    last_total: int | None = None
+
     @abstractmethod
-    def search_issues(self, spec: FilterSpec) -> list[Issue]:
-        """Issues matching the filter, in the server's order."""
+    def search_issues(self, spec: FilterSpec, limit: int | None = None) -> list[Issue]:
+        """Issues matching the filter, in the server's order; at most ``limit`` when given
+        (the search stops as soon as enough are found)."""
+
+    def take_request_log(self) -> list[dict[str, Any]]:
+        """Requests sent to Coverity since the last call, with their time (spec D-85)."""
+        log, self._request_log = getattr(self, "_request_log", []), []
+        return log
 
     @abstractmethod
     def get_issue_detail(self, issue: Issue) -> IssueDetail:
@@ -74,9 +84,11 @@ class FakeCoverityClient(CoverityClient):
         fields = {k: v for k, v in record.items() if k in Issue.model_fields}
         return Issue.model_validate(fields)
 
-    def search_issues(self, spec: FilterSpec) -> list[Issue]:
-        return [self._issue(r) for r in self._records()
-                if filter_matches(self._issue(r), spec, r.get("project"))]
+    def search_issues(self, spec: FilterSpec, limit: int | None = None) -> list[Issue]:
+        found = [self._issue(r) for r in self._records()
+                 if filter_matches(self._issue(r), spec, r.get("project"))]
+        self.last_total = len(found)
+        return found[:limit] if limit else found
 
     def get_issue_detail(self, issue: Issue) -> IssueDetail:
         for record in self._records():
