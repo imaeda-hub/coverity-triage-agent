@@ -15,6 +15,7 @@ disable-model-invocation: true
 - 社内のリポジトリのファイルを編集しない。パスワード・認証キー・トークンをチャットで尋ねない。
 - 途中でツールがエラーを返したら、止まらずに、関係する確認項目を `selftest_record(result_dir, 確認項目, "fail", エラーの内容)` で記録して次へ進む。
 - 利用者への質問は**一度に 1 つ**。答えはそのまま記録する。
+- 時間のかかるツール（`start_run`・`doctor`・`verify_run`・`trial_build`・`apply_approvals`・`selftest_step` など）が `status: running` と `job_id` を返したら、処理は続いている。元のツールを呼び直さず、`wait_job(job_id)` を結果が返るまで繰り返し呼ぶ。1 分以上かかるときは、ときどき「処理中です（○分経過）」と利用者に伝える。
 
 ## 開始
 
@@ -32,7 +33,7 @@ disable-model-invocation: true
    > 1 行目：`TOOLS: ` に続けて、あなたが使えるツールの名前をすべてカンマ区切りで（推測で足さない）
    > 2 行目：Skill `triage-investigation` を読み込み、`SKILL: ` に続けて、その本文の最初の見出し（`# ` の行）をそのまま
    - 返答をそのまま `selftest_step("worker", result_dir, answer=返答)` に渡す（1-5〜1-7）。
-   - 起動できなかった場合は、理由（例：サブエージェントを起動するツールが無効、カスタムエージェントを名前で指定できない）を `selftest_record(result_dir, "1-5", "fail", 理由)` で記録する。1-6・1-7・1-8 はツールが「未実施」と記録するので、1-8 の質問はしない。
+   - 起動できなかった場合は、理由（例：サブエージェントを起動するツールが無効、カスタムエージェントを名前で指定できない）を `selftest_record(result_dir, "1-5", "fail", 理由)` で記録する。1-6・1-7・1-8 はツールが「未実施」と記録するので、1-8 の質問はしない。終了の報告で「`/coverity-setup` で調査役の AI を入れ、VS Code を再起動してから再実行してください」と伝える。
 3. **利用者への確認**（1 つずつ尋ね、`selftest_record` で記録する。分からないという答えは `review`）
    - 1-3：「チャット欄に `/` を入力してください。`coverity-setup`・`coverity-run`・`coverity-apply`・`coverity-help`・`coverity-selftest` の 5 つは出ていますか？ また、`triage-investigation`・`checker-knowledge`・`code-fix`・`deviation-comment`・`triage-report` が出ていないか確認してください」。VS Code ではプラグイン名が前に付く（`/coverity-triage:coverity-run` など）。表示された呼び方も `actual` に書く。
    - 1-4：「エージェントを選ぶ一覧に `coverity-triage-worker` が出ていないか確認してください」
@@ -49,8 +50,8 @@ disable-model-invocation: true
 
 ## ③ 社内 Coverity 接続（読み取りのみ）
 
-1. `selftest_step("coverity", result_dir, repo_root=repo_root)`（3-1〜3-8）。
-2. 返ってきた `filter_file` が `null` なら、`selftest_record(result_dir, "3-9", "skip", "検索結果が 0 件のため")` を記録して ④ へ。
+1. `selftest_step("coverity", result_dir, repo_root=repo_root)`（3-1〜3-8。3-2 は認証だけの確認で、失敗したら 3-3〜3-9 は未実施になる）。
+2. 返ってきた `filter_file` が `null` なら、3-9 がまだ記録されていなければ `selftest_record(result_dir, "3-9", "skip", "検索結果が 0 件のため")` を記録して ④ へ。
 3. そうでなければ、実際の警告 1 件で試す：`start_run(repo_root, filter_file, overrides={"max_items": 1}, verify_mode="none")` を呼び、② の 2 と同じ処理ループで 1 件を処理して `build_summary` を呼ぶ。続けて `selftest_step("real_run", result_dir, run_dir)`（3-9）。この `run_dir` は ④ で使う。
 
 ## ④ 実ビルドでの自動検証

@@ -16,7 +16,8 @@ disable-model-invocation: true
 - git / svn / Coverity / VS Code 自体のインストールや設定変更はしない。足りない場合は社内の手順で入れてもらうよう伝える。
 - **パスワード・認証キー・トークンをチャットで尋ねない。** 入力は skill の「秘密情報の入力」の方法で、利用者がターミナルの伏せ字欄に入力する。チャットに貼られた場合は、使わずに「漏えいの恐れがあるので再発行を」と伝える。
 - 設定ファイルを書く前に、書く値を一覧で見せて同意を得る。
-- 機械的に確かめられることは、推測せず `doctor` で確かめる。
+- 機械的に確かめられることは、推測せず `doctor` で確かめる。認証だけを確かめたいときは `check_coverity_auth`（10 秒以内に、設定の有無と Coverity に 1 回問い合わせた結果・秒数を返す）。
+- 時間のかかるツール（`start_run`・`doctor`・`verify_run`・`trial_build`・`apply_approvals`・`selftest_step` など）が `status: running` と `job_id` を返したら、処理は続いている。元のツールを呼び直さず、`wait_job(job_id)` を結果が返るまで繰り返し呼ぶ。1 分以上かかるときは、ときどき「処理中です（○分経過）」と利用者に伝える。
 
 ## 準備の流れ
 
@@ -39,6 +40,8 @@ disable-model-invocation: true
 ### 段階 1：診断
 
 `doctor(repo_root)` を実行し、結果を「できていること / 足りないこと」に分けて短く伝える。`ng` の項目を上から順に解決する。
+
+- 「調査役の AI（coverity-triage-worker）」が `ng` の場合：「警告を 1 件ずつ調べる調査役の AI を、あなたのユーザフォルダ（`%USERPROFILE%\.copilot\agents`）にコピーします。VS Code の Copilot はプラグインの中のものを使わないためです」と説明し、同意を得て `install_worker_agent()` を呼ぶ。コピーした（`installed` / `updated`）場合は、VS Code（または Copilot CLI）の再起動が必要と伝える。再起動は最後にまとめてでよい。
 
 ### 段階 2：設定ファイル（リポジトリにまだ無い場合だけ）
 

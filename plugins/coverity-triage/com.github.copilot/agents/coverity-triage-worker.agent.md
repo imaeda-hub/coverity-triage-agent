@@ -16,6 +16,7 @@ tools:
   - coverity-triage/save_fix
   - coverity-triage/submit_result
   - coverity-triage/report_error
+  - coverity-triage/wait_job
 ---
 
 # Coverity トリアージ（作業項目の調査）
@@ -27,6 +28,7 @@ tools:
 ## 使ってよい手段
 
 - ソースの参照・検索・編集は `read_source` / `search_source` / `edit_source` だけを使う（ターミナルや他のファイル操作は使わない）。`read` / `skill` は Skill（`triage-investigation` など）を読むためだけに使う。
+- `get_issue_detail` / `prepare_workspaces` が `status: running` と `job_id` を返したら、処理は続いている。`wait_job(job_id)` を結果が返るまで繰り返し呼ぶ（元のツールを呼び直さない）。
 - 作業領域：`analyzed`（調査用・解析リビジョン・読み取り専用）、`fix`（修正案用・最新リビジョン）、`annotation`（アノテーション用、設定で有効な場合のみ）。
 
 ## 手順

@@ -35,15 +35,13 @@ git clone https://github.com/imaeda-hub/coverity-triage-agent.git
   ```
 
 - **VS Code**：設定 `chat.plugins.marketplaces` に `C:\work\coverity-triage-agent` を追加し、拡張機能ビューで `@agentPlugins` を検索して `coverity-triage` をインストールします。
-- VS Code では、次の 2 つを有効にしておきます（サブエージェント `coverity-triage-worker` の起動に必要）。
-  - チャットのツールで「Run Subagent」（`agent/runSubagent`）
-  - 設定 `chat.customAgentInSubagent.enabled`（サブエージェントにカスタムエージェントを使わせる。実験的な設定）
+- 調査役の AI（`coverity-triage-worker`）は、`/coverity-setup` が `%USERPROFILE%\.copilot\agents` にコピーします（VS Code の Session Target「Copilot」は、プラグインの中のエージェントを使わないため）。
 
 参考：[Agent plugins in VS Code](https://code.visualstudio.com/docs/agent-customization/agent-plugins)、[GitHub Copilot CLI plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
 
 > 記録：実際に使った操作・コマンドと、成功したか（エラーが出た場合はその表示をそのまま）
 
-**新しい PC（uv が無い PC）では**、ここで `/coverity-setup` を実行し、AI の案内に沿って uv を入れてから VS Code（または Copilot CLI）を再起動します。uv が無いと MCP サーバが起動せず（VS Code の「MCP: List Servers」で `coverity-triage` が Error になる）、`/coverity-selftest` は何もできません。
+**新しい PC では**、ここで `/coverity-setup` を実行し、AI の案内に沿って uv と調査役の AI を入れてから VS Code（または Copilot CLI）を再起動します。uv が無いと MCP サーバが起動せず（VS Code の「MCP: List Servers」で `coverity-triage` が Error になる）、`/coverity-selftest` は何もできません。
 
 ## 4. `/coverity-selftest` を実行する
 

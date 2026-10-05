@@ -43,7 +43,7 @@ SECTIONS = {"1": "プラグインの組み込み", "2": "偽データでの一�
 STATUS_JA = {"pass": "成功", "fail": "失敗", "review": "要確認", "info": "記録", "skip": "未実施"}
 
 WORKER_TOOLS = ["get_issue_detail", "prepare_workspaces", "read_source", "search_source",
-                "edit_source", "save_fix", "submit_result", "report_error"]
+                "edit_source", "save_fix", "submit_result", "report_error", "wait_job"]
 FORBIDDEN_WORKER_TOOLS = ["apply_approvals", "preview_apply", "run_in_terminal", "runInTerminal",
                           "execute", "terminal", "bash", "powershell", "shell"]
 SOAP_OPERATIONS = {"defectservice": ["getStreamDefects"],
@@ -66,7 +66,7 @@ CHECKS = [
     Check("1-3", "/ メニューの入口", "入口の Skill 5 つが出て、調査用の Skill 5 つは出ない"),
     Check("1-4", "エージェントの一覧", "coverity-triage-worker が一覧に出ない"),
     Check("1-5", "サブエージェントの起動", "coverity-triage-worker を名前で指定して起動できる"),
-    Check("1-6", "サブエージェントのツール制限", "調査用の 8 ツールがあり、反映のツールとターミナルが無い"),
+    Check("1-6", "サブエージェントのツール制限", "調査用の 9 ツールがあり、反映のツールとターミナルが無い"),
     Check("1-7", "Skill の読み込み", "サブエージェントが Skill triage-investigation を読み込める"),
     Check("1-8", "モデルの固定", "サブエージェントが gpt-6 luna で動く"),
     Check("2-1", "偽データの作業リポジトリ", "作成して git に登録できる"),
@@ -79,7 +79,7 @@ CHECKS = [
     Check("2-8", "知識の追記", "人が変えた項目が候補になり、knowledge.md に追記できる"),
     Check("2-9", "効果測定", "採用状況を集計できる"),
     Check("3-1", "準備状況（doctor）", "すべて ok"),
-    Check("3-2", "REST API の接続と認証", "列の一覧を取得できる"),
+    Check("3-2", "REST API の接続と認証", "10 秒以内に認証できる（かかった秒数も記録）"),
     Check("3-3", "列キー", "必要な列キーがそろっている"),
     Check("3-4", "警告の検索", "条件ファイルで警告を検索できる"),
     Check("3-5", "SOAP API とバージョン", "必要な操作があり、認証付きで呼べる。書き戻しに必要な 2022.6 以降"),
@@ -613,20 +613,28 @@ def _step_coverity(result: Result, repo_root: str | None, **_: Any) -> dict[str,
     result.record("3-1", "pass" if not bad else ("fail" if not report["ready"] else "review"),
                   f"ok 以外: {', '.join(bad)}" if bad else "すべて ok", raw=report)
 
+    auth = onboarding.check_coverity_auth(root)
+    result.record("3-2", "pass" if auth["ok"] else "fail", auth["result"], raw=auth)
+    if not auth["ok"]:
+        for n in range(3, 10):
+            result.record(f"3-{n}", "skip", "3-2（認証）が失敗したため")
+        return {"checks": [f"3-{n}" for n in range(1, 10)], "filter_file": None,
+                "next": "3-2 の結果（認証・接続）を利用者に伝える。3-9 は記録済み"}
+
     client = ConnectClient(config.coverity)
     try:
         columns = client.columns()
-        result.record("3-2", "pass", f"列 {len(columns)} 個", raw=columns)
     except Exception as exc:
-        result.record("3-2", "fail", str(exc))
+        result.record("3-3", "fail", f"列の一覧を取得できません: {exc}")
         columns = {}
     keys = set(columns.values())
     required = [COLUMN_KEYS[f] for f in REQUIRED_FIELDS if COLUMN_KEYS[f] not in keys]
     optional = [k for k in COLUMN_KEYS.values() if k not in keys and k not in required]
-    result.record("3-3", "fail" if required else ("review" if optional else "pass"),
-                  (f"必須の列が無い: {', '.join(required)}。" if required else "")
-                  + (f"無い列（その項目は空になる）: {', '.join(optional)}" if optional else "")
-                  or "すべてある")
+    if columns:
+        result.record("3-3", "fail" if required else ("review" if optional else "pass"),
+                      (f"必須の列が無い: {', '.join(required)}。" if required else "")
+                      + (f"無い列（その項目は空になる）: {', '.join(optional)}" if optional else "")
+                      or f"すべてある（列 {len(columns)} 個）", raw=columns)
 
     filters = sorted(p.name for p in (cfg.config_dir(root) / cfg.FILTERS_DIR_NAME).glob("*.yaml"))
     filter_file = onboarding.DEFAULT_FILTER if onboarding.DEFAULT_FILTER in filters else (filters[0] if filters else "")

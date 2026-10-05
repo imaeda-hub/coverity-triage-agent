@@ -13,7 +13,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import apply, knowledge, onboarding, runs, selftest, worker
+from . import apply, jobs, knowledge, onboarding, runs, selftest, worker
 from .config import ConfigError
 from .coverity import CoverityError
 from .encoding import EncodingError
@@ -32,6 +32,8 @@ mcp = MCPServer(
     instructions=(
         "Coverity 警告のトリアージ用ツール。start_run（または resume_run）が返す run_dir を以降の"
         "すべてのツールに渡す。ソースの参照・編集は必ず read_source / search_source / edit_source を使う。"
+        "時間のかかるツールが {\"status\": \"running\", \"job_id\": ...} を返したら、処理は続いている。"
+        "wait_job(job_id) を結果が返るまで繰り返し呼ぶ（元のツールを呼び直さない）。"
     ),
 )
 
@@ -76,8 +78,8 @@ def write_project_config(repo_root: str, coverity_url: str, project: str, stream
 @tool
 def trial_build(repo_root: str, setup_command: str, build_command: str,
                 build_dir: str = "") -> dict:
-    """検証の設定前に、修正前の最新コードを試しにビルドしてコマンドが正しいか確かめる。setup_command の {root} はビルドするフォルダに置き換わる。build_dir（リポジトリからの相対パス）を指定すると、setup_command の後にそこへ移動してからビルドする。"""
-    return onboarding.trial_build(repo_root, setup_command, build_command, build_dir)
+    """検証の設定前に、修正前の最新コードを試しにビルドしてコマンドが正しいか確かめる。setup_command の {root} はビルドするフォルダに置き換わる。build_dir（リポジトリからの相対パス）を指定すると、setup_command の後にそこへ移動してからビルドする。 時間がかかる場合は status=running と job_id を返すので、wait_job(job_id) で結果を待つ。"""
+    return jobs.run("trial_build", onboarding.trial_build, repo_root, setup_command, build_command, build_dir)
 
 
 @tool
@@ -90,9 +92,24 @@ def write_verify_config(repo_root: str, setup_command: str, build_command: str,
 
 
 @tool
+def install_worker_agent() -> dict:
+    """Copy the worker agent coverity-triage-worker to the user's agents folder (~/.copilot/agents).
+
+    Needed because VS Code's Copilot harness does not pass agents inside plugins to the main agent.
+    Ask the person before calling. Restart VS Code / Copilot CLI afterwards."""
+    return onboarding.install_worker_agent()
+
+
+@tool
+def check_coverity_auth(repo_root: str) -> dict:
+    """Coverity の認証だけを短時間（10 秒以内）で確かめる：ユーザ名・認証キーの設定の有無（値は返さない）と、Coverity に 1 回問い合わせた結果・かかった秒数。"""
+    return onboarding.check_coverity_auth(repo_root)
+
+
+@tool
 def doctor(repo_root: str) -> dict:
-    """PC とリポジトリの準備状況を機械的に確認する（設定ファイル、条件ファイル、出力先、認証情報、Coverity 接続など）。"""
-    return onboarding.doctor(repo_root)
+    """PC とリポジトリの準備状況を機械的に確認する（設定ファイル、条件ファイル、出力先、認証情報、Coverity 接続など）。 時間がかかる場合は status=running と job_id を返すので、wait_job(job_id) で結果を待つ。"""
+    return jobs.run("doctor", onboarding.doctor, repo_root)
 
 
 @tool
@@ -104,12 +121,12 @@ def list_runs(repo_root: str, limit: int = 10) -> dict:
 @tool
 def start_run(repo_root: str, filter_file: str, overrides: dict | None = None,
               verify_mode: str | None = None) -> dict:
-    """トリアージを開始する。条件ファイルで CID を検索し、上限件数で切り、グループ候補を作り、実行フォルダを作る。
+    """トリアージを開始する。条件ファイルで CID を検索し、上限件数で切り、グループ候補を作り、実行フォルダを作る。 時間がかかる場合は status=running と job_id を返すので、wait_job(job_id) で結果を待つ。
 
     overrides: チャットで指定された条件の上書き（例: {"impacts": ["High"], "triage": {"status": ["New"]}}）。
     verify_mode: none / build / build+analyze。省略時は設定ファイルの値。
     """
-    return runs.start_run(repo_root, filter_file, overrides, verify_mode)
+    return jobs.run("start_run", runs.start_run, repo_root, filter_file, overrides, verify_mode)
 
 
 @tool
@@ -132,8 +149,8 @@ def next_work_item(run_dir: str) -> dict:
 
 @tool
 def verify_run(run_dir: str, mode: str | None = None) -> dict:
-    """全件の調査が終わった後に 1 回だけ呼ぶ。保存されたすべての修正案をまとめて適用し、設定のコマンドでビルド（＋再解析）して、作業項目ごとに結果を割り当てる。問題が出た修正案は確信度を「低」に下げる。時間がかかる（10〜60 分程度）。"""
-    return runs.verify_run(run_dir, mode)
+    """全件の調査が終わった後に 1 回だけ呼ぶ。保存されたすべての修正案をまとめて適用し、設定のコマンドでビルド（＋再解析）して、作業項目ごとに結果を割り当てる。問題が出た修正案は確信度を「低」に下げる。時間がかかる（10〜60 分程度）。 時間がかかる場合は status=running と job_id を返すので、wait_job(job_id) で結果を待つ。"""
+    return jobs.run("verify_run", runs.verify_run, run_dir, mode)
 
 
 @tool
@@ -147,14 +164,14 @@ def build_summary(run_dir: str) -> dict:
 
 @tool
 def get_issue_detail(run_dir: str, item_id: str) -> dict:
-    """作業項目の各 CID の基本情報・イベント（警告経路）・チェッカー説明を返す。"""
-    return worker.get_issue_detail(run_dir, item_id)
+    """作業項目の各 CID の基本情報・イベント（警告経路）・チェッカー説明を返す。 時間がかかる場合は status=running と job_id を返すので、wait_job(job_id) で結果を待つ。"""
+    return jobs.run("get_issue_detail", worker.get_issue_detail, run_dir, item_id)
 
 
 @tool
 def prepare_workspaces(run_dir: str, item_id: str) -> dict:
-    """調査用（analyzed: 解析リビジョン）と修正用（fix: 最新リビジョン）の作業領域を用意し、リビジョン情報とずれの確認結果を返す。"""
-    return worker.prepare_workspaces(run_dir, item_id)
+    """調査用（analyzed: 解析リビジョン）と修正用（fix: 最新リビジョン）の作業領域を用意し、リビジョン情報とずれの確認結果を返す。 時間がかかる場合は status=running と job_id を返すので、wait_job(job_id) で結果を待つ。"""
+    return jobs.run("prepare_workspaces", worker.prepare_workspaces, run_dir, item_id)
 
 
 @tool
@@ -207,8 +224,8 @@ def preview_apply(run_dir: str) -> dict:
 
 @tool
 def apply_approvals(run_dir: str, confirmation_token: str) -> dict:
-    """人の同意を得た後に反映する（Coverity 書き戻し、push とプルリクエスト作成、svn patch 適用）。"""
-    return apply.apply_approvals(run_dir, confirmation_token)
+    """人の同意を得た後に反映する（Coverity 書き戻し、push とプルリクエスト作成、svn patch 適用）。 時間がかかる場合は status=running と job_id を返すので、wait_job(job_id) で結果を待つ。"""
+    return jobs.run("apply_approvals", apply.apply_approvals, run_dir, confirmation_token)
 
 
 @tool
@@ -232,6 +249,15 @@ def get_stats(repo_root: str) -> dict:
     return runs.get_stats(runs.output_dir_of(repo_root))
 
 
+# ---- long-running tools ------------------------------------------------------------------------
+
+
+@tool
+def wait_job(job_id: str) -> dict:
+    """時間のかかるツールが status=running で返した処理を最大 20 秒待つ。終わっていれば元のツールの結果を、まだなら再び status=running を返す（結果が返るまで繰り返し呼ぶ）。"""
+    return jobs.wait(job_id)
+
+
 # ---- self-test (/coverity-selftest) -------------------------------------------------------------
 
 
@@ -245,8 +271,8 @@ def selftest_start(sections: list[str] | None = None, repo_root: str | None = No
 @tool
 def selftest_step(step: str, result_dir: str, run_dir: str | None = None,
                   repo_root: str | None = None, answer: str | None = None) -> dict:
-    """動作確認のテストの 1 段階を実行して判定し、結果フォルダに記録する。step は plugin / worker / sample / flow_run / flow_apply / flow_knowledge / coverity / real_run / build / verify（使い方は skill coverity-selftest）。"""
-    return selftest.step(step, result_dir, run_dir, repo_root, answer, TOOL_NAMES)
+    """動作確認のテストの 1 段階を実行して判定し、結果フォルダに記録する。step は plugin / worker / sample / flow_run / flow_apply / flow_knowledge / coverity / real_run / build / verify（使い方は skill coverity-selftest）。 時間がかかる場合は status=running と job_id を返すので、wait_job(job_id) で結果を待つ。"""
+    return jobs.run("selftest_step", selftest.step, step, result_dir, run_dir, repo_root, answer, TOOL_NAMES)
 
 
 @tool

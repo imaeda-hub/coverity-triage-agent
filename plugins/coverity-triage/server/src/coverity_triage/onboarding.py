@@ -27,6 +27,35 @@ SOURCE_SUFFIXES = {".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".i
 MAX_SCANNED_FILES = 3000
 DEFAULT_OUTPUT_DIR = "../coverity-triage-out"
 DEFAULT_FILTER = "untriaged.yaml"
+PLUGIN_ROOT = Path(__file__).resolve().parents[3]
+WORKER_AGENT = PLUGIN_ROOT / "com.github.copilot" / "agents" / "coverity-triage-worker.agent.md"
+
+
+def user_agents_dir() -> Path:
+    """User-level custom agents folder read by the Copilot harness and Copilot CLI."""
+    return Path.home() / ".copilot" / "agents"
+
+
+def worker_agent_state() -> dict[str, Any]:
+    """Whether the user-level copy of the worker agent exists and matches the plugin's."""
+    target = user_agents_dir() / WORKER_AGENT.name
+    if not target.is_file():
+        return {"status": "missing", "path": str(target)}
+    same = target.read_bytes() == WORKER_AGENT.read_bytes()
+    return {"status": "current" if same else "outdated", "path": str(target)}
+
+
+def install_worker_agent() -> dict[str, Any]:
+    """Copy the worker agent to the user-level folder (VS Code's Copilot harness does not
+    pass plugin agents to the main agent)."""
+    before = worker_agent_state()["status"]
+    target = user_agents_dir() / WORKER_AGENT.name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if before != "current":
+        shutil.copyfile(WORKER_AGENT, target)
+    return {"status": {"missing": "installed", "outdated": "updated", "current": "unchanged"}[before],
+            "path": str(target),
+            "next": "VS Code（または Copilot CLI）を再起動すると使えるようになります" if before != "current" else ""}
 
 
 def _git_ref(root: Path, ref: str) -> str | None:
@@ -174,6 +203,15 @@ def write_project_config(repo_root: str, coverity_url: str, project: str, stream
 # ---- diagnosis -------------------------------------------------------------------------------
 
 
+def check_coverity_auth(repo_root: str) -> dict[str, Any]:
+    """Only the credentials and one light request to Coverity, within about 10 seconds (spec D-84)."""
+    config = cfg.load_project_config(Path(repo_root).resolve())
+    if config.coverity.api == "fake":
+        return {"ok": None, "result": "偽データ（coverity.api: fake）で動作中のため、確認しません"}
+    from .connect import check_auth
+    return check_auth(config.coverity)
+
+
 def _check(name: str, ok: bool | None, detail: str, fix: str = "") -> dict[str, Any]:
     status = "ok" if ok else ("warning" if ok is None else "ng")
     return {"check": name, "status": status, "detail": detail, "how_to_fix": fix}
@@ -190,6 +228,12 @@ def doctor(repo_root: str) -> dict[str, Any]:
         found = shutil.which(vcs)
         checks.append(_check(f"{vcs} コマンド", bool(found), found or "見つかりません",
                              "" if found else f"{vcs} をインストールして PATH を通してください"))
+
+    agent = worker_agent_state()
+    checks.append(_check("調査役の AI（coverity-triage-worker）", agent["status"] == "current",
+                         {"current": "入っています", "missing": "まだ入っていません",
+                          "outdated": "プラグインの更新前のものです"}[agent["status"]] + f"（{agent['path']}）",
+                         "" if agent["status"] == "current" else "/coverity-setup で入れます（install_worker_agent）"))
 
     config_path = cfg.config_dir(root) / cfg.CONFIG_FILE_NAME
     config = None
@@ -224,6 +268,12 @@ def doctor(repo_root: str) -> dict[str, Any]:
             checks.append(_check("GitHub トークン", True if has_token else None,
                                  f"環境変数 {config.vcs.github_token_env}",
                                  "" if has_token else "プルリクエストを作るときに必要です（/coverity-setup で入力）"))
+        if config.coverity.api != "fake":
+            auth = check_coverity_auth(str(root))
+            checks.append(_check("Coverity の認証", auth["ok"], auth["result"],
+                                 "" if auth["ok"] else "/coverity-help に表示内容を伝えてください"))
+            if not auth["ok"]:
+                return {"ready": False, "checks": checks}
         try:
             client = make_client(config.coverity)
             name = DEFAULT_FILTER if DEFAULT_FILTER in filters else (filters[0] if filters else None)

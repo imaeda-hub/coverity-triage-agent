@@ -12,6 +12,8 @@
 | `Coverity の列に ... が見つかりません` | Coverity の列の名前が想定と違う。`/coverity-selftest ③` を実行し、結果フォルダ（3-2 に列の名前と列キー）をプラグインの管理者に共有する |
 | `Coverity SOAP ... が失敗しました` / `Coverity REST ... が失敗しました` | 表示されたメッセージで判断する（ストリーム名の誤り、権限不足など）。分からなければ `operations.log` を添えて管理者へ |
 | `CERTIFICATE_VERIFY_FAILED` など証明書のエラー | 社内 CA が OS に入っていない。`coverity.ca_file` に CA 証明書のファイルを指定する |
+| `Request timed out`（MCP error -32001） | ツールの実行が 30 秒で打ち切られた。プラグインを最新にする（時間のかかる処理は `wait_job` で待つ作りになっている） |
+| 認証が正しいか分からない | `check_coverity_auth` で、設定の有無と Coverity に 1 回問い合わせた結果・秒数を確かめる（10 秒以内） |
 | 認証エラー・接続できない | 認証情報が未設定か誤り。skill `coverity-setup` の段階 3 で入れ直す |
 | `環境変数 GITHUB_TOKEN に GitHub のトークンが設定されていません` | skill `coverity-setup` の段階 3 でトークンを入力 |
 | `プルリクエストの作成に失敗しました (403)` など | トークンの権限不足・期限切れ。Contents と Pull requests の読み書き権限で発行し直す |
@@ -19,7 +21,7 @@
 | `逸脱の節の目印（ct:begin / ct:end）が見つかりません` | 詳細レポートの目印の行を消した。usage.md の形に戻す |
 | `確認後に一覧サマリまたはレポートが変更されました` | 確認後にファイルが変わった。もう一度 `/coverity-apply` |
 | `svn patch で競合が発生しました` | 修正を作った後に同じ箇所が変わった。差分ファイルを見て手で反映 |
-| `coverity-triage-worker` を起動できない（カスタムエージェントを名前で指定できない） | VS Code で、チャットのツール「Run Subagent」と設定 `chat.customAgentInSubagent.enabled` を有効にする |
+| `coverity-triage-worker` を起動できない（カスタムエージェントを名前で指定できない） | 調査役の AI が `%USERPROFILE%\.copilot\agents` に無いか古い。`/coverity-setup` で入れて VS Code を再起動する（VS Code の Session Target「Copilot」はプラグインの中のエージェントを使わない） |
 | サマリに「エラー」の表 | その警告は処理できなかった（理由が表にある）。直して `/coverity-run` で再開するとエラー分だけやり直す |
 | サマリに「未処理」 | 途中で止まった。`/coverity-run` で再開 |
 | レポートに「パスを自動で対応づけました／対応づけられませんでした」 | Coverity のパスとリポジトリのパスが違う。`path_strip_prefixes` を設定（settings.md） |
