@@ -6,6 +6,7 @@ Coverity の警告を AI が調査し、警告ごとに **「修正案」と「�
 ## はじめに（初回だけ・約 15 分）
 
 1. **プラグインを入れる**：このリポジトリを VS Code または Copilot CLI にプラグインのマーケットプレイスとして登録し、`coverity-triage` をインストールします。
+   VS Code では、チャットのツール「Run Subagent」と設定 `chat.customAgentInSubagent.enabled` を有効にします。
 2. **対象リポジトリを VS Code で開き、Copilot Chat で次を入力します。**
 
    ```
