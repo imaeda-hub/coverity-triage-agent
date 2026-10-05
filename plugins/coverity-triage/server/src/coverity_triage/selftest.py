@@ -56,42 +56,41 @@ COV_COMMANDS = ["cov-build", "cov-analyze", "cov-format-errors"]
 @dataclass(frozen=True)
 class Check:
     id: str
-    ref: str        # check number (C-x, A-x, B-x) or decision in docs/spec.md
     title: str
     expected: str
 
 
 CHECKS = [
-    Check("1-1", "C-1, C-2", "MCP サーバの起動とツール", "Copilot から coverity-triage のツールがすべて見える"),
-    Check("1-2", "C-2", "Python 環境の場所", "PLUGIN_DATA の venv で動き、プラグイン本体に .venv が無い"),
-    Check("1-3", "C-6", "/ メニューの入口", "入口の Skill 5 つが出て、調査用の Skill 5 つは出ない"),
-    Check("1-4", "C-3", "エージェントの一覧", "coverity-triage-worker が一覧に出ない"),
-    Check("1-5", "C-7", "サブエージェントの起動", "coverity-triage-worker を名前で指定して起動できる"),
-    Check("1-6", "C-5", "サブエージェントのツール制限", "調査用の 8 ツールがあり、反映のツールとターミナルが無い"),
-    Check("1-7", "C-8", "Skill の読み込み", "サブエージェントが Skill triage-investigation を読み込める"),
-    Check("1-8", "C-4", "モデルの固定", "サブエージェントが gpt-6 luna で動く"),
-    Check("2-1", "A-2", "偽データの作業リポジトリ", "作成して git に登録できる"),
-    Check("2-2", "A-5", "トリアージの実行", "すべての作業項目が完了し、summary.md ができる"),
-    Check("2-3", "A-5", "レポートの形", "各レポートに修正案と逸脱コメント案があり、承認列が下書きされている"),
-    Check("2-4", "A-5", "グループ", "CID 20004〜20006 が 1 つのグループにまとまる"),
-    Check("2-5", "A-5", "AI の結論", "想定の結論（skills/coverity-selftest/assets/expected.yaml）と合う"),
-    Check("2-6", "C-11", "反映の安全策", "確認用の文字列が無い・違うと apply_approvals が反映を拒否する"),
-    Check("2-7", "A-5", "反映", "逸脱は書き戻しが記録され、修正はリモートが無いため push のエラーになる"),
-    Check("2-8", "D-78", "知識の追記", "人が変えた項目が候補になり、knowledge.md に追記できる"),
-    Check("2-9", "A-5", "効果測定", "採用状況を集計できる"),
-    Check("3-1", "B-2", "準備状況（doctor）", "すべて ok"),
-    Check("3-2", "U-1, U-2", "REST API の接続と認証", "列の一覧を取得できる"),
-    Check("3-3", "U-1", "列キー", "必要な列キーがそろっている"),
-    Check("3-4", "U-1", "警告の検索", "条件ファイルで警告を検索できる"),
-    Check("3-5", "U-1, U-2", "SOAP API とバージョン", "必要な操作があり、認証付きで呼べる。書き戻しに必要な 2022.6 以降"),
-    Check("3-6", "U-1", "警告経路（SOAP）", "警告経路のイベントを取得できる"),
-    Check("3-7", "U-1", "警告経路（REST の sourceCodeInfo）", "応答の形を記録する（判定はしない）"),
-    Check("3-8", "D-17", "スナップショットのリビジョン", "設定の項目に値があり、そのリビジョンがリポジトリにある"),
-    Check("3-9", "B-2", "実際の警告 1 件の調査", "詳細レポートに警告経路・修正案・逸脱コメント案がある"),
-    Check("4-1", "C-12", "検証の設定", "ビルドのコマンドが設定されている"),
-    Check("4-2", "C-12", "試しのビルド", "修正前の最新コードをビルドできる"),
-    Check("4-3", "C-12", "Coverity のコマンド", "cov-build / cov-analyze / cov-format-errors（--json-output-v7）が使える"),
-    Check("4-4", "C-12", "修正案を当てた検証（ビルド＋再解析）", "ビルドと再解析が終わり、結果が詳細レポートに載る"),
+    Check("1-1", "MCP サーバの起動とツール", "Copilot から coverity-triage のツールがすべて見える"),
+    Check("1-2", "Python 環境の場所", "PLUGIN_DATA の venv で動き、プラグイン本体に .venv が無い"),
+    Check("1-3", "/ メニューの入口", "入口の Skill 5 つが出て、調査用の Skill 5 つは出ない"),
+    Check("1-4", "エージェントの一覧", "coverity-triage-worker が一覧に出ない"),
+    Check("1-5", "サブエージェントの起動", "coverity-triage-worker を名前で指定して起動できる"),
+    Check("1-6", "サブエージェントのツール制限", "調査用の 8 ツールがあり、反映のツールとターミナルが無い"),
+    Check("1-7", "Skill の読み込み", "サブエージェントが Skill triage-investigation を読み込める"),
+    Check("1-8", "モデルの固定", "サブエージェントが gpt-6 luna で動く"),
+    Check("2-1", "偽データの作業リポジトリ", "作成して git に登録できる"),
+    Check("2-2", "トリアージの実行", "すべての作業項目が完了し、summary.md ができる"),
+    Check("2-3", "レポートの形", "各レポートに修正案と逸脱コメント案があり、承認列が下書きされている"),
+    Check("2-4", "グループ", "CID 20004〜20006 が 1 つのグループにまとまる"),
+    Check("2-5", "AI の結論", "想定の結論（skills/coverity-selftest/assets/expected.yaml）と合う"),
+    Check("2-6", "反映の安全策", "確認用の文字列が無い・違うと apply_approvals が反映を拒否する"),
+    Check("2-7", "反映", "逸脱は書き戻しが記録され、修正はリモートが無いため push のエラーになる"),
+    Check("2-8", "知識の追記", "人が変えた項目が候補になり、knowledge.md に追記できる"),
+    Check("2-9", "効果測定", "採用状況を集計できる"),
+    Check("3-1", "準備状況（doctor）", "すべて ok"),
+    Check("3-2", "REST API の接続と認証", "列の一覧を取得できる"),
+    Check("3-3", "列キー", "必要な列キーがそろっている"),
+    Check("3-4", "警告の検索", "条件ファイルで警告を検索できる"),
+    Check("3-5", "SOAP API とバージョン", "必要な操作があり、認証付きで呼べる。書き戻しに必要な 2022.6 以降"),
+    Check("3-6", "警告経路（SOAP）", "警告経路のイベントを取得できる"),
+    Check("3-7", "警告経路（REST の sourceCodeInfo）", "応答の形を記録する（判定はしない）"),
+    Check("3-8", "スナップショットのリビジョン", "設定の項目に値があり、そのリビジョンがリポジトリにある"),
+    Check("3-9", "実際の警告 1 件の調査", "詳細レポートに警告経路・修正案・逸脱コメント案がある"),
+    Check("4-1", "検証の設定", "ビルドのコマンドが設定されている"),
+    Check("4-2", "試しのビルド", "修正前の最新コードをビルドできる"),
+    Check("4-3", "Coverity のコマンド", "cov-build / cov-analyze / cov-format-errors（--json-output-v7）が使える"),
+    Check("4-4", "修正案を当てた検証（ビルド＋再解析）", "ビルドと再解析が終わり、結果が詳細レポートに載る"),
 ]
 CHECK_IDS = {c.id: c for c in CHECKS}
 
@@ -835,13 +834,13 @@ def render_report(state: dict[str, Any]) -> str:
            "| " + " | ".join(str(counts[k]) for k in STATUS_JA) + " |", ""]
     for key in state["sections"]:
         out += [f"## {key}. {SECTIONS[key]}", "",
-                "| ID | 確認すること | 手順書 | 結果 | 期待 | 実際 |", "|---|---|---|---|---|---|"]
+                "| ID | 確認すること | 結果 | 期待 | 実際 |", "|---|---|---|---|---|"]
         for c in picked:
             if not c.id.startswith(f"{key}-"):
                 continue
             entry = checks.get(c.id, {"status": "skip", "actual": "まだ実行していない"})
             actual = entry["actual"].replace("|", "\\|").replace("\n", " ")
-            out.append(f"| {c.id} | {c.title} | {c.ref} | {STATUS_JA[entry['status']]} | {c.expected} | {actual} |")
+            out.append(f"| {c.id} | {c.title} | {STATUS_JA[entry['status']]} | {c.expected} | {actual} |")
         out.append("")
     details = [c for c in picked if checks.get(c.id, {}).get("status") in ("fail", "review", "info")]
     if details:

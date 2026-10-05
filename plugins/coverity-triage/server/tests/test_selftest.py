@@ -42,7 +42,7 @@ def test_start_skips_sections_without_setup(tmp_path):
     assert out["checks_to_run"] == [f"1-{n}" for n in range(1, 9)]
     assert set(out["skipped"]) == {f"3-{n}" for n in range(1, 10)}
     report = Path(out["report"]).read_text(encoding="utf-8")
-    assert "| 3-1 | 準備状況（doctor） | B-2 | 未実施 |" in report
+    assert "| 3-1 | 準備状況（doctor） | 未実施 |" in report
     assert "## 2." not in report  # not selected
     with pytest.raises(ValueError, match="①〜④"):
         selftest.start(["5"], out_dir=str(tmp_path / "out"))
@@ -152,7 +152,7 @@ def test_fake_data_flow(tmp_path):
     selftest.step("flow_knowledge", result_dir, run_dir=run_dir)
     assert [status(result_dir, c) for c in ("2-8", "2-9")] == ["pass", "pass"]
     report = (Path(result_dir) / "report.md").read_text(encoding="utf-8")
-    assert "| 2-5 | AI の結論 | A-5 | 要確認 |" in report and "### 2-5 AI の結論（要確認）" in report
+    assert "| 2-5 | AI の結論 | 要確認 |" in report and "### 2-5 AI の結論（要確認）" in report
 
 
 # ③ Coverity Connect ---------------------------------------------------------------------------------

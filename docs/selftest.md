@@ -38,7 +38,7 @@ git clone https://github.com/imaeda-hub/coverity-triage-agent.git
 
 参考：[Agent plugins in VS Code](https://code.visualstudio.com/docs/agent-customization/agent-plugins)、[GitHub Copilot CLI plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
 
-> 記録：実際に使った操作・コマンドと、成功したか（インストール時のエラーは C-1 の判断材料）
+> 記録：実際に使った操作・コマンドと、成功したか（エラーが出た場合はその表示をそのまま）
 
 ## 4. `/coverity-selftest` を実行する
 
@@ -69,11 +69,11 @@ git clone https://github.com/imaeda-hub/coverity-triage-agent.git
 
 `/coverity-selftest` では確かめられないものです。
 
-| No | 確認すること | 確認方法 |
-|---|---|---|
-| C-9 | AI による準備の案内 | 新しい PC（または uv を消した状態）で `/coverity-setup` を実行し、uv のインストール → MCP サーバの再起動 → 設定ファイルの作成 → 認証情報の伏せ字入力 → `doctor` がすべて ok、まで案内されるか |
-| C-10 | 伏せ字入力 | 認証キーの入力時に、Copilot のターミナルで伏せ字の入力欄に入力できるか（できない場合は、コマンドを渡されて自分の PowerShell で実行する流れになるか） |
-| ― | 入口の Skill の流れと使い勝手 | 社内リポジトリで `/coverity-run` → `summary.md` の確認 → `/coverity-apply` を一度通し、気になった点（遅い、質問が多い、レポートが読みにくい等）を記録する |
+| 確認すること | 確認方法 |
+|---|---|
+| AI による準備の案内 | 新しい PC（または uv を消した状態）で `/coverity-setup` を実行し、uv のインストール → MCP サーバの再起動 → 設定ファイルの作成 → 認証情報の伏せ字入力 → `doctor` がすべて ok、まで案内されるか |
+| 伏せ字入力 | 認証キーの入力時に、Copilot のターミナルで伏せ字の入力欄に入力できるか（できない場合は、コマンドを渡されて自分の PowerShell で実行する流れになるか） |
+| 入口の Skill の流れと使い勝手 | 社内リポジトリで `/coverity-run` → `summary.md` の確認 → `/coverity-apply` を一度通し、気になった点（遅い、質問が多い、レポートが読みにくい等）を記録する |
 
 > 記録：各項目の結果（○ / ×）と、エラーの表示（そのまま）
 
