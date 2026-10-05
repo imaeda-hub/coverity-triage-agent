@@ -345,7 +345,8 @@ def _step_worker(result: Result, answer: str, **_: Any) -> dict[str, Any]:
         problems = ([f"無いツール: {', '.join(missing)}"] if missing else []) + \
                    ([f"使えてはいけないツール: {', '.join(forbidden)}"] if forbidden else [])
         result.record("1-6", "fail" if problems else "pass", "／".join(problems) or "期待どおり",
-                      detail=f"申告されたツール: {listed.strip()}")
+                      detail=f"申告されたツール: {listed.strip()}\n"
+                             "判定はサブエージェントの申告に基づく（実際に使えないかまでは確かめていない）")
     heading = worker_probe_heading()
     skill_line = next((line for line in answer.splitlines() if line.strip().upper().startswith("SKILL:")), "")
     told = skill_line.split(":", 1)[1].strip() if skill_line else ""

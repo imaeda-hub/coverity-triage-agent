@@ -87,6 +87,7 @@ def test_plugin_and_worker_steps(tmp_path, monkeypatch):
     selftest.step("worker", result_dir, answer=f"TOOLS: {tools}, run_in_terminal\nSKILL: 読めない")
     assert [status(result_dir, c) for c in ("1-6", "1-7")] == ["fail", "fail"]
     assert "run_in_terminal" in state(result_dir)["checks"]["1-6"]["actual"]
+    assert "申告に基づく" in state(result_dir)["checks"]["1-6"]["detail"]
     selftest.step("worker", result_dir, answer="")
     assert status(result_dir, "1-5") == "fail"
 
