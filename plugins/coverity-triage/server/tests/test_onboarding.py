@@ -86,3 +86,26 @@ def test_output_dir_inside_repo_is_flagged(repo):
     onboarding.write_project_config(str(repo), "https://cov", "P", "S", "git", output_dir="out")
     check = next(c for c in onboarding.doctor(str(repo))["checks"] if c["check"] == "出力先")
     assert check["status"] == "ng"
+
+
+def test_install_worker_agent_and_doctor(tmp_path, user_agents):
+    """VS Code's Copilot harness only sees the worker agent in the user's agents folder."""
+    copy = user_agents / onboarding.WORKER_AGENT.name
+
+    def agent_check():
+        report = onboarding.doctor(str(tmp_path))
+        return next(c for c in report["checks"] if c["check"].startswith("調査役の AI"))
+
+    assert agent_check()["status"] == "ok"
+    assert onboarding.install_worker_agent()["status"] == "unchanged"
+
+    copy.write_text("old", encoding="utf-8")
+    assert agent_check()["status"] == "ng" and "更新前" in agent_check()["detail"]
+    assert onboarding.install_worker_agent()["status"] == "updated"
+    assert copy.read_bytes() == onboarding.WORKER_AGENT.read_bytes()
+
+    copy.unlink()
+    assert "まだ入っていません" in agent_check()["detail"]
+    out = onboarding.install_worker_agent()
+    assert out["status"] == "installed" and "再起動" in out["next"]
+    assert agent_check()["status"] == "ok"

@@ -81,7 +81,7 @@ coverity-triage/                         … プラグインのルート
 
 | 分類 | ツール | 内容 | 関連 |
 |---|---|---|---|
-| 準備 | `detect_project` / `write_project_config` / `doctor` / `list_runs` | 自動判定、確認済みの値で設定を書き出し、準備状況の診断、最近の実行の一覧（再開・反映の対象を決める） | D-66〜D-70 |
+| 準備 | `detect_project` / `write_project_config` / `install_worker_agent` / `doctor` / `list_runs` | 自動判定、確認済みの値で設定を書き出し、調査役の AI を `~/.copilot/agents` にコピー、準備状況の診断、最近の実行の一覧（再開・反映の対象を決める） | D-66〜D-70、D-82 |
 | 実行管理 | `start_run` | 実行フォルダ作成、条件で CID を検索、上限件数で切り、グループ候補を作成、進捗ファイル作成 | D-11〜D-15, D-43, D-53 |
 | | `next_work_item` / `get_run_status` | 未処理・エラーの CID / グループを返す | D-15, D-51 |
 | | `resume_run` | 実行フォルダを指定して再開 | D-61 |
@@ -313,7 +313,7 @@ docs/selftest.md              … テスト手順書（クローンから /cover
 
 | 部品 | 状態 |
 |---|---|
-| 設定・条件ファイル、進捗・再開、グループ化、文字コード保持、git / svn 操作、検証、レポート・サマリ、承認の反映、効果測定、MCP サーバ（28 ツール） | 実装済み・自動テスト済み（git / svn の実リポジトリで確認） |
+| 設定・条件ファイル、進捗・再開、グループ化、文字コード保持、git / svn 操作、検証、レポート・サマリ、承認の反映、効果測定、MCP サーバ（29 ツール） | 実装済み・自動テスト済み（git / svn の実リポジトリで確認） |
 | 入口の Skill 5 つ、調査用の Skill 5 つ、サブエージェント 1 つ | 作成済み。動作は未確認（`/coverity-selftest` の ①② で確認） |
 | Coverity Connect への接続（REST / SOAP、D-77） | 実装済み・偽サーバでの自動テスト済み（`server/src/coverity_triage/connect.py`）。社内サーバでの動作は `/coverity-selftest` の ③ で確認。偽データで動く `coverity.api: fake` も残す |
 
@@ -343,7 +343,7 @@ docs/selftest.md              … テスト手順書（クローンから /cover
 |---|---|
 | 資料 | 人が読むのは README だけ（5 分以内）。設定項目・使い方・困ったときの対処は Skill `coverity-help`（references/settings.md・usage.md・troubleshooting.md）に移し、利用者は `/coverity-help` で AI に聞く。導入手順書・利用手順書は廃止 |
 | 入口の Skill | `/coverity-setup`（準備）と `/coverity-help`（質問）は、利用者が選んでいるモデルのチャットで動き、ターミナル実行（毎回利用者が確認）とファイル編集ができる（D-80） |
-| 準備の流れ | 段階 0：uv（無ければ AI がインストール → MCP サーバを再起動。Python とライブラリは uv が自動で用意）→ 段階 1：`doctor` で診断 → 段階 2：設定が無ければ URL・プロジェクト・ストリームだけ聞き、残りは `detect_project` で自動判定して確認 → `write_project_config` → 段階 3：認証情報を伏せ字で入力（値はチャットに出ない）→ 段階 4：`doctor` で確認 |
+| 準備の流れ | 段階 0：uv（無ければ AI がインストール → MCP サーバを再起動。Python とライブラリは uv が自動で用意）→ 段階 1：`doctor` で診断（調査役の AI が無ければ `install_worker_agent` でコピー）→ 段階 2：設定が無ければ URL・プロジェクト・ストリームだけ聞き、残りは `detect_project` で自動判定して確認 → `write_project_config` → 段階 3：認証情報を伏せ字で入力（値はチャットに出ない）→ 段階 4：`doctor` で確認 |
 | 環境変数 | Windows では利用者の環境変数をレジストリから直接読むため、準備中に保存した値が VS Code の再起動なしで有効になる（`envvars.get_env`） |
 | 入口（Skill） | `/coverity-setup`・`/coverity-run`（未完了なら再開を提案）・`/coverity-apply`（省略時は最新の実行）・`/coverity-help`・`/coverity-selftest`（動作確認、D-81）の 5 つ |
 

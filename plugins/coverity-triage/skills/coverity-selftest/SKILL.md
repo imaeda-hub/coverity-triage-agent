@@ -32,7 +32,7 @@ disable-model-invocation: true
    > 1 行目：`TOOLS: ` に続けて、あなたが使えるツールの名前をすべてカンマ区切りで（推測で足さない）
    > 2 行目：Skill `triage-investigation` を読み込み、`SKILL: ` に続けて、その本文の最初の見出し（`# ` の行）をそのまま
    - 返答をそのまま `selftest_step("worker", result_dir, answer=返答)` に渡す（1-5〜1-7）。
-   - 起動できなかった場合は、理由（例：サブエージェントを起動するツールが無効、カスタムエージェントを名前で指定できない）を `selftest_record(result_dir, "1-5", "fail", 理由)` で記録する。1-6・1-7・1-8 はツールが「未実施」と記録するので、1-8 の質問はしない。
+   - 起動できなかった場合は、理由（例：サブエージェントを起動するツールが無効、カスタムエージェントを名前で指定できない）を `selftest_record(result_dir, "1-5", "fail", 理由)` で記録する。1-6・1-7・1-8 はツールが「未実施」と記録するので、1-8 の質問はしない。終了の報告で「`/coverity-setup` で調査役の AI を入れ、VS Code を再起動してから再実行してください」と伝える。
 3. **利用者への確認**（1 つずつ尋ね、`selftest_record` で記録する。分からないという答えは `review`）
    - 1-3：「チャット欄に `/` を入力してください。`coverity-setup`・`coverity-run`・`coverity-apply`・`coverity-help`・`coverity-selftest` の 5 つは出ていますか？ また、`triage-investigation`・`checker-knowledge`・`code-fix`・`deviation-comment`・`triage-report` が出ていないか確認してください」。VS Code ではプラグイン名が前に付く（`/coverity-triage:coverity-run` など）。表示された呼び方も `actual` に書く。
    - 1-4：「エージェントを選ぶ一覧に `coverity-triage-worker` が出ていないか確認してください」

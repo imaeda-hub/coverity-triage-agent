@@ -40,6 +40,8 @@ disable-model-invocation: true
 
 `doctor(repo_root)` を実行し、結果を「できていること / 足りないこと」に分けて短く伝える。`ng` の項目を上から順に解決する。
 
+- 「調査役の AI（coverity-triage-worker）」が `ng` の場合：「警告を 1 件ずつ調べる調査役の AI を、あなたのユーザフォルダ（`%USERPROFILE%\.copilot\agents`）にコピーします。VS Code の Copilot はプラグインの中のものを使わないためです」と説明し、同意を得て `install_worker_agent()` を呼ぶ。コピーした（`installed` / `updated`）場合は、VS Code（または Copilot CLI）の再起動が必要と伝える。再起動は最後にまとめてでよい。
+
 ### 段階 2：設定ファイル（リポジトリにまだ無い場合だけ）
 
 チームで最初に使う人が作り、コミットして共有する。すでにあれば何もしない。

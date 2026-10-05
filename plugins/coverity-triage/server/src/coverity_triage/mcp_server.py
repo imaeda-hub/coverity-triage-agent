@@ -90,6 +90,15 @@ def write_verify_config(repo_root: str, setup_command: str, build_command: str,
 
 
 @tool
+def install_worker_agent() -> dict:
+    """Copy the worker agent coverity-triage-worker to the user's agents folder (~/.copilot/agents).
+
+    Needed because VS Code's Copilot harness does not pass agents inside plugins to the main agent.
+    Ask the person before calling. Restart VS Code / Copilot CLI afterwards."""
+    return onboarding.install_worker_agent()
+
+
+@tool
 def doctor(repo_root: str) -> dict:
     """PC とリポジトリの準備状況を機械的に確認する（設定ファイル、条件ファイル、出力先、認証情報、Coverity 接続など）。"""
     return onboarding.doctor(repo_root)
