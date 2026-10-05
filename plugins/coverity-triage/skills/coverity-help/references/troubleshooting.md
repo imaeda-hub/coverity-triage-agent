@@ -9,7 +9,7 @@
 | `条件ファイルが見つかりません` | ファイル名の誤り。`.coverity-triage/filters/` のファイル名を指定 |
 | `設定値が不正です` / `YAML の書式が不正です` | 設定ファイルの書き間違い。表示された項目を settings.md と照らして直す |
 | `条件ファイルに streams（ストリーム名）を指定してください` | 条件ファイルに `streams` が無い。ストリーム名を書く |
-| `Coverity の列に ... が見つかりません` | Coverity の列の名前が想定と違う。`tools/coverity_api_probe.py` の結果（列の名前と列キー）をプラグインの管理者に共有する |
+| `Coverity の列に ... が見つかりません` | Coverity の列の名前が想定と違う。`/coverity-selftest ③` を実行し、結果フォルダ（3-2 に列の名前と列キー）をプラグインの管理者に共有する |
 | `Coverity SOAP ... が失敗しました` / `Coverity REST ... が失敗しました` | 表示されたメッセージで判断する（ストリーム名の誤り、権限不足など）。分からなければ `operations.log` を添えて管理者へ |
 | `CERTIFICATE_VERIFY_FAILED` など証明書のエラー | 社内 CA が OS に入っていない。`coverity.ca_file` に CA 証明書のファイルを指定する |
 | 認証エラー・接続できない | 認証情報が未設定か誤り。skill `coverity-setup` の段階 3 で入れ直す |

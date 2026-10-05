@@ -39,12 +39,3 @@ jobs:
       - name: Run tests
         run: uv run --python 3.12 pytest -q
 
-  probe-script:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.9"
-      - name: Probe script runs on the oldest supported Python
-        run: python tools/coverity_api_probe.py --help
