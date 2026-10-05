@@ -1,6 +1,6 @@
 """MCP server of the Coverity triage agent (spec D-40 to D-42; design 3).
 
-The skills (/coverity-setup, /coverity-run, /coverity-apply, /coverity-help) use these tools from
+The skills (/coverity-setup, /coverity-run, /coverity-apply, /coverity-help, /coverity-selftest) use these tools from
 the main conversation; the worker subagent is limited to the worker tools by its agent definition.
 ``apply_approvals`` refuses to run without the token that ``preview_apply`` returns (spec D-63).
 """
@@ -13,7 +13,7 @@ from typing import Any
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from . import apply, knowledge, onboarding, runs, worker
+from . import apply, knowledge, onboarding, runs, selftest, worker
 from .config import ConfigError
 from .coverity import CoverityError
 from .encoding import EncodingError
@@ -36,8 +36,12 @@ mcp = MCPServer(
 )
 
 
+TOOL_NAMES: list[str] = []
+
+
 def tool(func):
     """Register a tool and turn expected errors into messages the agent can act on."""
+    TOOL_NAMES.append(func.__name__)
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
@@ -226,6 +230,30 @@ def add_knowledge(run_dir: str, entries: list[str]) -> dict:
 def get_stats(repo_root: str) -> dict:
     """出力先フォルダのすべての実行について、採用状況・手直し・処理時間を集計する。"""
     return runs.get_stats(runs.output_dir_of(repo_root))
+
+
+# ---- self-test (/coverity-selftest) -------------------------------------------------------------
+
+
+@tool
+def selftest_start(sections: list[str] | None = None, repo_root: str | None = None,
+                   client: str = "", out_dir: str | None = None) -> dict:
+    """動作確認のテストを始める。結果フォルダ（既定は ~/coverity-triage-selftest/<日時>）を作り、準備が無い範囲を未実施として記録する。sections は ①〜④（1〜4）、省略時はすべて。client は VS Code / Copilot CLI。"""
+    return selftest.start(sections, repo_root, client, out_dir)
+
+
+@tool
+def selftest_step(step: str, result_dir: str, run_dir: str | None = None,
+                  repo_root: str | None = None, answer: str | None = None) -> dict:
+    """動作確認のテストの 1 段階を実行して判定し、結果フォルダに記録する。step は plugin / worker / sample / flow_run / flow_apply / flow_knowledge / coverity / real_run / build / verify（使い方は skill coverity-selftest）。"""
+    return selftest.step(step, result_dir, run_dir, repo_root, answer, TOOL_NAMES)
+
+
+@tool
+def selftest_record(result_dir: str, check_id: str, status: str, actual: str,
+                    detail: str = "", raw: str | None = None) -> dict:
+    """AI が観察したこと・利用者の答えを、確認項目（例 1-3）の結果として記録する。status は pass / fail / review / info / skip。"""
+    return selftest.record(result_dir, check_id, status, actual, detail, raw)
 
 
 def main() -> None:

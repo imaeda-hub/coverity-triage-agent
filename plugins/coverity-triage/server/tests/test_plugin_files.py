@@ -36,7 +36,7 @@ def test_manifests_follow_agent_plugins_1_0():
         assert " " not in server["command"]  # a single executable token
 
 
-ENTRY_SKILLS = {"coverity-setup", "coverity-run", "coverity-apply", "coverity-help"}
+ENTRY_SKILLS = {"coverity-setup", "coverity-run", "coverity-apply", "coverity-help", "coverity-selftest"}
 
 
 def _frontmatter(path):
@@ -70,6 +70,8 @@ def test_worker_agent_tools_exist():
     assert set(fm["tools"]) - {"read", "skill"} == {f"coverity-triage/{r}" for r in refs}
     assert {"read", "skill"} <= set(fm["tools"])  # needed to load the investigation skills
     assert "apply_approvals" not in refs
+    from coverity_triage import selftest
+    assert sorted(selftest.WORKER_TOOLS) == sorted(refs)  # what /coverity-selftest expects (1-6)
 
 
 def test_skill_file_links_stay_inside_the_skill():

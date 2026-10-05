@@ -18,6 +18,9 @@ coverity-triage/                         … プラグインのルート
 │  ├─ coverity-help/                     … 入口：質問・設定変更・効果測定
 │  │  ├─ SKILL.md
 │  │  └─ references/ settings.md, usage.md, troubleshooting.md（D-65）
+│  ├─ coverity-selftest/                 … 入口：利用者の環境での動作確認（D-81）
+│  │  ├─ SKILL.md
+│  │  └─ assets/ sample-target/（偽データの対象リポジトリ）, expected.yaml（想定する結論）
 │  ├─ triage-investigation/SKILL.md      … 調査手順：警告経路の追跡、真偽判定、確信度基準（D-64）。以下 5 つは AI だけが読む
 │  ├─ checker-knowledge/                 … チェッカー別の判断観点（D-6）
 │  │  ├─ SKILL.md
@@ -37,6 +40,7 @@ coverity-triage/                         … プラグインのルート
       ├─ apply.py                        … 承認の反映（D-27〜D-31, D-63）
       ├─ knowledge.py                    … プロジェクトの知識の候補と追記（D-78）
       ├─ onboarding.py                   … 準備・診断・試しのビルド（D-66〜D-70, D-75）
+      ├─ selftest.py                     … 動作確認の判定・伏せ字・結果フォルダ（D-81）
       ├─ config.py                       … 設定ファイル・条件ファイルの読み込みと検証（D-49, D-50）
       ├─ coverity.py / connect.py        … Coverity Connect 接続（REST：検索・書き戻し／SOAP：警告経路・スナップショット、D-77）
       ├─ vcs.py / workspace.py           … git / svn / GitHub の操作と作業領域（D-25〜D-29, D-57, D-58）
@@ -93,6 +97,7 @@ coverity-triage/                         … プラグインのルート
 | | `apply_approvals` | Coverity 書き戻し、push＋PR 作成、svn patch 適用 | D-27, D-29〜D-31, D-60 |
 | 知識 | `knowledge_candidates` / `add_knowledge` | 反映後に人が変えた・直した・却下した項目を返す／人が選んだ知識を `knowledge.md` に追記 | D-78 |
 | 集計 | `get_stats` | 効果測定の集計 | D-44 |
+| 動作確認 | `selftest_start` / `selftest_step` / `selftest_record` | 結果フォルダを作る／決まった手順で確かめて判定する（段階：plugin・worker・sample・flow_run・flow_apply・flow_knowledge・coverity・real_run・build・verify）／AI が観察したこと・利用者の答えを記録する | D-81 |
 
 ## 4. 処理フロー（トリアージ実行・案）
 
@@ -301,18 +306,16 @@ group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53
 ```
 plugins/coverity-triage/      … プラグイン本体（1 章の構成）
   └─ server/                  … MCP サーバ（Python 3.12、uv）。tests/ に自動テスト
-examples/sample-target/       … 試用用の対象リポジトリ（偽の Coverity データ付き）
-tools/coverity_api_probe.py   … API 調査スクリプト（読み取りのみ、U-1・U-2 用）
-docs/trial-guide.md           … 試用・確認の手順書
+docs/trial-guide.md           … 社内での試用・確認の手順書（/coverity-selftest を使う）
 ```
 
 ### 8.2 実装済み・未実装
 
 | 部品 | 状態 |
 |---|---|
-| 設定・条件ファイル、進捗・再開、グループ化、文字コード保持、git / svn 操作、検証、レポート・サマリ、承認の反映、効果測定、MCP サーバ（25 ツール） | 実装済み・自動テスト済み（git / svn の実リポジトリで確認） |
-| 入口の Skill 4 つ、調査用の Skill 5 つ、サブエージェント 1 つ | 作成済み。動作は未確認（試用手順書 A で確認） |
-| Coverity Connect への接続（REST / SOAP、D-77） | 実装済み・偽サーバでの自動テスト済み（`server/src/coverity_triage/connect.py`）。社内サーバでの動作は試用手順書 B で確認。偽データで動く `coverity.api: fake` も残す |
+| 設定・条件ファイル、進捗・再開、グループ化、文字コード保持、git / svn 操作、検証、レポート・サマリ、承認の反映、効果測定、MCP サーバ（28 ツール） | 実装済み・自動テスト済み（git / svn の実リポジトリで確認） |
+| 入口の Skill 5 つ、調査用の Skill 5 つ、サブエージェント 1 つ | 作成済み。動作は未確認（`/coverity-selftest` の ①② で確認） |
+| Coverity Connect への接続（REST / SOAP、D-77） | 実装済み・偽サーバでの自動テスト済み（`server/src/coverity_triage/connect.py`）。社内サーバでの動作は `/coverity-selftest` の ③ で確認。偽データで動く `coverity.api: fake` も残す |
 
 ### 8.3 実装時の判断（要確認）
 
@@ -341,7 +344,7 @@ docs/trial-guide.md           … 試用・確認の手順書
 | 入口の Skill | `/coverity-setup`（準備）と `/coverity-help`（質問）は、利用者が選んでいるモデルのチャットで動き、ターミナル実行（毎回利用者が確認）とファイル編集ができる（D-80） |
 | 準備の流れ | 段階 0：uv（無ければ AI がインストール → MCP サーバを再起動。Python とライブラリは uv が自動で用意）→ 段階 1：`doctor` で診断 → 段階 2：設定が無ければ URL・プロジェクト・ストリームだけ聞き、残りは `detect_project` で自動判定して確認 → `write_project_config` → 段階 3：認証情報を伏せ字で入力（値はチャットに出ない）→ 段階 4：`doctor` で確認 |
 | 環境変数 | Windows では利用者の環境変数をレジストリから直接読むため、準備中に保存した値が VS Code の再起動なしで有効になる（`envvars.get_env`） |
-| 入口（Skill） | `/coverity-setup`・`/coverity-run`（未完了なら再開を提案）・`/coverity-apply`（省略時は最新の実行）・`/coverity-help` の 4 つ |
+| 入口（Skill） | `/coverity-setup`・`/coverity-run`（未完了なら再開を提案）・`/coverity-apply`（省略時は最新の実行）・`/coverity-help`・`/coverity-selftest`（動作確認、D-81）の 5 つ |
 
 ## 10. 自動検証のまとめ実行（D-71〜D-75）
 

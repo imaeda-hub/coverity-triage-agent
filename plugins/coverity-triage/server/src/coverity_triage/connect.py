@@ -185,7 +185,7 @@ class ConnectClient(CoverityClient):
         available = set(self.columns().values())
         missing = [COLUMN_KEYS[f] for f in REQUIRED_FIELDS if COLUMN_KEYS[f] not in available]
         if missing:
-            raise CoverityError(f"Coverity の列に {', '.join(missing)} が見つかりません（調査スクリプトの列一覧を共有してください）")
+            raise CoverityError(f"Coverity の列に {', '.join(missing)} が見つかりません（/coverity-selftest ③ の結果を管理者に共有してください）")
         keys = [k for k in COLUMN_KEYS.values() if k in available]
         stream = spec.streams[0]  # one stream per run (spec D-79)
         body = {"filters": self._filters(spec, stream), "columns": keys,

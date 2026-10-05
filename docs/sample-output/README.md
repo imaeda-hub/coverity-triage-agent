@@ -1,6 +1,6 @@
 # 出力サンプル
 
-`examples/sample-target` を、実際の MCP サーバ（stdio 接続）で処理した結果です。会社での試用の前に、一覧サマリと詳細レポートの読みやすさ・判断材料の過不足を確認するためのものです。
+`/coverity-selftest` の偽データ（`plugins/coverity-triage/skills/coverity-selftest/assets/sample-target`）を、実際の MCP サーバ（stdio 接続）で処理した結果です。会社での試用の前に、一覧サマリと詳細レポートの読みやすさ・判断材料の過不足を確認するためのものです。
 
 - 調査・判断（見立て、確信度、逸脱コメント、修正コード）は、開発時に Claude がサブエージェント役として行いました。実際の運用では Copilot（gpt-6 luna）が行うため、文章の書きぶりは変わります。
 - レポートの体裁（章立て、一覧サマリ、承認列）は MCP サーバが生成したものそのままです。

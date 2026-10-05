@@ -34,14 +34,16 @@ Coverity の警告を AI が調査し、警告ごとに **「修正案」と「�
 - `/coverity-help MISRA の警告だけ調べたい`
 - `/coverity-help どれくらい役立っている？`
 
+この PC でプラグインが正しく動くかは `/coverity-selftest` で確かめられます。結果は `report.md` にまとまるので、うまく動かないときはその結果フォルダをプラグインの管理者に共有してください。
+
 ## このプラグインの仕組み
 
-あなたが使うのは **4 つの Skill（`/coverity-setup` など）だけ** です。VS Code ではプラグイン名が付き、`/coverity-triage:coverity-setup` のように表示されます。
+あなたが使うのは **5 つの Skill（`/coverity-setup` など）だけ** です。VS Code ではプラグイン名が付き、`/coverity-triage:coverity-setup` のように表示されます。
 Skill の手順に沿って AI が MCP サーバのツールで作業し、警告 1 件ずつの調査は専用のサブエージェントに任せます。
 
 ```mermaid
 flowchart LR
-    U([あなた]) --> E["Skill（入口）<br>/coverity-setup・/coverity-run<br>/coverity-apply・/coverity-help"]
+    U([あなた]) --> E["Skill（入口）<br>/coverity-setup・/coverity-run<br>/coverity-apply・/coverity-help<br>/coverity-selftest"]
     E --> A["AI（チャット）"]
     A -- 1 件ずつ任せる --> W["サブエージェント<br>coverity-triage-worker"]
     W -- 読む --> K["Skill（調査の手順）"]
@@ -56,13 +58,14 @@ flowchart LR
 | | `/coverity-run` | 警告を取得し、1 件ずつサブエージェントに調べさせ、一覧 `summary.md` を作る |
 | | `/coverity-apply` | 承認した内容だけを反映（修正ブランチ／パッチ、Coverity への書き戻し）し、次回に活かす知識の追記を提案 |
 | | `/coverity-help` | 使い方・エラー・設定変更・知識の追加・効果の集計に答える |
+| | `/coverity-selftest` | この PC・社内 Coverity・社内のビルドでプラグインが動くかを実際に動かして確かめ、結果を `report.md` にまとめる |
 | サブエージェント | `coverity-triage-worker` | 警告 1 件（またはまとめた 1 グループ）を調べ、修正案と逸脱コメント案を書く（使えるツールを調査用に限定） |
 | Skill（調査の手順。AI が読む） | `triage-investigation` | 警告が本物かを調べる手順、確信度の基準、推奨の選び方、プロジェクトの知識の使い方 |
 | | `checker-knowledge` | チェッカーごとの着眼点（標準・MISRA・CERT） |
 | | `code-fix` | 修正案を作るときの制約と手順 |
 | | `deviation-comment` | 逸脱コメントの書き方、Classification / Action / Severity の選び方 |
 | | `triage-report` | レポートの書式と記載基準 |
-| MCP サーバ | `coverity-triage`（ツール 25 個） | Coverity との通信、git / svn の操作、文字コードを保った編集、ビルド・再解析、レポート作成 |
+| MCP サーバ | `coverity-triage`（ツール 28 個） | Coverity との通信、git / svn の操作、文字コードを保った編集、ビルド・再解析、レポート作成 |
 
 ## 安心して使うために
 
@@ -78,11 +81,9 @@ flowchart LR
 |---|---|
 | [docs/spec.md](docs/spec.md) | 要件仕様 |
 | [docs/design.md](docs/design.md) | 構成設計と実装の状況 |
-| [docs/trial-guide.md](docs/trial-guide.md) | 開発時の試用・確認の手順 |
+| [docs/trial-guide.md](docs/trial-guide.md) | 社内での試用・確認の手順（`/coverity-selftest` を使う） |
 | `plugins/coverity-triage/` | プラグイン本体（Skill、サブエージェント、MCP サーバ） |
 | `.github/plugin/marketplace.json` | マーケットプレイスの定義（プラグインを更新するときは `plugin.json` と `version` をそろえる） |
-| `examples/sample-target/` | 試用用の対象リポジトリ（偽の Coverity データ付き） |
-| `tools/coverity_api_probe.py` | Coverity Connect の API 調査スクリプト（読み取りのみ） |
 
 ```bash
 cd plugins/coverity-triage/server
