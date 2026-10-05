@@ -19,6 +19,7 @@
 | `逸脱の節の目印（ct:begin / ct:end）が見つかりません` | 詳細レポートの目印の行を消した。usage.md の形に戻す |
 | `確認後に一覧サマリまたはレポートが変更されました` | 確認後にファイルが変わった。もう一度 `/coverity-apply` |
 | `svn patch で競合が発生しました` | 修正を作った後に同じ箇所が変わった。差分ファイルを見て手で反映 |
+| `coverity-triage-worker` を起動できない（カスタムエージェントを名前で指定できない） | VS Code で、チャットのツール「Run Subagent」と設定 `chat.customAgentInSubagent.enabled` を有効にする |
 | サマリに「エラー」の表 | その警告は処理できなかった（理由が表にある）。直して `/coverity-run` で再開するとエラー分だけやり直す |
 | サマリに「未処理」 | 途中で止まった。`/coverity-run` で再開 |
 | レポートに「パスを自動で対応づけました／対応づけられませんでした」 | Coverity のパスとリポジトリのパスが違う。`path_strip_prefixes` を設定（settings.md） |

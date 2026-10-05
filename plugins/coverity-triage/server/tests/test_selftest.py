@@ -89,7 +89,15 @@ def test_plugin_and_worker_steps(tmp_path, monkeypatch):
     assert "run_in_terminal" in state(result_dir)["checks"]["1-6"]["actual"]
     assert "申告に基づく" in state(result_dir)["checks"]["1-6"]["detail"]
     selftest.step("worker", result_dir, answer="")
-    assert status(result_dir, "1-5") == "fail"
+    assert [status(result_dir, c) for c in ("1-5", "1-6", "1-7", "1-8")] == ["fail", "skip", "skip", "skip"]
+
+
+def test_worker_launch_failure_skips_dependent_checks(tmp_path):
+    result_dir = selftest.start(["1"], out_dir=str(tmp_path / "out"))["result_dir"]
+    out = selftest.record(result_dir, "1-5", "fail", "カスタムエージェントを名前で指定できない")
+    assert out["skipped"] == ["1-6", "1-7", "1-8"]
+    assert [status(result_dir, c) for c in ("1-6", "1-7", "1-8")] == ["skip", "skip", "skip"]
+    assert "1-5 で" in state(result_dir)["checks"]["1-7"]["actual"]
 
 
 # ② fake data flow --------------------------------------------------------------------------------
@@ -153,6 +161,24 @@ def test_fake_data_flow(tmp_path):
     assert [status(result_dir, c) for c in ("2-8", "2-9")] == ["pass", "pass"]
     report = (Path(result_dir) / "report.md").read_text(encoding="utf-8")
     assert "| 2-5 | AI の結論 | 要確認 |" in report and "### 2-5 AI の結論（要確認）" in report
+
+
+def test_fake_data_flow_without_worker_skips_instead_of_failing(tmp_path):
+    """Field report: the worker could not start, so every item ended in report_error."""
+    result_dir = selftest.start(["2"], out_dir=str(tmp_path / "out"))["result_dir"]
+    sample = selftest.step("sample", result_dir)
+    run_dir = runs.start_run(sample["repo_root"], sample["filter_file"])["run_dir"]
+    while (item := runs.next_work_item(run_dir)["item"]) is not None:
+        runs.report_error(run_dir, item, "coverity-triage-worker を起動できず")
+    runs.build_summary(run_dir)
+
+    selftest.step("flow_run", result_dir, run_dir=run_dir)
+    selftest.step("flow_apply", result_dir, run_dir=run_dir)
+    selftest.step("flow_knowledge", result_dir, run_dir=run_dir)
+    got = {c: status(result_dir, c) for c in ("2-2", "2-3", "2-4", "2-5", "2-6", "2-7", "2-8", "2-9")}
+    assert got == {"2-2": "fail", "2-3": "skip", "2-4": "pass", "2-5": "skip",
+                   "2-6": "pass", "2-7": "skip", "2-8": "skip", "2-9": "skip"}
+    assert "2-2 を参照" in state(result_dir)["checks"]["2-7"]["actual"]
 
 
 # ③ Coverity Connect ---------------------------------------------------------------------------------

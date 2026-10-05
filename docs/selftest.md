@@ -34,7 +34,9 @@ git clone https://github.com/imaeda-hub/coverity-triage-agent.git
   ```
 
 - **VS Code**：設定 `chat.plugins.marketplaces` に `C:\work\coverity-triage-agent` を追加し、拡張機能ビューで `@agentPlugins` を検索して `coverity-triage` をインストールします。
-- VS Code では、チャットのツールで「Run Subagent」（`agent/runSubagent`）を有効にしておきます（サブエージェントの起動に必要）。
+- VS Code では、次の 2 つを有効にしておきます（サブエージェント `coverity-triage-worker` の起動に必要）。
+  - チャットのツールで「Run Subagent」（`agent/runSubagent`）
+  - 設定 `chat.customAgentInSubagent.enabled`（サブエージェントにカスタムエージェントを使わせる。実験的な設定）
 
 参考：[Agent plugins in VS Code](https://code.visualstudio.com/docs/agent-customization/agent-plugins)、[GitHub Copilot CLI plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
 

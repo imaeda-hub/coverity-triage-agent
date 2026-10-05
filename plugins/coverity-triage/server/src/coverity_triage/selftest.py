@@ -261,6 +261,9 @@ def record(result_dir: str, check_id: str, status: str, actual: str, detail: str
     """A result the AI observed or the person answered."""
     result = Result(result_dir)
     out = result.record(check_id, status, actual, detail, raw)
+    if check_id == "1-5" and status == "fail":
+        _skip_worker_checks(result)
+        out["skipped"] = WORKER_DEPENDENT
     result.save()
     return out
 
@@ -329,10 +332,29 @@ def worker_probe_heading() -> str:
     return next((line.lstrip("#").strip() for line in body.splitlines() if line.startswith("# ")), "")
 
 
+WORKER_DEPENDENT = ["1-6", "1-7", "1-8"]
+
+
+def _skip_worker_checks(result: Result) -> None:
+    """Checks that need the worker cannot be done once 1-5 failed."""
+    for check_id in WORKER_DEPENDENT:
+        result.record(check_id, "skip", "1-5 でサブエージェントを起動できなかったため")
+
+
+def _skip_unfinished(result: Result, check_ids: list[str], why: str) -> dict[str, Any]:
+    for check_id in check_ids:
+        result.record(check_id, "skip", why)
+    return {"checks": check_ids, "skipped": why}
+
+
+NO_DONE = "完了した作業項目が無いため（2-2 を参照）"
+
+
 def _step_worker(result: Result, answer: str, **_: Any) -> dict[str, Any]:
     if not answer.strip():
         result.record("1-5", "fail", "サブエージェントから返答がありません")
-        return {"checks": ["1-5"]}
+        _skip_worker_checks(result)
+        return {"checks": ["1-5", *WORKER_DEPENDENT]}
     result.record("1-5", "pass", "起動して返答した", raw=answer)
     tools_line = next((line for line in answer.splitlines() if line.strip().upper().startswith("TOOLS:")), None)
     if tools_line is None:
@@ -423,18 +445,21 @@ def _step_flow_run(result: Result, run_dir: str | None, **_: Any) -> dict[str, A
         result.raw(f"2-3-{item_id}.md", text)
     problems = []
     done = [i.id for i in meta.items if i.status == "done"]
-    for item_id in done:
-        if item_id not in reports:
-            problems.append(f"{item_id}: 詳細レポートが無い")
-            continue
-        problems += [f"{item_id}: {p}" for p in _shape_problems(_report_shape(reports[item_id]))]
-    try:
-        drafted = read_approvals(summary.read_text(encoding="utf-8")) if summary.is_file() else {}
-    except Exception as exc:  # the summary itself is broken
-        drafted, problems = {}, problems + [f"承認列を読めない: {exc}"]
-    problems += [f"{i}: 承認列が空" for i in done if i not in drafted]
-    result.record("2-3", "fail" if problems or not done else "pass",
-                  "／".join(problems) or f"{len(done)} 件すべて期待どおり")
+    if not done:
+        result.record("2-3", "skip", NO_DONE)
+    else:
+        for item_id in done:
+            if item_id not in reports:
+                problems.append(f"{item_id}: 詳細レポートが無い")
+                continue
+            problems += [f"{item_id}: {p}" for p in _shape_problems(_report_shape(reports[item_id]))]
+        try:
+            drafted = read_approvals(summary.read_text(encoding="utf-8")) if summary.is_file() else {}
+        except Exception as exc:  # the summary itself is broken
+            drafted, problems = {}, problems + [f"承認列を読めない: {exc}"]
+        problems += [f"{i}: 承認列が空" for i in done if i not in drafted]
+        result.record("2-3", "fail" if problems else "pass",
+                      "／".join(problems) or f"{len(done)} 件すべて期待どおり")
 
     expected = yaml.safe_load((ASSETS / "expected.yaml").read_text(encoding="utf-8"))
     group = set(expected["group"]["cids"])
@@ -452,11 +477,14 @@ def _step_flow_run(result: Result, run_dir: str | None, **_: Any) -> dict[str, A
         result.record("2-4", "fail", "まとまっていない",
                       raw={"items": [{"id": i.id, "cids": i.cids} for i in meta.items]})
 
+    if not done:
+        result.record("2-5", "skip", NO_DONE)
+        return {"checks": ["2-2", "2-3", "2-4", "2-5"]}
     differ, compared = [], {}
     for cid, want in expected["items"].items():
         item = next((i for i in meta.items if i.id == cid and i.status == "done"), None)
         if item is None:
-            differ.append(f"{cid}: 結論なし")
+            differ.append(f"{cid}: 結論なし（調査が完了していない。2-2 を参照）")
             continue
         data = run.read_json(cid, "")
         compared[cid] = {"expected": want["recommendation"], "actual": data.get("recommendation"),
@@ -526,9 +554,14 @@ def _step_flow_apply(result: Result, run_dir: str | None, **_: Any) -> dict[str,
     deviations = sum(1 for a in approvals.values() if a == "deviation")
     if len(writes) != deviations:
         problems.append(f"書き戻しの記録 {len(writes)} 件（逸脱 {deviations} 件）")
-    result.record("2-7", "fail" if problems else "pass", "／".join(problems) or
-                  f"逸脱 {deviations} 件を書き戻し、修正は push のエラー（想定どおり）",
-                  raw={"apply_results": applied["results"], "writes": writes})
+    raw = {"apply_results": applied["results"], "writes": writes}
+    if "20002" not in changes:  # nothing to write back: the run did not finish 20002
+        result.record("2-7", "skip", "反映を試す CID 20002 が完了していないため（2-2 を参照）", raw=raw)
+    else:
+        if not deviations:
+            problems.append("逸脱にした項目が無い")
+        result.record("2-7", "fail" if problems else "pass", "／".join(problems) or
+                      f"逸脱 {deviations} 件を書き戻し、修正は push のエラー（想定どおり）", raw=raw)
     candidates = knowledge.knowledge_candidates(str(run.dir))
     return {"checks": ["2-6", "2-7"], "knowledge_candidates": candidates["candidates"],
             "current_knowledge": candidates["current_knowledge"]}
@@ -536,6 +569,8 @@ def _step_flow_apply(result: Result, run_dir: str | None, **_: Any) -> dict[str,
 
 def _step_flow_knowledge(result: Result, run_dir: str | None, **_: Any) -> dict[str, Any]:
     run = runs.Run(_require(run_dir, "run_dir"))
+    if not any(i.status == "done" for i in run.store.load().items):
+        return _skip_unfinished(result, ["2-8", "2-9"], NO_DONE)
     candidates = knowledge.knowledge_candidates(str(run.dir))["candidates"]
     text = cfg.load_knowledge(run.meta.repo_root)
     added = f"実行 {run.meta.run_id}" in text
