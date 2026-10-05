@@ -641,11 +641,16 @@ def _step_coverity(result: Result, repo_root: str | None, **_: Any) -> dict[str,
     issues = []
     try:
         spec = cfg.load_filter(root, filter_file)
-        issues = client.search_issues(spec)
+        client.take_request_log()
+        issues = client.search_issues(spec, limit=onboarding.DOCTOR_SAMPLE)
+        total = client.last_total if client.last_total is not None else len(issues)
+        requests = client.take_request_log()
         first = issues[0] if issues else None
         result.record("3-4", "pass" if issues else "review",
-                      f"{len(issues)} 件（条件ファイル {filter_file}）" + ("" if issues else "。0 件のため 3-6・3-9 は試せません"),
-                      raw={"filter": spec.model_dump(), "count": len(issues),
+                      f"{total} 件（Coverity の集計。条件ファイル {filter_file}）。最初の {len(issues)} 件を取得："
+                      f"問い合わせ {len(requests)} 回・{round(sum(r['seconds'] for r in requests), 1)} 秒"
+                      + ("" if issues else "。0 件のため 3-6・3-9 は試せません"),
+                      raw={"filter": spec.model_dump(), "count": total, "requests": requests,
                            "first": first.model_dump(include={"cid", "checker", "file", "line", "function",
                                                                "impact", "classification", "action", "status"})
                            if first else None,

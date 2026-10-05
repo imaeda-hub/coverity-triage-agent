@@ -27,6 +27,7 @@ SOURCE_SUFFIXES = {".c", ".h", ".cc", ".cpp", ".cxx", ".hpp", ".hh", ".hxx", ".i
 MAX_SCANNED_FILES = 3000
 DEFAULT_OUTPUT_DIR = "../coverity-triage-out"
 DEFAULT_FILTER = "untriaged.yaml"
+DOCTOR_SAMPLE = 20  # doctor searches one page only (spec D-85)
 PLUGIN_ROOT = Path(__file__).resolve().parents[3]
 WORKER_AGENT = PLUGIN_ROOT / "com.github.copilot" / "agents" / "coverity-triage-worker.agent.md"
 
@@ -268,6 +269,11 @@ def doctor(repo_root: str) -> dict[str, Any]:
             checks.append(_check("GitHub トークン", True if has_token else None,
                                  f"環境変数 {config.vcs.github_token_env}",
                                  "" if has_token else "プルリクエストを作るときに必要です（/coverity-setup で入力）"))
+        if config.coverity.url.lower().startswith("http://"):
+            checks.append(_check("Coverity の接続方式", None,
+                                 "HTTP（ユーザ名・認証キーが暗号化されずに送られます）",
+                                 "HTTPS が使えるか Coverity の管理者に確認し、使えれば URL を https:// に変えてください"
+                                 "（社内 CA の証明書は coverity.ca_file で指定できます）"))
         if config.coverity.api != "fake":
             auth = check_coverity_auth(str(root))
             checks.append(_check("Coverity の認証", auth["ok"], auth["result"],
@@ -278,8 +284,13 @@ def doctor(repo_root: str) -> dict[str, Any]:
             client = make_client(config.coverity)
             name = DEFAULT_FILTER if DEFAULT_FILTER in filters else (filters[0] if filters else None)
             spec = cfg.load_filter(root, name) if name else cfg.FilterSpec()
-            found = len(client.search_issues(spec))
-            checks.append(_check("Coverity から警告を取得", True, f"{found} 件（条件ファイル {spec.name}）"))
+            sample = client.search_issues(spec, limit=DOCTOR_SAMPLE)
+            total = client.last_total if client.last_total is not None else len(sample)
+            requests = client.take_request_log()
+            seconds = round(sum(r["seconds"] for r in requests), 1)
+            timing = f"。問い合わせ {len(requests)} 回・{seconds} 秒" if requests else ""
+            checks.append(_check("Coverity から警告を取得", True,
+                                 f"条件に合う警告 {total} 件（Coverity の集計。条件ファイル {spec.name}）{timing}"))
         except Exception as exc:
             checks.append(_check("Coverity から警告を取得", False, str(exc), "/coverity-help に表示内容を伝えてください"))
 

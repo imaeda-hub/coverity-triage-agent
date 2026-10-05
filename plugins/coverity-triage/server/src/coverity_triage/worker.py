@@ -20,7 +20,7 @@ EDITABLE = ("fix", "annotation")
 def get_issue_detail(run_dir: str, item_id: str) -> dict[str, Any]:
     run = Run(run_dir)
     details = run.details(item_id)
-    run.log("get_issue_detail", item=item_id)
+    run.log("get_issue_detail", item=item_id, coverity_requests=run.coverity_requests())
     return {"item": item_id, "details": [d.model_dump(exclude_none=True) for d in details],
             "project_knowledge": cfg.load_knowledge(run.meta.repo_root)}
 

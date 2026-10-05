@@ -219,3 +219,22 @@ def test_write_triage_uses_rest_put(server):
         {"attributeName": "Action", "attributeValue": "Ignore"},
         {"attributeName": "Severity", "attributeValue": "Unspecified"},
         {"attributeName": "Comment", "attributeValue": "誤検知。理由。"}]}
+
+
+def test_search_stops_at_limit_and_logs_requests(server, monkeypatch):
+    """doctor and start_run need only the first items (spec D-85)."""
+    monkeypatch.setattr("coverity_triage.connect.PAGE_SIZE", 1)
+    spec = FilterSpec(streams=["main"])
+    full = make(server)
+    everything = full.search_issues(spec)
+    assert len(everything) >= 2 and full.last_total == len(everything)
+
+    client = make(server)
+    client.take_request_log()
+    first = client.search_issues(spec, limit=1)
+    assert [i.cid for i in first] == [everything[0].cid]
+    assert client.last_total == len(everything)  # the server's count, without fetching all
+    log = client.take_request_log()
+    searches = [r for r in log if r["request"] == "POST /api/v2/issues/search"]
+    assert len(searches) == 1 and searches[0]["status"] == 200 and searches[0]["offset"] == 0
+    assert all("seconds" in r for r in log) and client.take_request_log() == []

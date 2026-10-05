@@ -151,15 +151,24 @@ class ConnectClient(CoverityClient):
             kwargs["verify"] = _ssl_context(config.ca_file)
         self.http = httpx.Client(**kwargs)
         self._columns: dict[str, str] | None = None  # column name -> column key
+        self._request_log: list[dict[str, Any]] = []
+
+    def _record(self, request: str, started: float, status: Any, **extra: Any) -> None:
+        self._request_log.append({"request": request, "status": status,
+                                  "seconds": round(time.monotonic() - started, 2), **extra})
 
     # ---- HTTP -------------------------------------------------------------------------------
 
     def _rest(self, method: str, path: str, params: dict | None = None, body: Any = None) -> Any:
+        started = time.monotonic()
+        extra = {"offset": params["offset"]} if params and "offset" in params else {}
         try:
             resp = self.http.request(method, path, params=params, json=body, auth=(self.user, self.key),
                                      headers={"Accept": "application/json"})
         except httpx.HTTPError as exc:
+            self._record(f"{method} {path}", started, type(exc).__name__, **extra)
             raise CoverityError(f"Coverity に接続できません: {exc}") from exc
+        self._record(f"{method} {path}", started, resp.status_code, **extra)
         if resp.status_code in (401, 403):
             raise CoverityError(f"Coverity の認証に失敗しました（{resp.status_code}）。ユーザ名・認証キーを確認してください")
         if resp.status_code >= 400:
@@ -179,11 +188,14 @@ class ConnectClient(CoverityClient):
             "</wsse:UsernameToken></wsse:Security></soapenv:Header>"
             f"<soapenv:Body><ws:{operation}>{body_xml}</ws:{operation}></soapenv:Body></soapenv:Envelope>"
         )
+        started = time.monotonic()
         try:
             resp = self.http.post(f"/ws/v9/{service}", content=envelope.encode("utf-8"),
                                   headers={"Content-Type": "text/xml; charset=utf-8", "SOAPAction": ""})
         except httpx.HTTPError as exc:
+            self._record(f"SOAP {operation}", started, type(exc).__name__)
             raise CoverityError(f"Coverity に接続できません: {exc}") from exc
+        self._record(f"SOAP {operation}", started, resp.status_code)
         try:
             root = ET.fromstring(resp.content)
         except ET.ParseError as exc:
@@ -222,7 +234,7 @@ class ConnectClient(CoverityClient):
                             "matchers": [{"type": "keyMatcher", "key": v} for v in wanted]})
         return filters
 
-    def search_issues(self, spec: FilterSpec) -> list[Issue]:
+    def search_issues(self, spec: FilterSpec, limit: int | None = None) -> list[Issue]:
         if not spec.streams:
             raise CoverityError("条件ファイルに streams（ストリーム名）を指定してください")
         available = set(self.columns().values())
@@ -235,19 +247,27 @@ class ConnectClient(CoverityClient):
                 "snapshotScope": {"show": {"scope": "last()", "includeOutdatedSnapshots": False}}}
         issues: dict[int, Issue] = {}
         offset = 0
+        # Stop paging once enough are found: a run takes only the first max_items (spec D-85).
+        page = min(PAGE_SIZE, max(limit, 20)) if limit else PAGE_SIZE
+        self.last_total = None
         while True:
             data = self._rest("POST", "/api/v2/issues/search", {
                 "includeColumnLabels": "true", "offset": offset, "queryType": "bySnapshot",
-                "rowCount": PAGE_SIZE, "sortOrder": "asc"}, body) or {}
+                "rowCount": page, "sortOrder": "asc"}, body) or {}
             rows = data.get("rows") or []
+            if self.last_total is None:
+                self.last_total = _int(data.get("totalRows"))
             for row in rows:
                 issue = self._issue({c.get("key"): c.get("value") for c in row}, stream)
                 if issue and issue.cid not in issues and filter_matches(issue, spec):
                     issues[issue.cid] = issue
             offset += len(rows)
+            if limit and len(issues) >= limit:
+                break
             if not rows or offset >= (_int(data.get("totalRows")) or 0):
                 break
-        return list(issues.values())
+        found = list(issues.values())
+        return found[:limit] if limit else found
 
     @staticmethod
     def _issue(row: dict[str, Any], stream: str) -> Issue | None:
