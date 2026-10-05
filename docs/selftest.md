@@ -14,6 +14,7 @@
 | GitHub Copilot CLI | `copilot --version` |
 | git | `git --version` |
 | このリポジトリを読める GitHub アカウント | ブラウザで https://github.com/imaeda-hub/coverity-triage-agent を開ける |
+| uv（プラグインの MCP サーバを動かす道具） | `uv --version`。無ければ手順 3 の後に `/coverity-setup` で入れる |
 
 ## 2. リポジトリをクローンする
 
@@ -41,6 +42,8 @@ git clone https://github.com/imaeda-hub/coverity-triage-agent.git
 参考：[Agent plugins in VS Code](https://code.visualstudio.com/docs/agent-customization/agent-plugins)、[GitHub Copilot CLI plugin reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-plugin-reference)
 
 > 記録：実際に使った操作・コマンドと、成功したか（エラーが出た場合はその表示をそのまま）
+
+**新しい PC（uv が無い PC）では**、ここで `/coverity-setup` を実行し、AI の案内に沿って uv を入れてから VS Code（または Copilot CLI）を再起動します。uv が無いと MCP サーバが起動せず（VS Code の「MCP: List Servers」で `coverity-triage` が Error になる）、`/coverity-selftest` は何もできません。
 
 ## 4. `/coverity-selftest` を実行する
 

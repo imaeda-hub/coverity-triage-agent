@@ -18,6 +18,7 @@ disable-model-invocation: true
 
 ## 開始
 
+0. `selftest_start` などの `coverity-triage` のツールが見えない場合は、何もせずに止まり、次をそのまま利用者に伝える：「`coverity-triage` の MCP サーバが動いていないため、動作確認を始められません。多くの場合、uv が入っていないことが原因です。`/coverity-setup` を実行して uv を入れ、VS Code（または Copilot CLI）を再起動してから、もう一度 `/coverity-selftest` を実行してください。」
 1. 引数から範囲（①〜④、省略時はすべて）と出力先（省略時は既定）を読み取る。
 2. `repo_root` は開いているワークスペースのフォルダ（無ければ省略）。使っている Copilot（`VS Code` か `Copilot CLI`）が分からなければ利用者に尋ねる。
 3. `selftest_start(sections, repo_root, client, out_dir)` を呼ぶ。返ってきた `result_dir` を以降すべてで使う。`skipped` にある範囲は、理由を伝えて飛ばす。

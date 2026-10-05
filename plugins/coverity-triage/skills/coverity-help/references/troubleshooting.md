@@ -4,7 +4,7 @@
 
 | 表示・症状 | 原因と対処 |
 |---|---|
-| ツール（`doctor` など）が使えない／MCP サーバが起動しない | uv が無い、または入れた後に再起動していない。skill `coverity-setup` の段階 0 |
+| ツール（`doctor` など）が使えない／MCP サーバが起動しない（VS Code の「MCP: List Servers」で `coverity-triage` が Error） | uv が無い、または入れた後に再起動していない。skill `coverity-setup` の段階 0 |
 | `ファイルが見つかりません: ...config.yaml` | 対象リポジトリのフォルダを開いていない、または設定が未作成。`/coverity-setup` |
 | `条件ファイルが見つかりません` | ファイル名の誤り。`.coverity-triage/filters/` のファイル名を指定 |
 | `設定値が不正です` / `YAML の書式が不正です` | 設定ファイルの書き間違い。表示された項目を settings.md と照らして直す |
