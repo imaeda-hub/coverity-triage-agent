@@ -9,7 +9,8 @@
 1. uv が入っているか確かめる（ターミナルで `uv --version`）。無ければ `/coverity-setup` で入れる。
 2. uv を入れたあと、VS Code（または Copilot CLI）を再起動したか確かめる。再起動していなければ、再起動してもらう。
 3. `ct.py prewarm` を実行して、MCP サーバの Python 環境を作り直す。
-4. VS Code の場合は、コマンドパレットの **MCP: List Servers** で `coverity-triage` を選び、**Show Output** の内容を見る。社内のプロキシでライブラリを取れないときは、環境変数 `HTTPS_PROXY` が要るか社内の担当に確かめる。
+4. 表示に `invalid peer certificate: UnknownIssuer` や `--system-certs` があるときは、社内のネットワークの証明書を uv が信頼していません。プラグインを最新にしてください（MCP サーバの起動とスクリプトは `--native-tls` で OS の証明書を使います）。
+5. VS Code の場合は、コマンドパレットの **MCP: List Servers** で `coverity-triage` を選び、**Show Output** の内容を見る。社内のプロキシでライブラリを取れないときは、環境変数 `HTTPS_PROXY` が要るか社内の担当に確かめる。
 
 ## エラーの表示と対処
 

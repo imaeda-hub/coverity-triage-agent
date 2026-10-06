@@ -45,7 +45,7 @@ def prewarm() -> dict[str, Any]:
     started = time.monotonic()
     uv = _uv()
     version = out_text(run_cmd([uv, "--version"]))
-    run_cmd([uv, "sync", "--frozen", "--quiet", "--directory", str(SERVER_DIR)])
+    run_cmd([uv, "sync", "--native-tls", "--frozen", "--quiet", "--directory", str(SERVER_DIR)])
     return {"ok": True, "uv": version, "environment": str(SERVER_DIR / ".venv"),
             "seconds": round(time.monotonic() - started, 1)}
 

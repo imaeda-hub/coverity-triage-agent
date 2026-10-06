@@ -10,7 +10,7 @@
     {
       "name": "coverity-triage",
       "description": "Coverity Connect の警告をトリアージし、修正案と逸脱コメント案の両方を作るエージェント（C / C++、標準・MISRA・CERT）",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "source": "plugins/coverity-triage"
     }
   ]

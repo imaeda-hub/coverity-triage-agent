@@ -4,7 +4,7 @@
     "coverity-triage": {
       "type": "stdio",
       "command": "uv",
-      "args": ["run", "--frozen", "--quiet", "--directory", "${PLUGIN_ROOT}/server", "coverity-triage-mcp"]
+      "args": ["run", "--native-tls", "--frozen", "--quiet", "--directory", "${PLUGIN_ROOT}/server", "coverity-triage-mcp"]
     }
   }
 }

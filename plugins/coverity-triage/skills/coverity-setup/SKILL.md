@@ -11,7 +11,7 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 利用者はこのプラグインの仕組みを知りません。**一度に 1 つずつ**、短く、ふつうの言葉で案内します。
 何度実行されてもかまいません。`ct.py doctor` で足りないものを調べ、それだけを補います。
 
-最初にスキル `coverity-triage-scripts` を読み、スクリプト `ct.py` の場所と使い方を確かめます。以下の `ct.py X` は、そこに書かれた方法（`uv run <フォルダ>/scripts/ct.py X`）で実行します。
+最初にスキル `coverity-triage-scripts` を読み、スクリプト `ct.py` の場所と使い方を確かめます。以下の `ct.py X` は、そこに書かれた方法（`uv run --native-tls <フォルダ>/scripts/ct.py X`）で実行します。
 
 ## 守ること
 
