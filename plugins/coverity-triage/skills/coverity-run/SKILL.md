@@ -1,50 +1,63 @@
 ---
 name: coverity-run
-description: Coverity トリアージを実行する。条件に合う警告を取り出し、作業項目ごとにサブエージェント coverity-triage-worker に調査させ、一覧サマリを作る。未完了の実行があれば再開を提案する。
-argument-hint: 省略可。条件ファイル名や追加条件（例：misra.yaml / High だけ / ビルドで検証して）
+description: Coverity のトリアージを実行する。条件に合う警告を取り出し、警告ごとにサブエージェント coverity-triage-worker に調べさせて修正案と逸脱コメント案を作り、一覧 summary.md を作る。途中で止まった実行は続きから再開する。
+argument-hint: 省略可。条件ファイルの名前や追加の条件（例 misra.yaml / High だけ / 10 件だけ）
 disable-model-invocation: true
+allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 ---
 
 # Coverity トリアージの実行
 
-あなたの役割は、トリアージ全体の進行管理です。**ソースコードの調査・修正は自分で行わず**、作業項目ごとに、カスタムエージェント `coverity-triage-worker` をサブエージェントとして起動して任せます（作業項目ごとに新しいコンテキストで調査させるため。仕様 D-39）。**必ずこの名前のカスタムエージェントを指定して起動し、汎用のサブエージェントで代用したり、自分で調査したりしないでください**（使えるツールとモデルが、このエージェントの定義で決まっているため）。起動できない場合は、その旨と理由（例：サブエージェントを起動するツールが無効）を利用者に伝えて止めます。調査役の AI が入っていない（または古い）ことが多いので、`/coverity-setup` を実行して VS Code を再起動するよう案内します。
-時間のかかるツール（`start_run`・`doctor`・`verify_run`・`trial_build`・`apply_approvals`・`selftest_step` など）が `status: running` と `job_id` を返したら、処理は続いている。元のツールを呼び直さず、`wait_job(job_id)` を結果が返るまで繰り返し呼ぶ。1 分以上かかるときは、ときどき「処理中です（○分経過）」と利用者に伝える。
+あなたの仕事は、全体を順に進めることです。**ソースを読んで判断したり、直したりはしません。** 警告の調査と修正は、作業ごとにカスタムエージェント `coverity-triage-worker` をサブエージェントとして起動して任せます。
 
-目的は人間のトリアージ工数の削減です。人間への質問は、開始前の確認と最後の報告に絞ってください。
+- 必ずこの名前のカスタムエージェントを起動します。汎用のサブエージェントで代わりにしたり、自分で調べたりしません（使えるツールとモデルが、この定義で決まっているため）。
+- 起動できないときは、理由を利用者に伝えて止め、`/coverity-setup` を実行して、VS Code（または Copilot CLI）を再起動するよう案内します。
+- 人への質問は、始める前の確認だけにします。始めたら、終わるまで質問しません（夜間に人がいなくても進められるように）。
 
-## 開始
+最初にスキル `coverity-triage-scripts` を読み、`ct.py` の場所と使い方、MCP のツールとの関係を確かめます。以下の `ct.py X` はそこに書かれた方法で実行します。
 
-1. 対象リポジトリのルート（`repo_root`。通常は開いているワークスペースのフォルダ）を決める。
-2. `list_runs(repo_root)` で最近の実行を確認する。
-   - 設定ファイルが無いなどのエラーなら、「先に `/coverity-setup` で準備してください」と伝えて終了する。
-   - 最新の実行が未完了（`unfinished: true`）なら、「前回の実行（日時・条件）が途中です。続きから再開しますか？」と尋ねる。再開なら `resume_run(run_dir)` を呼び、処理ループへ進む。
-3. 新しく始める場合：
-   - 条件ファイル：指定が無ければ `untriaged.yaml`。指定がファイル名でなければ（例「High だけ」）、既定の条件ファイルに `overrides` として加える（例 `{"impacts": ["High"]}`）。
-   - 自動検証の指定（なし / ビルドのみ / ビルド＋再解析）があれば `verify_mode` に `none` / `build` / `build+analyze` で渡す。
-   - `start_run` を呼ぶ。返ってきた `run_dir` は以降すべてで使う。
-   - `found` と `processing` が違う場合は「上限件数で切った」ことを伝える。`note` があればそのまま伝える。
-4. 処理ループへ進む。
+## 1. 始める
 
-## 処理ループ
+1. 対象リポジトリの一番上のフォルダ（`repo_root`）を決める（ふつうは開いているフォルダ）。
+2. `ct.py runs --repo <repo_root>` で前回の実行を見る。
+   - 設定ファイルが無いなどで失敗したら、「先に `/coverity-setup` で準備してください」と伝えて終わる。
+   - いちばん新しい実行が途中（`unfinished: true`）なら、「前回の実行（日時・条件）が途中です。続きから再開しますか？」と聞く。再開するなら `ct.py resume --run <run_dir>` を実行する。結果の `run_dir`、`repo_root`、`filter_file`、`issues_file`、`work_dir`、`verify` をこの後ずっと使い、`planned` が true なら 2 へ、false なら 3 の 3 から進める。
+3. 新しく始めるとき：
+   1. 利用者の言葉から条件を決める。条件ファイルの名前があれば `--filter`、「High だけ」などは `--impact High` のように引数で足す。件数の指定は `--limit`。ビルドでの検証の指定があれば `--verify build` など。
+   2. `ct.py new-run --repo <repo_root> ...` を実行する。結果の `run_dir`、`repo_root`、`filter_file`、`issues_file`、`work_dir`、`verify` をこの後ずっと使う。
+   3. 修正用のコピーを置くフォルダ（`work_dir`）は、開いているフォルダの外にあります。利用者に次を伝える（決定 21）。
+      > 修正案は、あなたの作業中のファイルではなく、`<work_dir>` に用意するコピーの上で作ります。このフォルダの読み書きの確認が出たら、「このセッションでは許可」を選んでください（Copilot CLI では、いま `/add-dir <work_dir>` と入力しても許可できます）。
+   4. MCP の `search_issues` を `repo_root`、`filter_file`、`output_file` = `issues_file` で、`done` が true になるまで呼ぶ。
+   5. 見つかった件数（`found`）を伝える。`limited` が true なら「上限の `limit` 件で止めました」と添える。0 件なら、条件を伝えて終わる。
+   6. `ct.py plan --run <run_dir>` を実行し、作業の数とグループの数を伝える。`notes` があれば短く伝える。
 
-1. `next_work_item` を、`parallel`（start_run / resume_run の戻り値）の数まで呼んで作業項目を取得する。
-2. 取得した作業項目ごとに、サブエージェント `coverity-triage-worker` を起動する。渡す指示は次の形にする：
-   > run_dir: `<run_dir>` / item_id: `<item>` を処理してください。
-   - `parallel` が 2 以上なら、サブエージェントを並列に起動してよい。
-3. サブエージェントが完了したら、次の作業項目を取得して 2 を繰り返す。`item` が `null` になったら終了。
-4. サブエージェントが `submit_result` も `report_error` もせずに終わった場合は、`report_error` でその項目をエラーにする（理由を簡潔に書く）。
+## 2. 作業を 1 つずつ進める
 
-## 終了
+`ct.py next` の結果の `item` が null になるまで、次を繰り返します。
 
-1. 自動検証（`verify_mode` が `none` 以外。start_run / resume_run の戻り値で分かる）の場合：
-   - 「全件の修正案をまとめてビルド（＋再解析）します。10〜60 分程度かかります」と伝え、`verify_run(run_dir)` を呼ぶ。
-   - 終わったら、ビルドの成否と、問題が出て確信度を「低」に下げた作業項目（`downgraded_to_low`）を短く伝える。`error` があればそのまま伝える。
-2. `build_summary` を呼ぶ。
-3. 次の内容を短く報告する：
-   - 一覧サマリのパス（`summary.md`）、処理件数、エラー件数、未処理があればその旨
-   - 次の作業：「`summary.md` の承認列を確認してください（推奨案を下書き済み。変えたい行だけ 修正 / 逸脱 / 却下 に書き換え）。逸脱コメントの手直しは各詳細レポートで行えます。終わったら `/coverity-apply` で反映します」
+1. `ct.py next --run <run_dir>` で次の作業を取る。`ok: false` のとき（修正用のコピーを用意できないなど）は、ほかの作業でも同じことが起きるので、`error` を利用者に伝えて止める。
+2. MCP の `get_issues` を `repo_root`、`stream`、`cids`、`output_dir` = `item_dir` で、`done` が true になるまで呼ぶ。
+3. `ct.py brief --run <run_dir> --item <item>` を実行する。
+4. サブエージェント `coverity-triage-worker` を起動し、結果の `prompt` をそのまま渡す。
+5. サブエージェントが終わったら `ct.py finish --run <run_dir> --item <item>` を実行する。
+   - `ok: false` で `problems` があるときは、`coverity-triage-worker` をもう一度起動し、`prompt` に続けて「結果ファイルの次の点を直してください：」と `problems` を渡す。2 回直しても通らなければ、`ct.py fail --run <run_dir> --item <item> --reason "<理由>"` を実行して次へ進む。
+   - サブエージェントが途中で止まった、エラーになったときも `ct.py fail` で記録して次へ進む。
+   - `warnings` があれば覚えておき、最後にまとめて伝える。
+6. 5 件ごとくらいに、進み具合（`counts`）を 1 行で伝える。
 
-## 禁止事項
+`plan` の結果の `parallel` が 2 以上のときは、`next` をその数まで続けて呼び、サブエージェントを同時に起動してかまいません（作業ごとに別の修正用のコピーが用意されます）。
 
-- ソースコードを読んで判断したり、修正したりしない（サブエージェントの仕事）。
-- `preview_apply` / `apply_approvals` は使わない（反映は、利用者が承認を記入した後に `/coverity-apply` で行う）。
+## 3. 終える
+
+1. ビルドでの検証を使う実行（`verify` が none 以外）なら、「修正案をまとめてビルドで確かめます。時間がかかります」と伝えて `ct.py verify --run <run_dir>` を実行する。終わったら、ビルドできたかと、確信度を「低」に下げた作業（`downgraded_to_low`）を伝える。
+2. `ct.py summary --run <run_dir>` を実行する。
+3. 次を短く伝える。
+   - 一覧のファイル（`summary`）の場所、作業の数、修正と逸脱の推奨の数、処理できなかった作業の数
+   - 2 で覚えておいた `warnings`
+   - 次にすること：「`summary.md` の承認欄を確かめてください。AI の推奨を入れてあるので、変えたい行だけ『修正』『逸脱』『却下』に書き換えます。逸脱コメントは各詳細レポートの『案A: 逸脱』で直せます。終わったら `/coverity-apply` で反映します」
+
+## してはいけないこと
+
+- ソースを読んで判断する、直す（サブエージェントの仕事）。
+- `run_dir` の中のファイル（`run.json`、`result.json` など）を手で書き換える。
+- `ct.py preview`・`ct.py apply-code`・MCP の `update_triage` を使う（反映は、人が承認欄を書いた後に `/coverity-apply` で行う）。

@@ -1,361 +1,287 @@
-# Coverity トリアージエージェント 構成設計（たたき台）
+# Coverity トリアージエージェント 設計書
 
-> 本書は `docs/spec.md` の決定事項（D-xx）に基づく構成案である。
-> 各項目はユーザとの対話で確認し、確定したものには「確定」と記す。「案」のままの項目（1 章の構成図の細部、3 章のツール名、4 章のフロー）は実装時に調整し得る。
+この文書は「どう作るか」を定めます。「何を作るか」は [spec.md](spec.md) にあります。
+1 章で全体の構成、2 章で処理の流れ、3 章で部品ごとの中身、4 章で設計の根拠にした公式仕様を書きます。
 
-## 1. プラグイン全体構成（案）
+## 1. 全体の構成
 
-Agent Plugins 1.0 の構成に従う（D-1）。どのクライアントでも共通に使える部品（Skill・MCP）はプラグイン直下に置き、Copilot 固有の部品（調査用サブエージェント 1 つ）は `com.github.copilot/` に置く。利用者の入口は Skill で作る（D-80）。
+### 1.1 部品と役割
 
-```
-coverity-triage/                         … プラグインのルート
-├─ plugin.json                           … マニフェスト（$schema: agent-plugins.org 1.0.0）
-├─ mcp.json                              … MCP サーバ起動設定（Python 製 MCP サーバ 1 つ・確定）
-├─ skills/                               … 共通に使える手順・知識
-│  ├─ coverity-setup/SKILL.md            … 入口：準備（D-66〜D-70, D-75）。利用者だけが呼ぶ
-│  ├─ coverity-run/SKILL.md              … 入口：トリアージ実行。進捗管理・サブエージェントへの委任・集約（D-39）
-│  ├─ coverity-apply/SKILL.md            … 入口：承認の反映。反映後に知識の追記を提案（D-63, D-78）
-│  ├─ coverity-help/                     … 入口：質問・設定変更・効果測定
-│  │  ├─ SKILL.md
-│  │  └─ references/ settings.md, usage.md, troubleshooting.md（D-65）
-│  ├─ coverity-selftest/                 … 入口：利用者の環境での動作確認（D-81）
-│  │  ├─ SKILL.md
-│  │  └─ assets/ sample-target/（偽データの対象リポジトリ）, expected.yaml（想定する結論）
-│  ├─ triage-investigation/SKILL.md      … 調査手順：警告経路の追跡、真偽判定、確信度基準（D-64）。以下 5 つは AI だけが読む
-│  ├─ checker-knowledge/                 … チェッカー別の判断観点（D-6）
-│  │  ├─ SKILL.md
-│  │  └─ references/ standard.md, misra.md, cert.md
-│  ├─ code-fix/SKILL.md                  … 修正方針（D-37, D-38）、文字コード保持（D-36）、社内規約（U-3）、アノテーション（D-59）
-│  ├─ deviation-comment/SKILL.md         … 逸脱コメント（D-22〜D-24）、Classification / Action / Severity の選び方
-│  └─ triage-report/SKILL.md             … レポートに書く内容の基準（D-20, D-55）
-├─ com.github.copilot/                   … Copilot 固有の部品
-│  └─ agents/
-│     └─ coverity-triage-worker.agent.md … サブエージェント：1 CID / 1 グループの調査 → 2 案作成（検証は親がまとめて行う、D-72）。ツールを調査用に限定、モデル固定（D-47）
-└─ server/                               … Python 製 MCP サーバ（D-40, D-41, D-42）
-   ├─ pyproject.toml                     … Python 3.12 以上（D-46）
-   └─ src/coverity_triage/
-      ├─ mcp_server.py                   … ツールの公開窓口
-      ├─ runs.py                         … 実行の開始・再開・進捗・一覧サマリ・まとめた検証（D-15, D-72）
-      ├─ worker.py                       … 作業項目の調査の道具（ソースの参照・編集・提出）
-      ├─ apply.py                        … 承認の反映（D-27〜D-31, D-63）
-      ├─ knowledge.py                    … プロジェクトの知識の候補と追記（D-78）
-      ├─ onboarding.py                   … 準備・診断・試しのビルド（D-66〜D-70, D-75）
-      ├─ selftest.py                     … 動作確認の判定・伏せ字・結果フォルダ（D-81）
-      ├─ config.py                       … 設定ファイル・条件ファイルの読み込みと検証（D-49, D-50）
-      ├─ coverity.py / connect.py        … Coverity Connect 接続（REST：検索・書き戻し／SOAP：警告経路・スナップショット、D-77）
-      ├─ vcs.py / workspace.py           … git / svn / GitHub の操作と作業領域（D-25〜D-29, D-57, D-58）
-      ├─ pathmap.py                      … Coverity のパスとリポジトリのパスの対応づけ（I-9）
-      ├─ grouping.py                     … グループ候補の機械的な作成（D-53）
-      ├─ verify.py                       … ビルド・再解析の実行（D-10, D-42）
-      ├─ run_state.py                    … 実行フォルダ・進捗・再開（D-15, D-43, D-51）
-      ├─ report.py                       … レポート生成と承認列の読み取り（D-18, D-54〜D-56, D-62）
-      ├─ encoding.py                     … 文字コード・改行コードの判定と保持（D-36）
-      └─ metrics.py                      … 効果測定の記録と集計（D-44）
-```
+公式の役割分担（VS Code「Customization concepts」、GitHub「Copilot customization cheat sheet」）に合わせて、部品を次のように分けます。
 
-### 対象リポジトリ側に置くファイル（D-50）
-
-```
-<対象リポジトリ>/.coverity-triage/
-├─ config.yaml        … プロジェクト設定（/coverity-setup で生成）
-├─ filters/*.yaml     … 絞り込み条件（複数用意可能）
-├─ no-grouping.yaml   … グループ化しない CID（却下されたグループから自動追記）
-└─ knowledge.md       … プロジェクトの知識（調査の前に AI が読む。反映後に人が選んだ知識を追記。推奨の方針（D-48）もここに書く、D-78）
-```
-
-## 2. 役割分担の原則（確定）
-
-| 担当 | 担当すること | 理由 |
+| 部品 | 公式の役割 | このプラグインでの担当 |
 |---|---|---|
-| AI（エージェント・Skill） | 警告経路とソースを読んで真偽を判断する、修正コードを書く、逸脱コメントを書く、確信度と推奨案を決める | 判断と文章作成は AI にしかできない |
-| Python（MCP ツール） | API 通信、VCS 操作、ブランチ名・差分・出力先、ビルド・再解析の実行、進捗、レポートの体裁、承認列の読み取り、集計 | 毎回同じ結果になるべき処理。AI に任せると揺れや誤操作が起きる |
+| スキル（入口） | 繰り返す手順をまとめる | `/coverity-setup`・`/coverity-run`・`/coverity-apply`・`/coverity-help`・`/coverity-selftest` の手順。エージェントはこの手順に沿って進める |
+| スキル（知識） | 必要なときに読む知識 | 調査の手順と確信度の基準、チェッカー別の観点、修正の制約、逸脱コメントの書き方、結果の書き方 |
+| スキルに同梱するスクリプト | 決まった処理 | 実行フォルダ、グループ化、修正用のコピー、差分とブランチ、レポートと一覧、承認の読み取り、反映、検証、準備の確認、動作確認。スキル `coverity-triage-scripts` の `scripts/ct.py` にまとめる |
+| MCP サーバ | 外部システムとの接続 | Coverity Connect との通信だけ（接続の確認、警告の検索、警告の詳細、トリアージの書き戻し） |
+| 組み込みツール | ファイルの読み書き・検索・ターミナル | ソースを読む・探す・直す、スクリプトを動かす |
+| カスタムエージェント（サブエージェント） | 役割と使えるツールを決める | `coverity-triage-worker`：警告 1 件（または 1 グループ）を調べて 2 つの案を書く。使えるのは読み取り・検索・編集・スキルの読み込みだけ（ターミナルは使えない） |
+| プラグイン | まとめて配布する | 上の部品を Agent Plugins 1.0 の形でまとめる |
 
-- レポートの生成（確定）：AI は判断結果を構造化データで `submit_result` に提出し、Python が CID レポート・一覧サマリの Markdown に整形する。根拠や逸脱コメントなどの文章の中身は AI が書く。
+### 1.2 誰が何をするか
 
-## 3. MCP ツール一覧（案）
+| 担当 | すること | しないこと |
+|---|---|---|
+| 人 | 準備、条件の指定、一覧の承認欄の記入、反映の同意 | — |
+| エージェント（チャットの AI） | 入口のスキルの手順に沿って、スクリプトと MCP のツールを順に呼び、サブエージェントに調査を任せ、結果を人に伝える | 自分でソースを調べて判断すること（サブエージェントの仕事） |
+| サブエージェント | 警告の真偽の判断、修正（修正用のコピーの上で）、逸脱コメントの作成、結果ファイルの作成 | ターミナル、Coverity への書き込み |
+| スクリプト | 決まった処理。毎回同じ結果になる | 判断や文章作成 |
+| MCP サーバ | Coverity との通信 | ファイルの加工、Git の操作 |
 
-- MCP サーバは 1 つにまとめる（確定）。実行フォルダや進捗などの状態をサーバ内で共有する。
-- 外部に変更を加える `apply_approvals` は、`preview_apply` で件数を提示して利用者の同意を得たこと（確認用の文字列）を確認できない限り実行しない（D-63）。調査用サブエージェントには渡さない（D-80）。
-- 調査用サブエージェントにはターミナル（任意のコマンド実行）を許可しない（確定）。VCS・ビルド・再解析は MCP ツール経由でのみ行う。
-- 作業領域のソースの読み取り・検索・編集は MCP ツール（`read_source` / `search_source` / `edit_source`）で行う（確定）。VS Code・CLI で同じ動きになり、ワークスペース外のファイルに対する許可確認で処理が止まらない。
+### 1.3 ファイルの配置
 
-| 分類 | ツール | 内容 | 関連 |
+```
+plugins/coverity-triage/                       … プラグイン（Agent Plugins 1.0）
+├─ plugin.json
+├─ mcp.json                                    … MCP サーバ coverity-triage の起動設定
+├─ server/                                     … MCP サーバ（Python。uv のプロジェクト）
+│  └─ src/coverity_triage/                     … Coverity Connect との通信だけ
+├─ skills/
+│  ├─ coverity-setup/   coverity-run/   coverity-apply/   coverity-help/   coverity-selftest/   … 入口
+│  ├─ coverity-triage-scripts/                 … 決まった処理のスクリプト（エージェントが読む）
+│  │  ├─ SKILL.md                              … コマンドの使い方
+│  │  └─ scripts/ct.py, scripts/ctlib/          … uv run で動く Python
+│  └─ triage-investigation/ checker-knowledge/ code-fix/ deviation-comment/ triage-report/   … 知識
+└─ com.github.copilot/agents/coverity-triage-worker.agent.md   … サブエージェント
+
+<対象リポジトリ>/.coverity-triage/              … チームで共有（コミットする）
+├─ config.yaml   filters/*.yaml   knowledge.md   no-grouping.yaml
+
+<出力先>（既定 ../coverity-triage-out）/<実行 ID>/   … リポジトリの外
+├─ run.json                … 実行の設定と進み具合（作業ごとの状態）
+├─ filter.json             … この実行で使う条件（MCP の search_issues が読む）
+├─ issues.json             … Coverity から取った警告の一覧（MCP が書く。問い合わせごとの秒数も残す）
+├─ issues.mapped.json      … パスをリポジトリからの相対パスに直した一覧（ct.py plan が書く）
+├─ config.snapshot.yaml    … 実行を始めたときの設定の写し
+├─ items/<ID>/             … 作業ごと：issue-<CID>.json（警告経路。MCP が書く）、brief.md（サブエージェントへの指示）、
+│                             result.json（サブエージェントの結果）、saved.json（差分とブランチ）
+├─ work/                   … 修正用のコピー：fix-<n>、annotation-<n>（オプション）、analyzed（解析リビジョン）。ct.py summary で消す
+├─ cid/<ID>.md             … 詳細レポート
+├─ patches/<ID>-fix.patch  … 差分（git / svn が出したバイト列のまま）
+├─ fixed/<ID>/fix/         … 修正後のファイル（リポジトリの構成のまま）
+├─ summary.md              … 一覧（承認欄つき）
+├─ verify.json             … （オプション）ビルドでの検証の結果
+├─ apply-plan.json         … 反映の内容。apply-plan.result.json は MCP の update_triage の結果
+├─ metrics.json            … （オプション）効果測定の記録
+└─ operations.log          … 操作の記録（認証情報は伏せる）
+```
+
+## 2. 処理の流れ
+
+以下の「エージェント」はチャットの AI、「`ct.py X`」はスクリプトのコマンド、「MCP `X`」は MCP のツールです。
+
+### 2.1 準備（`/coverity-setup`）
+
+| 順 | 担当 | すること |
+|---|---|---|
+| 1 | エージェント | 「すべて許可」にする手順を案内する（決定 2） |
+| 2 | エージェント | ターミナルで `uv --version`。無ければ uv をインストールし、この会話の間は uv をフルパスで呼ぶ |
+| 3 | `ct.py prewarm` | MCP サーバ用の Python 環境を作る（`uv sync`）。初回起動で時間切れにならないよう、ここで済ませる |
+| 4 | `ct.py doctor` | 足りないものを調べる（リポジトリ、git / svn、設定、条件、出力先、環境変数、サブエージェントの配置） |
+| 5 | `ct.py install-agent` | サブエージェントの定義をユーザのフォルダ `~/.copilot/agents` にコピーする（決定 1。VS Code の Copilot でサブエージェントが見つからなかった事象への対処） |
+| 6 | エージェント・人 | 設定が無ければ（チームで最初の人だけ）、URL・プロジェクト・ストリームを 1 つずつ聞き、`ct.py detect` の結果と合わせて表で見せ、同意を得て `ct.py init-config` |
+| 7 | 人 | 認証情報（ユーザ名・認証キー）を、ターミナルの伏せ字欄で環境変数に入れる |
+| 8 | 人 | uv を入れたか、サブエージェントの定義を置いた（`restart_needed`）ときだけ、VS Code（または Copilot CLI）を再起動し、もう一度 `/coverity-setup` を入力する（再起動はこの 1 回だけ。uv を新しく入れると、起動済みの VS Code からは uv が見えず MCP サーバを起動できないため） |
+| 9 | MCP `check_connection`・`ct.py doctor` | Coverity に認証できること、すべてそろったことを確かめる |
+| 10 | エージェント | トリアージ中にこのプラグインのツールを確認なしで使う設定を案内する（決定 4） |
+| 11 | （オプション） | ビルドでの検証を使う場合だけ、`ct.py trial-build` と `ct.py set-verify` |
+
+### 2.2 実行（`/coverity-run`）
+
+| 順 | 担当 | すること |
+|---|---|---|
+| 1 | `ct.py runs` | 未完了の実行があれば、再開するか人に聞く（再開は `ct.py resume`） |
+| 2 | `ct.py new-run` | 実行フォルダを作り、条件を確定して `filter.json` に書く。修正用のコピーを置くフォルダを返す |
+| 3 | エージェント・人 | 修正用のコピーを置くフォルダへのアクセスを 1 回許可してもらう（決定 21） |
+| 4 | MCP `search_issues` | Coverity で警告を検索し、`issues.json` に保存する（上限件数で止める） |
+| 5 | `ct.py plan` | パスの対応づけ、グループ化（1 グループ 10 件まで）、解析リビジョンと取り込み先の最新リビジョンの特定をして、作業の一覧を作る |
+| 6 | 繰り返し | 下の 6-1〜6-5 を、作業が無くなるまで（設定 `parallel` が 2 以上なら、その数まで同時に） |
+| 6-1 | `ct.py next` | 次の作業（警告 1 件か 1 グループ）を取り、修正用のコピーを用意して最新のリビジョンにそろえる（初回はコピーを作る）。利用者のリポジトリの状態も記録する |
+| 6-2 | MCP `get_issues` | 警告経路を Coverity から取り、`items/<ID>/` に保存する |
+| 6-3 | `ct.py brief` | パスの対応づけ・ずれの確認をして、サブエージェントへの指示 `brief.md` を作る |
+| 6-4 | サブエージェント | `brief.md` を読み、知識のスキルに沿って調べ、修正用のコピーを直し、`result.json` を書く |
+| 6-5 | `ct.py finish` | `result.json` を確かめ、差分・ブランチ・修正後のファイル・詳細レポートを作る。不備があれば `problems` を返す（エージェントがサブエージェントに直させる。2 回直らなければ `ct.py fail`）。調べるコードや利用者のリポジトリが変わっていたら `warnings` で知らせる |
+| 7 | （オプション）`ct.py verify` | ビルドでの検証。時間がかかるので、ターミナルで裏で動かす |
+| 8 | `ct.py summary` | 一覧 `summary.md` を作り、全部の作業が終わっていれば修正用のコピーを消す（ブランチと差分は残る） |
+| 9 | エージェント | 一覧の場所と件数を伝え、承認欄を確認してから `/coverity-apply` を使うよう案内する |
+
+### 2.3 反映（`/coverity-apply`）
+
+| 順 | 担当 | すること |
+|---|---|---|
+| 1 | `ct.py preview` | 一覧の承認欄と詳細レポートの逸脱の節を読み、件数と反映内容 `apply-plan.json`、確認用の文字列を作る |
+| 2 | エージェント・人 | 件数を見せて同意を得る |
+| 3 | MCP `update_triage` | 逸脱を Coverity に書き戻す。確認用の文字列と `apply-plan.json` の中身が一致しないと書き込まない。結果は `apply-plan.result.json` に残す |
+| 4 | `ct.py apply-code` | 確認用の文字列を確かめてから、修正を反映する（git：ブランチを push。svn：ワーキングコピーに差分を適用）。却下したグループは `no-grouping.yaml` に足す。プルリクエストの題名・本文と、作成用の URL を返す。`update_triage` の結果も読み、反映済みの部分を記録する（次の preview で繰り返さない） |
+| 5 | エージェント | プルリクエストを Copilot の GitHub の機能で作る。使えないときは、作成用の URL を人に示す（決定 3） |
+| 6 | （オプション）`ct.py knowledge-candidates` / `add-knowledge` | 知識の追記の提案 |
+
+### 2.4 動作確認（`/coverity-selftest`）
+
+| 範囲 | 確かめること | 主な担当 |
+|---|---|---|
+| ① 組み込み | MCP のツールが見えること、サブエージェントを起動でき、使えるツールが制限され、スキルを読めること、`/` メニュー | エージェント（観察）＋ `ct.py selftest` |
+| ② 偽データ | 偽の Coverity（`coverity.api: fake`）と見本のリポジトリで、2.2 と 2.3 の流れを最後まで通す | 2.2・2.3 と同じ |
+| ③ 社内 Coverity | 接続と認証、検索、警告経路の取得（読み取りだけ） | MCP ＋ `ct.py selftest` |
+| ④ ビルドでの検証 | オプションを使う場合だけ | `ct.py` |
+
+結果は `~/coverity-triage-selftest/<日時>/report.md` にまとめ、ホスト名・ユーザ名・認証情報は伏せる。
+
+## 3. 部品ごとの中身
+
+### 3.1 plugin.json・mcp.json
+
+- `plugin.json`：Agent Plugins 1.0 の必須項目（`$schema`、`name`）と説明・版数。
+- `mcp.json`：
+
+  ```json
+  {
+    "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+    "mcpServers": {
+      "coverity-triage": {
+        "type": "stdio",
+        "command": "uv",
+        "args": ["run", "--frozen", "--quiet", "--directory", "${PLUGIN_ROOT}/server", "coverity-triage-mcp"]
+      }
+    }
+  }
+  ```
+
+  `${PLUGIN_DATA}` は使わない。VS Code（Local）は `${PLUGIN_DATA}` を置き換えないため（4 章）。Python の環境は uv の既定どおり `server/.venv` にでき、準備の手順 3 で作っておく。
+
+### 3.2 MCP サーバ `coverity-triage`
+
+- どのツールも 20 秒以内に返す（Copilot の実行基盤はツール 1 回を既定 30 秒で打ち切るため、4 章）。次の問い合わせが 20 秒を超えそうなら、そこで止めて `done: false` を返す。エージェントは `done` が `true` になるまで同じ引数で呼び直す。保存済みの分は繰り返さない。
+- 結果は `ct.py` が示したファイルに保存し、ツールは件数などの要約だけを返す（大きなデータを会話に流さない）。
+- パスは絶対パスだけ受け付ける（サーバは `uv run --directory` で自分のフォルダで動くため）。保存先のフォルダが無ければエラーにする（`ct.py` が作る）。
+- ツールの注釈（MCP の `annotations`）：`check_connection` は読み取りだけ（`readOnlyHint`）。書き戻しは `destructiveHint`。どれも社内の Coverity だけを相手にするので `openWorldHint: false`。
+
+| ツール | 入力 | すること | 返すもの |
 |---|---|---|---|
-| 準備 | `detect_project` / `write_project_config` / `install_worker_agent` / `check_coverity_auth` / `doctor` / `list_runs` | 自動判定、確認済みの値で設定を書き出し、調査役の AI を `~/.copilot/agents` にコピー、認証だけの確認（10 秒以内）、準備状況の診断、最近の実行の一覧（再開・反映の対象を決める） | D-66〜D-70、D-82、D-84 |
-| 時間のかかる処理 | `wait_job` | `trial_build` / `doctor` / `start_run` / `verify_run` / `prepare_workspaces` / `get_issue_detail` / `apply_approvals` / `selftest_step` は裏で動かし、20 秒で終わらなければ `status: running` と `job_id` を返す。`wait_job` で最大 20 秒ずつ待って結果を受け取る | D-83 |
-| 実行管理 | `start_run` | 実行フォルダ作成、条件で CID を検索、上限件数で切り、グループ候補を作成、進捗ファイル作成 | D-11〜D-15, D-43, D-53 |
-| | `next_work_item` / `get_run_status` | 未処理・エラーの CID / グループを返す | D-15, D-51 |
-| | `resume_run` | 実行フォルダを指定して再開 | D-61 |
-| Coverity | `get_issue_detail` | 基本情報＋イベント（警告経路）＋チェッカー説明・CWE | D-33 |
-| VCS | `prepare_workspaces` | 解析リビジョンを特定し（D-17）、調査用（解析リビジョン）と修正用（最新）の作業領域を作る | D-16, D-17, D-57, D-58 |
-| | `save_fix` | 修正用作業領域の変更から、差分ファイル・別領域出力・git コミット / ブランチを作る | D-4, D-25, D-26 |
-| ソース操作 | `read_source` / `search_source` / `edit_source` | その CID / グループの作業領域に範囲を限定した読み取り・検索・編集。文字コード・改行コードを保持して保存する（確定） | D-36, D-57 |
-| 検証 | `verify_run`（全件の調査後に 1 回、D-72） / `trial_build` / `write_verify_config` | 設定に従いビルド / 再解析を実行し、警告の消滅・新規警告を返す | D-10, D-42 |
-| 結果 | `submit_result` | サブエージェントの判断結果（構造化データ）を受け取り、CID レポートを生成し、進捗を更新 | D-20 |
-| | `report_error` | 処理できなかった作業項目をエラーとして記録（再開時にやり直す） | D-51 |
-| | `build_summary` | 一覧サマリを生成（確信度の低い順、承認列に推奨案を下書き） | D-54〜D-56, D-62 |
-| 反映 | `preview_apply` | 承認列を読み取り、反映件数を返す | D-63 |
-| | `apply_approvals` | Coverity 書き戻し、push＋PR 作成、svn patch 適用 | D-27, D-29〜D-31, D-60 |
-| 知識 | `knowledge_candidates` / `add_knowledge` | 反映後に人が変えた・直した・却下した項目を返す／人が選んだ知識を `knowledge.md` に追記 | D-78 |
-| 集計 | `get_stats` | 効果測定の集計 | D-44 |
-| 動作確認 | `selftest_start` / `selftest_step` / `selftest_record` | 結果フォルダを作る／決まった手順で確かめて判定する（段階：plugin・worker・sample・flow_run・flow_apply・flow_knowledge・coverity・real_run・build・verify）／AI が観察したこと・利用者の答えを記録する | D-81 |
+| `check_connection` | `repo_root` | 設定の Coverity に、環境変数の認証情報で 1 回だけ読み取りの問い合わせをする（10 秒以内） | 認証できたか、かかった秒数、URL が http のときの注意 |
+| `search_issues` | `repo_root`、`filter_file`（`ct.py new-run` が作る `filter.json`）、`output_file`（`issues.json`） | REST で検索し、条件の `limit` 件で止めて保存する。続けて最新スナップショットの解析リビジョンを記録する。問い合わせごとの時間も残す | 見つかった件数、上限で止めたか、解析リビジョン、`done` |
+| `get_issues` | `repo_root`、`stream`、`cids`（50 件まで）、`output_dir`（`items/<ID>/`） | SOAP で警告経路とチェッカーの説明を取り、`issue-<CID>.json` に保存する。取れなかった CID は理由を `error` に書いて保存する | 保存した CID、取れなかった CID、残り、`done` |
+| `update_triage` | `repo_root`、`plan_file`（`apply-plan.json`）、`confirmation_token` | `apply-plan.json` の `triage` の各項目を REST で書き込む。確認用の文字列（ファイルの SHA-256 の先頭 12 文字）が合わなければ何も書かない。結果は `apply-plan.result.json` に残す。書き込み済みの項目（内容が同じもの）は書き直さない | 書き込んだ項目、失敗した項目と理由、残り、`done` |
 
-## 4. 処理フロー（トリアージ実行・案）
+`apply-plan.json` の `triage` の 1 項目：`{"id": "C002", "cids": [20002], "classification": "False Positive", "action": "Ignore", "severity": "Unspecified", "comment": "..."}`。
 
-- 並列度（確定）：サブエージェントは設定した数まで並列に動かす（初期値 1）。作業領域は CID / グループごとに分かれているため干渉しない。再解析（cov-build / cov-analyze）は重いため、ツール側で 1 つずつ順番に実行する。
+`coverity.api: fake` のときは、偽データのファイルを読み、書き戻しは `<偽データ>.writes.jsonl` に記録する（動作確認と自動テスト用）。
 
-```
-利用者: run（条件ファイル＋チャットでの上書き）
-  │
-メインの AI（Skill coverity-run に従う親）
-  ├─ start_run ………………… CID 検索 → 上限で切る → グループ候補 → 進捗ファイル
-  └─ 繰り返し: next_work_item
-        │
-        └─ サブエージェント（CID / グループごとに独立したコンテキスト）
-              ├─ get_issue_detail
-              ├─ prepare_workspaces（調査用＝解析リビジョン / 修正用＝最新）
-              ├─ ソースを読んで調査（Skill: triage-investigation, checker-knowledge）
-              ├─ 修正案を作成 → save_fix（Skill: code-fix）
-              ├─ 逸脱コメント案を作成（Skill: deviation-comment）
-              └─ submit_result（判断結果を構造化データで提出）
-  ├─ [オプション] verify_run …… 全修正案をまとめて 1 回ビルド（＋再解析）、問題があれば確信度を「低」に（D-72〜D-74）
-  └─ build_summary → 利用者に一覧サマリの場所を報告
+### 3.3 スクリプト（スキル `coverity-triage-scripts` の `scripts/ct.py`）
 
-利用者: 一覧サマリの承認列を確認・修正 → apply
-  └─ preview_apply → 件数確認（D-63）→ apply_approvals
-     → knowledge_candidates → 知識の候補を提示 → 人が選んだものだけ add_knowledge（D-78）
-```
+エージェントは `uv run <このスキルのフォルダ>/scripts/ct.py <コマンド>` で動かす。結果は JSON で標準出力に出す。依存するライブラリはスクリプトの先頭に書く（PEP 723）。
 
-## 5. 設定ファイルの書式
+| 区分 | コマンド | すること |
+|---|---|---|
+| 準備 | `prewarm` | MCP サーバの Python 環境を作る |
+| | `doctor` | 準備の状況を調べる（Coverity への接続は MCP `check_connection`） |
+| | `detect` / `init-config` | 自動で決められる値を調べる／設定・条件・知識のひな形を書く |
+| | `install-agent` | サブエージェントの定義を `~/.copilot/agents` にコピーする |
+| | `trial-build` / `set-verify` | （オプション）試しのビルド／検証の設定を書く |
+| 実行 | `runs` / `resume` / `status` | 実行の一覧／再開（処理中・エラーの作業を未処理に戻す）／進み具合 |
+| | `new-run` / `plan` | 実行フォルダと条件／作業の一覧（グループ化を含む） |
+| | `next` / `brief` / `finish` / `fail` | 1 件ずつの準備・指示・仕上げ・失敗の記録 |
+| | `verify` / `summary` | （オプション）ビルドでの検証／一覧 |
+| 反映 | `preview` / `apply-code` | 反映の内容と確認用の文字列／修正の反映 |
+| | `knowledge-candidates` / `add-knowledge` / `stats` | （オプション）知識の追記の提案／効果測定の集計 |
+| 動作確認 | `selftest start` / `static` / `sample` / `check-run` / `check-apply` / `check-coverity` / `check-build` / `record` / `report` | 動作確認の準備・判定・記録・結果のまとめ |
 
-### 5.1 絞り込み条件ファイル（確定）
+- 引数は JSON を使わず、1 つずつの引数にする（例 `--impact High --impact Medium`）。Windows の PowerShell は、外部のコマンドに渡す JSON の `"` を崩すことがあるため。
+- 結果は `{"ok": true, ...}`。できなかったときは `{"ok": false, "error": ..., "problems": [...]}` と終了コード 1。
+- `run.json` の読み書きはロックファイルで順番にする（同時に進める作業があるため）。git / svn のコピーの操作も同じ。
 
-`.coverity-triage/filters/*.yaml`。同じ項目内の複数値は OR、項目同士は AND。省略した項目は条件にしない。
+修正用のコピー：
+
+- git：出力先の下に worktree を作り、取り込み先の最新のコミットにそろえる（`git worktree add --detach`）。作業ごとに元に戻して使い回す（`reset --hard` と `clean -fdx`）。仕上げでコミットし、警告ごとのブランチ（`coverity-fix/cid-<CID>`、グループは `coverity-fix/<実行 ID>-G1`）を作る。オプション `per_run_branch` のときはブランチを作らず、反映のときに承認した分だけを 1 つのブランチにまとめる（`cherry-pick`）。どちらの場合も `refs/coverity-triage/<実行 ID>/<ID>-fix` でコミットを残す。実行の最後（`ct.py summary`）に worktree を消す。
+- svn：出力先の下に最新のリビジョンをチェックアウトし、作業ごとに `svn revert` と、管理外のファイルの削除で戻して使い回す。差分は `svn add` のあと `svn diff` で作る。
+- 解析リビジョンが分かり、リポジトリにある場合は、調査用にそのリビジョンのコピー（`analyzed`）も作る。分からない場合は、手元のコード（開いているリポジトリ）を読んで調べ、ずれを確かめる（`ct.py brief` が、ファイルの有無・行数・関数名で機械的にも確かめる）。
+- 利用者のリポジトリの状態（`git status` と `git diff` の要約値）を `next` で記録し、`finish` で比べる。変わっていれば警告として知らせ、レポートの注意に書く。
+- 差分のファイルは git / svn が出したバイト列のまま保存する（文字コードを変えない）。詳細レポートに載せるときだけ、表示用に読み替える。
+
+### 3.4 スキル
+
+| スキル | 呼ぶ人 | frontmatter の要点 |
+|---|---|---|
+| `coverity-setup`・`coverity-run`・`coverity-apply`・`coverity-help`・`coverity-selftest` | 人（`/`） | `disable-model-invocation: true`。`coverity-run` / `coverity-apply` には、このプラグインのツールとスクリプトの実行を確認なしにする `allowed-tools` を書く（決定 4） |
+| `coverity-triage-scripts` | エージェント | `user-invocable: false`。コマンドの使い方を書く |
+| `triage-investigation`・`checker-knowledge`・`code-fix`・`deviation-comment`・`triage-report` | サブエージェント | `user-invocable: false` |
+
+入口のスキル同士は互いを読まない（`disable-model-invocation: true` のスキルは AI から読めないため）。共通の手順は `coverity-triage-scripts` と知識のスキルに置く。
+
+### 3.5 サブエージェント `coverity-triage-worker`
 
 ```yaml
-# .coverity-triage/filters/untriaged-high.yaml
-name: 未トリアージの High Impact
-project: MyProduct
-streams:
-  - MyProduct-main
-checkers:            # 省略時は全チェッカー
-  - NULL_RETURNS
-  - "MISRA C-2012 *"  # ワイルドカード可
-impacts: [High, Medium]
-triage:
-  classification: [Unclassified]
-  action: [Undecided]
-  status: [New, Triaged]
-max_items: 50        # 上限件数（省略時は設定ファイルの値）
-revision: ""         # 解析リビジョンの手動指定（D-17 の (2)。通常は空）
+name: coverity-triage-worker
+description: Coverity の警告 1 件（または 1 グループ）を調べ、修正案と逸脱コメント案を作る
+model: GPT-6 Luna          # VS Code（Local）は表示名で探す
+models: [gpt-6-luna]       # Copilot の実行基盤（Copilot CLI と VS Code の Copilot）は ID。model より優先される
+modelPolicy: required      # 使えないときに黙って別のモデルにしない
+user-invocable: false
+tools: [read, search, edit, skill]
 ```
 
-### 5.2 プロジェクト設定ファイル（確定）
+- ターミナルと MCP のツールは使わない。必要な情報はすべて `brief.md` で受け取り、結果は `result.json` に書く。
+- `brief.md` には、警告の情報と警告経路（リポジトリ内のパスに直したもの）、調査用と修正用のフォルダ、結果ファイルの場所、知識のファイルの場所、ずれの確認結果を書く。
 
-`.coverity-triage/config.yaml`。認証情報は値を書かず、環境変数名だけを書く（D-34）。
+### 3.6 一覧と詳細レポート
+
+- 一覧 `summary.md`：`| 承認 | ID | 推奨 | 確信度 | 見立て | 詳細 |`。確信度の低い順。承認欄に推奨案を入れておく。グループは「G1（3 件）」と 1 行で表す。
+- 詳細レポート `cid/<ID>.md`：1 結論、2 警告の概要（チェッカー・Impact・場所・CWE を含む）、3 真偽の根拠（警告経路と調査結果）、4 案A 逸脱（手直しできる節。`<!-- ct:begin deviation -->` と `<!-- ct:end deviation -->` で囲む）、5 案B 修正（**差分をそのまま載せる**。400 行まで）、6 処理情報。ビルドでの検証（オプション）を使ったときは 6 に検証の結果が入り、処理情報は 7 になる。
+- ビルドでの検証で問題が出た修正案は、確信度を「低」に下げる。ほかの修正案と同じ箇所を変えていて、まとめて確かめられなかっただけのものは下げない。
+
+### 3.7 設定ファイル `config.yaml`
 
 ```yaml
 coverity:
   url: https://coverity.example.co.jp:8443
-  api: auto            # auto：Coverity Connect に接続（D-77）／ fake：偽データ（試用・テスト用、I-3）
-  fake_data: ""        # api: fake のときの偽データのファイル（I-3）
+  api: auto                 # auto / fake
   user_env: COV_USER
   key_env: COV_AUTH_KEY
-  revision_field: sourceVersion   # 解析リビジョンの記録項目（D-17。SOAP のスナップショット情報の項目名）
-  triage_store: Default Triage Store   # 書き戻し先のトリアージストア
-  ca_file: ""         # サーバの CA 証明書。空なら OS の証明書ストアを使う
-  path_strip_prefixes: []   # Coverity のファイルパスから取り除く接頭辞（I-9）
+  triage_store: Default Triage Store
+  revision_field: sourceVersion
+  path_strip_prefixes: []
+  ca_file: ""
 vcs:
-  type: git              # git / svn
-  base_branch: main      # 修正の起点（D-58）
-  branch_mode: per_cid   # per_cid / per_run（D-25）
+  type: git                 # git / svn
+  base_branch: main
   branch_prefix: coverity-fix/
-  github_token_env: GITHUB_TOKEN
-output_dir: D:/coverity-triage-out
+output_dir: ../coverity-triage-out
 max_items: 100
 parallel: 1
-deviation_target: coverity   # coverity / coverity+annotation（D-59）
-ascii_file_encoding: utf-8   # 英数字だけのファイルに日本語を追加するときの文字コード（I-10）
-verify:
-  default: none          # none / build / build+analyze（D-10）
-  setup_command: 'envset.bat "{root}" <2つ目の引数>'   # ビルド前に実行。{root} は検証用コピーのフォルダ、他の引数はそのまま（D-75）
-  build_dir: 'firmware/target'   # setup_command の後に移動するディレクトリ（リポジトリからの相対パス、D-76）
-  build_command: "make -f makefileXX"
+options:                    # 既定はすべて false
+  annotation: false
+  per_run_branch: false
+  knowledge_suggestions: false
+  metrics: false
+verify:                     # options の代わりに、default が none 以外ならビルドでの検証を使う
+  default: none             # none / build / build+analyze
+  setup_command: ""
+  build_dir: ""
+  build_command: ""
   cov_build_args: "--dir idir"
   cov_analyze_args: "--dir idir --all"
 ```
 
-### 5.3 CID（グループ）ごとのレポートの章立て（確定）
+## 4. 設計の根拠にした公式仕様
 
-結論を先に置き、確信度の高いものは冒頭だけ読めば判断できる構成とする。
-
-```markdown
-# CID 12345 — NULL_RETURNS（High）
-
-## 1. 結論
-- 推奨: 逸脱 ／ 確信度: 高
-- 見立て: 誤検知（呼び出し元で NULL チェック済み）
-- 注意: リビジョンのずれなし ／ 制約超過なし
-
-## 2. 警告の概要
-ファイル・関数・チェッカー説明・CWE・グループの CID 一覧
-
-## 3. 真偽の根拠
-警告経路（イベント）とコード上の追跡結果
-
-## 4. 案A: 逸脱
-- Classification / Action / Severity 案
-- 逸脱コメント案（← ここを手直し可）
-- アノテーション差分（設定時）
-
-## 5. 案B: 修正
-- 差分（ブランチ名 / .patch へのリンク）
-- 影響範囲とリスク、超えた制約
-- Classification / Action / Severity 案
-
-## 6. 自動検証の結果（実施時）
-
-## 7. 処理情報
-解析 / 修正の起点リビジョン、処理時間、エラー
-```
-
-### 5.4 一覧サマリの書式（確定）
-
-`<実行フォルダ>/summary.md`。承認列には「修正 / 逸脱 / 却下」のいずれかを書く（推奨案を下書き済み、D-62）。並びは確信度の低い順（D-54）。
-
-```markdown
-# トリアージ結果 2026-10-02 15:30
-条件: untriaged-high.yaml ／ 対象 42 件（グループ 5）／ エラー 1 件
-
-| 承認 | CID | 推奨 | 確信度 | チェッカー | Impact | 場所 | 見立て | グループ | 検証 | ずれ | 詳細 |
-|---|---|---|---|---|---|---|---|---|---|---|---|
-| 修正 | 12001 | 修正 | 低 | OVERRUN | High | buf.c / copy() | 配列境界を超え得る | - | 成功 | なし | [→](cid/12001.md) |
-| 逸脱 | 12345 | 逸脱 | 高 | NULL_RETURNS | High | io.c / read_all() | 呼び出し元で NULL チェック済み | G1 | - | なし | [→](cid/12345.md) |
-
-## エラー
-| CID | 内容 |
-|---|---|
-| 12999 | ソースが見つからない |
-```
-
-- グループの扱い（確定）：グループは 1 行にまとめ（CID 列に「G1（20 件）」のように表示）、承認も 1 つとする。CID 一覧は詳細レポートに載せる。一部だけ別扱いにしたい場合は「却下」とし、次回の実行で個別に処理する。
-- 却下されたグループ（確定）：その CID を `.coverity-triage/no-grouping.yaml` に記録し（コミットしてチームで共有）、次回以降はグループ化せず個別に処理する。
-
-### 5.5 サブエージェントの提出データ（`submit_result`・確定）
-
-レポート・一覧サマリ・効果測定の元データ。必須項目が欠けている場合、ツールは受け付けず再提出を求める。
-検証結果・差分の場所・処理時間などはツール側が記録しているため、AI は提出しない。
-
-```yaml
-work_item: 12345 または G1
-verdict:            # 真偽の見立て
-  judgement: false_positive | true_bug | intentional | undetermined
-  summary: "呼び出し元で NULL チェック済み"   # 1行要約
-  rationale: "..."          # 根拠（経路の追跡結果）
-  evidence: [{file, line, note}]
-recommendation: fix | deviation
-confidence: high | medium | low
-confidence_reason: "..."
-deviation:
-  classification / action / severity
-  comment: "誤検知。..."
-fix:
-  summary: "..."
-  impact: "..."            # 影響範囲とリスク
-  exceeded_constraints: []  # 超えた制約（D-38）
-  already_fixed_on_latest: false  # D-58
-  classification / action / severity
-revision_drift: none | detected | unknown（detected のときは内容）
-group_excluded_cids: []     # 原因が異なり個別処理に戻す CID（D-53）
-```
-
-### 5.6 アノテーションの書式（D-59 (b) 選択時・確定）
-
-警告行の直前の行に、ブロックコメントで埋め込む（C90 でも使え、C / C++ 共通で安全）。理由の文章は逸脱コメント（D-22〜D-24）と同じものを使う。
-
-```c
-/* coverity[misra_c_2012_rule_10_4_violation:FALSE] 誤検知。... */
-/* coverity[misra_c_2012_rule_15_5_violation] 意図的。... */
-```
-
-- `[...]` の中は main イベントのタグ。誤検知は `:FALSE` を付ける。付けない注釈を Coverity は「意図的（Intentional）」として扱う（Black Duck コミュニティ「Suppressing False Positive/Intentional defects」）。
-- Coverity が認識する正確な書式（タグ名、理由の書き方）は、社内の Coverity バージョンで実装前に確認する（7 章）。
-
-### 5.7 ログ（確定）
-
-実行フォルダにツール操作ログを残す。内容は MCP ツールの呼び出し、API 通信の概要、VCS 操作、ビルド・解析の出力、反映で外部に加えた変更（書き戻し内容・PR URL）。認証情報は伏せて記録する。障害調査と監査に使う。
-
-## 6. 配布（確定）
-
-- 社内の GitHub リポジトリをプラグインのマーケットプレイスとして登録し、VS Code / Copilot CLI からインストール・更新する。マーケットプレイスの定義は `.github/plugin/marketplace.json`（プラグイン `coverity-triage` の場所は `plugins/coverity-triage`）。
-- プラグインを更新するときは、`plugin.json` と `marketplace.json` の `version` をそろえて上げる（自動テストで一致を確認）。
-- MCP サーバの Python 環境は uv で自動構築する（`mcp.json` で uv 経由で起動）。利用者は uv を入れるだけでよい。仮想環境はプラグインのデータフォルダ（`${PLUGIN_DATA}/venv`）に作り、プラグイン本体のフォルダには書き込まない（Agent Plugins 1.0 §9.1、Copilot CLI のプラグインリファレンス）。
-
-## 7. 実装前に確認する事項（一次資料での確認が必要）
-
-- `plugin.json` の必須フィールドと `$schema` の正確な URL（`https://agent-plugins.org/schemas/1.0.0/plugin.schema.json` と報じられている）
-- `mcp.json` 内でプラグインのルートを参照する変数の書き方（Python サーバの起動パス指定に必要）
-- 入口の Skill（`disable-model-invocation: true`）が VS Code と Copilot CLI の両方でスラッシュコマンドとして呼べるか（D-80）
-- `.agent.md` のフロントマター（`model`、`tools`、`agents` など）のうち、Copilot CLI でも有効なもの（D-47 のモデル固定、D-39 のサブエージェントに関係）
-- サブエージェントの起動方法が VS Code と Copilot CLI で共通に書けるか
-- アノテーション（5.6）の正確な書式が社内の Coverity バージョンで認識されるか
-
-## 8. 実装の状況（段階 2 完了時点）
-
-### 8.1 リポジトリ内の配置
-
-```
-plugins/coverity-triage/      … プラグイン本体（1 章の構成）
-  └─ server/                  … MCP サーバ（Python 3.12、uv）。tests/ に自動テスト
-docs/selftest.md              … テスト手順書（クローンから /coverity-selftest の実行・結果の共有まで）
-```
-
-### 8.2 実装済み・未実装
-
-| 部品 | 状態 |
-|---|---|
-| 設定・条件ファイル、進捗・再開、グループ化、文字コード保持、git / svn 操作、検証、レポート・サマリ、承認の反映、効果測定、MCP サーバ（31 ツール） | 実装済み・自動テスト済み（git / svn の実リポジトリで確認） |
-| 入口の Skill 5 つ、調査用の Skill 5 つ、サブエージェント 1 つ | 作成済み。動作は未確認（`/coverity-selftest` の ①② で確認） |
-| Coverity Connect への接続（REST / SOAP、D-77） | 実装済み・偽サーバでの自動テスト済み（`server/src/coverity_triage/connect.py`）。社内サーバでの動作は `/coverity-selftest` の ③ で確認。偽データで動く `coverity.api: fake` も残す |
-
-### 8.3 実装時の判断（要確認）
-
-実装中に決めた細部です。すべてユーザの確認を経て確定した。
-
-| No | 内容 | 理由 |
+| 項目 | 内容 | 出典 |
 |---|---|---|
-| I-1（確定） | 作業領域は、git の worktree / svn の checkout ではなく、**エクスポート（`git archive` / `svn export`）したスナップショット＋変更を重ねる層**で実現した。git のコミットとブランチは一時インデックスで作る（D-57 の実現方法の変更） | 利用者のリポジトリの作業ツリー・`.git` の作業領域情報に一切触れない。並列処理で作業領域が干渉しない。svn で CID ごとに checkout するより大幅に軽い |
-| I-2（確定） | `branch_mode: per_run` のとき、実行ごとのブランチは**承認の反映時に、承認された修正だけを集めて**作る（トリアージ中は CID ごとのコミットを非公開の参照に保存） | 却下された修正をあとから取り除く手間（revert）が不要になる |
-| I-3（確定） | 設定に `coverity.api: fake` と `coverity.fake_data`（偽データのファイル）を追加した | 社内 Coverity に接続せずに試用・自動テストするため |
-| I-4（確定） | ブランチ名：単一 CID は `<prefix>cid-<CID>`、グループは `<prefix><実行ID>-G<n>`、アノテーションは末尾に `-annotation`。同名のブランチがあれば末尾に `-<実行ID>` | CID 番号で探しやすくするため |
-| I-5（確定） | 差分ファイル名：`patches/<作業項目>-fix.patch`、`patches/<作業項目>-annotation.patch`。修正後ファイルは `fixed/<作業項目>/<fix または annotation>/` | 修正案とアノテーション案を区別するため |
-| I-6（確定、出力形式は要確認） | 再解析による検証では、実行ごとに 1 回、修正前の最新コードも解析し（ベースライン）、新規の警告を判定する。結果の読み取りは `cov-format-errors --json-output-v7` を使う | 修正で新たに出た警告と、元からある警告を区別するため。出力形式は社内のバージョンで要確認 |
-| I-7（確定） | グループを「逸脱」で承認した場合、グループ内のすべての CID に同じ属性・逸脱コメントを書き戻す | グループは同一原因で 1 つの案を出す仕様（D-52）のため |
-| I-8（確定） | 承認の反映の同意確認は、`preview_apply` が返す確認用の文字列を `apply_approvals` に渡す方式。確認後にサマリやレポートが変更されたら反映を拒否する | 確認した内容と実際に反映する内容が食い違うことを防ぐため（D-63） |
-| I-9（確定） | Coverity が返すファイルパス（ビルド環境の絶対パスの場合など）は、設定 `coverity.path_strip_prefixes` の接頭辞を取り除いてリポジトリ内のパスに対応づける。設定で対応づけられない場合は、リポジトリに実在する最も長い末尾部分で自動的に対応づけ、その旨をレポートに明記する。候補が複数あり決められない場合は対応づけず、その旨を明記する | 解析環境とリポジトリでパスが違っても調査を止めないため（実装の見直しで判明、ユーザ確認済み） |
-| I-10（確定） | 英数字だけのファイル（UTF-8 か Shift_JIS か判別できない）に日本語などを追加する場合は、設定 `ascii_file_encoding`（`utf-8` / `cp932`、既定 `utf-8`）の文字コードで保存する | Shift_JIS のプロジェクトで文字コードが混在しないようにするため（実装の見直しで判明、ユーザ確認済み） |
-| I-11（確定） | Coverity Connect への接続の細部：(1) 条件のうちワイルドカードを含むチェッカー名と Status は、検索後に手元で絞り込む（サーバ側の絞り込み方が公開例で確認できないため）(2) 証明書は OS の証明書ストアを使い（社内 CA を入れた会社の PC でそのまま動くように）、`coverity.ca_file` で個別に指定もできる (3) `revision_field` の既定を、SOAP のスナップショット情報に実在する項目名 `sourceVersion` に変えた（旧既定 `version` は該当する項目が無かった。リビジョンを記録する運用は今後の拡張 E-2） (4) 書き戻し先のトリアージストアを `coverity.triage_store`（既定 `Default Triage Store`）で指定する | 推測で書かず、公開されている形だけで動くようにするため |
-| I-12（確定） | 公式仕様と実例（awesome-copilot）に合わせた細部：(1) 調査用サブエージェントの `tools` に、Skill を読むための `read`（VS Code）と `skill`（Copilot CLI）を入れる (2) MCP ツールは公式の書き方 `coverity-triage/ツール名`（サーバ名/ツール名）で書く(3) Skill の中の資料へのリンクは、その Skill のフォルダの中だけにする（Agent Skills 仕様） (4) Skill の `user-invocable` / `disable-model-invocation` / `argument-hint` は、Agent Skills 仕様の検証ツール（skills-ref）では対象外の項目として警告されるが、VS Code と Copilot CLI の公式ドキュメントで定義された項目であり、Microsoft・SonarSource などの公式プラグインも使っているため使う | 2026-10-04 の調査（Agent Plugins 1.0.0 仕様、Agent Skills 仕様、VS Code・Copilot CLI の公式ドキュメント、awesome-copilot の 5 プラグイン） |
-| I-13（確定） | `/coverity-selftest`（D-81）の細部：(1) ② では入口の Skill `/coverity-run`・`/coverity-apply` は呼ばず（AI から呼べない設定のため）、同じ処理を selftest の中で行う。入口の Skill の文面どおりに動くかは、テスト手順書（docs/selftest.md）の手作業で確かめる (2) ② の反映では、ツールが利用者の代わりに 20002 を「逸脱」にして逸脱コメントに一文を足し、G1 を「却下」にする（逸脱の書き戻し・手直し・グループの却下・知識の候補を毎回試すため） (3) ② の知識の追記は、結果フォルダ内の偽データのリポジトリに書くため、利用者の承認を得ずに AI の下書きを追記する (4) ① では、サブエージェントに `TOOLS:`（使えるツール）と `SKILL:`（triage-investigation の最初の見出し）の 2 行を返させて判定する。ツールの判定は申告に基づく（その旨を report.md に書く） (5) ④ だけを指定した場合も、③ と同じ手順で実際の警告 1 件を調査してから検証する (6) ビルドのログは、error・エラー・fatal を含む行だけを記録する（コンパイラが表示するソースの行は除く。最大 40 行、1 行 300 文字） (7) 1-1 は、親の AI に見えているツール名とサーバのツールを突き合わせて判定する (8) 3-1（doctor）は、警告だけなら「要確認」にする (9) 認証は設定済みの認証情報だけで確かめる（以前の調査スクリプトの「パスワードでも試す」は取り込まない） | 2026-10-05 にユーザと 1 項目ずつ確認 |
+| 部品の役割 | MCP は外部システムとの接続、スキルは手順とスクリプト、カスタムエージェントは役割とツールの制限 | VS Code「Customization concepts」、GitHub「Copilot customization cheat sheet」 |
+| スキルのスクリプト | スキルのフォルダに `scripts/` を置き、エージェントがスキルのフォルダからの相対パスで実行する。依存は PEP 723 で書き `uv run` で動かす | Agent Skills「Using scripts in skills」「Adding skills support」 |
+| ハーネス | VS Code の Session Target「Copilot」は Copilot CLI と同じ実行基盤、「Local」は VS Code 内蔵 | VS Code「Agent harnesses」 |
+| ツールの時間 | Copilot の実行基盤は MCP のツール 1 回を既定 30 秒で打ち切る。Agent Plugins の `mcp.json` には時間を書けない | Copilot CLI リファレンス、Agent Plugins 1.0 仕様 7.2 |
+| ツールの承認 | Copilot の実行基盤では、MCP のツールは呼ぶたびに承認が要る。スキルの `allowed-tools`、`--allow-tool` で事前に許可できる。VS Code では「Chat: Manage Tool Approval」でサーバ単位に許可できる | Copilot CLI リファレンス、VS Code「Approvals」 |
+| ワークスペースの外 | 開いているフォルダの外のファイルの読み書きには許可が要る | Copilot CLI リファレンス（`/add-dir`）、VS Code「Approvals」 |
+| `${PLUGIN_DATA}` | VS Code は Agent Plugins の `mcp.json` で `${PLUGIN_ROOT}` だけを置き換え、`${PLUGIN_DATA}` は置き換えない | VS Code「Agent plugins」、VS Code のソース `pluginParsers.ts` |
+| モデル名 | VS Code（Local）は表示名（例 `GPT-6 Luna`）で探す。Copilot の実行基盤は ID（例 `gpt-6-luna`）で、解決できないと親のモデルで動く（`modelPolicy: required` を除く） | VS Code のソース `languageModels.ts`、Copilot CLI リファレンス |
+| プルリクエスト | Copilot CLI が標準で AI に渡す GitHub のツールにプルリクエストの作成は含まれない（人が使う `/pr create` はある） | Copilot CLI リファレンス |
+| スキルの `allowed-tools` | Copilot CLI はスキルが使われている間、書いたツールを確認なしで使う（文字列か配列。MCP は `サーバ名` か `サーバ名(ツール名)`、ターミナルは `shell(コマンド:*)`）。VS Code はこの項目を使わず、エディタでヒントを出すだけ（読み込みは妨げない） | Copilot CLI リファレンス（Skills reference、Tool permission patterns）、VS Code のソース `promptValidator.ts` |
+| VS Code の確認の設定 | MCP のツールは「Chat: Manage Tool Approval」でサーバごとに確認なしにできる。ターミナルのコマンドは `chat.tools.terminal.autoApprove` に `/正規表現/` で書ける | VS Code「Approvals」 |
+| MCP のツールの注釈 | VS Code は `readOnlyHint` が無いツールの実行前に確認を出し、`openWorldHint` が true のツールは結果も確認させる。このため Coverity だけを相手にするツールは `openWorldHint: false` にする | VS Code のソース `mcpLanguageModelToolContribution.ts`、MCP 仕様（Tool annotations） |
+| プラグインのサブエージェント | Copilot はプラグインの `com.github.copilot/agents/` からカスタムエージェントを読む。ユーザのフォルダ `~/.copilot/agents/` がいちばん優先される | GitHub「About plugins」、Copilot CLI リファレンス（Custom agent locations） |
+| スキルの名前 | VS Code は、名前が小文字・数字・ハイフンだけで、フォルダ名と同じでないと読み込まない。プラグインのスキルは `/プラグイン名:スキル名` で出る | VS Code「Agent skills」 |
 
-## 9. 使いやすさの改善（D-65〜D-70）
+## 5. 開発
 
-| 変更 | 内容 |
-|---|---|
-| 資料 | 人が読むのは README だけ（5 分以内）。設定項目・使い方・困ったときの対処は Skill `coverity-help`（references/settings.md・usage.md・troubleshooting.md）に移し、利用者は `/coverity-help` で AI に聞く。導入手順書・利用手順書は廃止 |
-| 入口の Skill | `/coverity-setup`（準備）と `/coverity-help`（質問）は、利用者が選んでいるモデルのチャットで動き、ターミナル実行（毎回利用者が確認）とファイル編集ができる（D-80） |
-| 準備の流れ | 段階 0：uv（無ければ AI がインストール → MCP サーバを再起動。Python とライブラリは uv が自動で用意）→ 段階 1：`doctor` で診断（調査役の AI が無ければ `install_worker_agent` でコピー）→ 段階 2：設定が無ければ URL・プロジェクト・ストリームだけ聞き、残りは `detect_project` で自動判定して確認 → `write_project_config` → 段階 3：認証情報を伏せ字で入力（値はチャットに出ない）→ 段階 4：`doctor` で確認 |
-| 環境変数 | Windows では利用者の環境変数をレジストリから直接読むため、準備中に保存した値が VS Code の再起動なしで有効になる（`envvars.get_env`） |
-| 入口（Skill） | `/coverity-setup`・`/coverity-run`（未完了なら再開を提案）・`/coverity-apply`（省略時は最新の実行）・`/coverity-help`・`/coverity-selftest`（動作確認、D-81）の 5 つ |
-
-## 10. 自動検証のまとめ実行（D-71〜D-75）
-
-| 項目 | 内容 |
-|---|---|
-| タイミング | 全件の調査が終わった後、`/coverity-run` に従う親が `verify_run` を 1 回呼ぶ。サブエージェントは検証しない |
-| 修正案の合成 | 最新コードのコピーに、各修正案の差分ファイルを順に適用する（git は `-p1`、svn は `-p0`）。同じ箇所を変更していて適用できない修正案は「適用不可」とし、まとめた検証から外す |
-| 実行するコマンド | 1 つのシェルで `setup_command`（`{root}` をコピー先に置換、Windows では `call`）→ `build_dir` へ絶対パスで移動（Windows では `cd /d`、D-76）→ ビルドのみ：`build_command`／再解析：`cov-build <引数> <build_command>` → `cov-analyze` → `cov-format-errors --json-output-v7` |
-| 比較の基準 | 再解析の場合は、修正前の最新コードも 1 回ビルド・解析する（1 回の実行で解析 2 回分） |
-| 結果の割り当て | CID ごとに警告が消えたか（mergeKey、無ければチェッカー・ファイル・関数で照合）。新しい警告は、そのファイルを変更した修正案へ。ビルドエラーは、ログのエラー行に変更ファイル名が出ている修正案へ（特定できなければ全修正案、他の修正案が原因なら「未確認」） |
-| 確信度 | 問題が出た修正案は確信度を「低」に下げ、理由に追記する（元の値は `confidence_before_verify` に保存。再実行しても二重に追記しない）。推奨案は変えない |
-| 設定 | `/coverity-setup` の段階 5（任意）で聞き、`trial_build` で修正前のコードを試しにビルドしてから `write_verify_config` で保存する |
+開発の進め方（テスト、見本の作り直し、版数）は [development.md](development.md) にまとめる。

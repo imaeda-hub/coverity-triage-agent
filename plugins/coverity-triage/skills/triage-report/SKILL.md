@@ -1,22 +1,22 @@
 ---
 name: triage-report
-description: Coverity トリアージの判断結果を submit_result で提出するときの形式と、各項目に書く内容の基準。
+description: Coverity トリアージの結果ファイル（result.json）の形と、各項目に書く内容の基準。調べ終わって結果を書くときに使う。
 user-invocable: false
 ---
 
-# 判断結果の提出（submit_result）
+# 結果ファイルの書き方
 
-レポートの体裁はツールが整えます。あなたは中身（判断と文章）だけを、次の形式で提出します。
-人間はまず一覧サマリの「見立て」と各レポートの「結論」だけを読みます。そこだけで判断できるように書いてください。
+レポートと一覧の体裁はスクリプトが整えます。あなたは中身（判断と文章）だけを、指示ファイル（`brief.md`）にある結果ファイルの場所に、次の JSON で書きます。
+人はまず一覧の「見立て」と、詳細レポートの「結論」だけを読みます。そこだけで判断できるように書きます。
 
 ```json
 {
-  "work_item": "12345 または G1",
+  "item": "20001 または G1（指示ファイルの見出しの ID）",
   "verdict": {
     "judgement": "false_positive | true_bug | intentional | undetermined",
-    "summary": "一覧サマリに載る 1 行要約（40 字程度）",
-    "rationale": "警告経路を追跡した結果。どの条件がなぜ成立する／しないか",
-    "evidence": [{"file": "src/a.c", "line": 120, "note": "ここで NULL を除外"}]
+    "summary": "一覧に載る 1 行（40 字くらい）",
+    "rationale": "警告経路を追った結果。どの条件がなぜ成り立つ／成り立たないか",
+    "evidence": [{"file": "src/a.c", "line": 120, "note": "ここで NULL を除いている"}]
   },
   "recommendation": "fix | deviation",
   "confidence": "high | medium | low",
@@ -25,14 +25,14 @@ user-invocable: false
     "classification": "False Positive",
     "action": "Ignore",
     "severity": "Unspecified",
-    "comment": "逸脱コメント（skill deviation-comment の書式）"
+    "comment": "逸脱コメント（スキル deviation-comment の書き方）"
   },
   "fix": {
     "classification": "Bug",
     "action": "Fix Required",
     "severity": "Moderate",
-    "summary": "修正内容の要約",
-    "impact": "振る舞いの変化と影響範囲",
+    "summary": "直した内容を 1 行で",
+    "impact": "動きの変化と影響の範囲",
     "exceeded_constraints": [],
     "already_fixed_on_latest": false
   },
@@ -43,14 +43,19 @@ user-invocable: false
 
 ## 各項目の基準
 
-- `verdict.summary`：判定の決め手を 1 行で。例：「呼び出し元 3 箇所で NULL チェック済み」「エラー経路で fd が閉じられない」。
-- `verdict.rationale`：人が追跡をやり直さなくて済むよう、経路のどの段階を確認したかを順に書く。
-- `verdict.evidence`：根拠のコード箇所。調査で実際に読んだ場所だけ。
-- `confidence` / `confidence_reason`：skill `triage-investigation` の基準に従う。
-- `fix.summary` / `fix.impact`：skill `code-fix` に従う。
-- `group_excluded_cids`：グループのうち、原因が違うため個別処理に戻す CID。
+- `verdict.summary`：判断の決め手を 1 行で。例「呼び出し元 3 箇所で NULL を確かめている」「エラーのとき fd を閉じていない」。
+- `verdict.rationale`：人が追い直さなくて済むよう、経路のどの段階をどう確かめたかを順に書く。
+- `verdict.evidence`：根拠のコードの場所。調べて実際に読んだ場所だけ。パスはリポジトリの一番上からの相対パス。
+- `confidence` / `confidence_reason`：スキル `triage-investigation` の基準で。
+- `fix.summary` / `fix.impact` / `fix.exceeded_constraints`：スキル `code-fix` に従う。
+- `deviation`：スキル `deviation-comment` に従う。
+- `group_excluded_cids`：グループのうち、原因が違うので個別の作業に戻す CID。グループでなければ空。
+- 文字列は空にしない。JSON として正しい形にする（ダブルクォート、カンマ）。
 
-## 提出前の確認
+## 書く前の確かめ
 
-- 修正案を `save_fix`（kind=`fix`）で保存したか（最新で解消済みの場合を除く）。
-- アノテーション方式の場合、`save_fix`（kind=`annotation`）で保存したか。
+- 修正するコードのフォルダのファイルを直したか（最新のリビジョンでもう直っているときを除く）。
+- アノテーションのフォルダがあるときは、注釈を入れたか。
+- 調べるコードのフォルダ、利用者の作業中のファイルを変えていないか。
+
+書き終えたら、呼び出し元に 1 行だけ返します（例「20001: 修正を推奨（確信度 高）— fgets が失敗したとき fp を閉じていない」）。結果ファイルに不備があると、呼び出し元から直す点が伝えられます。そのときは結果ファイルだけを直します。

@@ -1,0 +1,23 @@
+# Development only: tests of the MCP server and the skill scripts. Not part of the plugin.
+[project]
+name = "coverity-triage-dev"
+version = "0"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "coverity-triage",
+    "pyyaml>=6.0",
+    "pydantic>=2.7",
+    "pytest>=8",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+coverity-triage = { path = "plugins/coverity-triage/server", editable = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

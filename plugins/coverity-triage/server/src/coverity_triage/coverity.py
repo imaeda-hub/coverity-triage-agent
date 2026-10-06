@@ -1,8 +1,7 @@
-"""Access to Coverity Connect (spec D-3, D-31, D-33, D-40).
+"""Access to Coverity Connect.
 
-The rest of the server only depends on :class:`CoverityClient`. The connection to
-Coverity Connect is in :mod:`.connect` (spec D-77). :class:`FakeCoverityClient` reads issues
-from a local YAML file and is used for trials of the plugin and for tests.
+:class:`CoverityClient` is what the MCP tools use. :mod:`.connect` talks to Coverity Connect;
+:class:`FakeCoverityClient` reads issues from a local YAML file (self-test and automated tests).
 """
 
 from __future__ import annotations
@@ -16,16 +15,24 @@ from typing import Any
 
 import yaml
 
-from .config import CoverityConfig, FilterSpec
 from .models import Event, Issue, IssueDetail, TriageAttributes
+from .settings import CoverityConfig, FilterSpec
 
 
 class CoverityError(Exception):
-    """Raised when Coverity cannot be reached or returns an error."""
+    """Coverity cannot be reached or returned an error.
+
+    ``fatal`` is False when only this request failed (for example one CID is not in the stream)
+    and the next request may still succeed.
+    """
+
+    def __init__(self, message: str, fatal: bool = True):
+        super().__init__(message)
+        self.fatal = fatal
 
 
 def filter_matches(issue: Issue, spec: FilterSpec, project: str | None = None) -> bool:
-    """Values inside one key are OR-ed, keys are AND-ed (design 5.1)."""
+    """Values inside one key are OR-ed, keys are AND-ed."""
     def any_of(value: str | None, allowed: list[str]) -> bool:
         return not allowed or (value is not None and value in allowed)
 
@@ -39,38 +46,54 @@ def filter_matches(issue: Issue, spec: FilterSpec, project: str | None = None) -
             and any_of(issue.action, spec.triage.action))
 
 
+class SearchPage:
+    """Issues found so far, the total the server reported, and where to continue."""
+
+    def __init__(self, issues: list[Issue], total: int | None, next_offset: int | None):
+        self.issues = issues
+        self.total = total
+        self.next_offset = next_offset  # None when the search is complete
+
+
 class CoverityClient(ABC):
-    #: Number of matching issues the server reported for the last search (None if unknown).
-    last_total: int | None = None
+    # Seconds one request is expected to take before any has been measured.
+    FIRST_REQUEST_SECONDS = 0.0
+
+    def __init__(self) -> None:
+        self.requests: list[dict[str, Any]] = []
+
+    def request_seconds(self) -> float:
+        """Expected seconds for the next request: the slowest one so far."""
+        return max((r["seconds"] for r in self.requests), default=self.FIRST_REQUEST_SECONDS)
+
+    def close(self) -> None:
+        pass
 
     @abstractmethod
-    def search_issues(self, spec: FilterSpec, limit: int | None = None) -> list[Issue]:
-        """Issues matching the filter, in the server's order; at most ``limit`` when given
-        (the search stops as soon as enough are found)."""
+    def search(self, spec: FilterSpec, limit: int, offset: int, seconds: float) -> SearchPage:
+        """Issues matching the filter from ``offset``.
 
-    def take_request_log(self) -> list[dict[str, Any]]:
-        """Requests sent to Coverity since the last call, with their time (spec D-85)."""
-        log, self._request_log = getattr(self, "_request_log", []), []
-        return log
+        Stops at ``limit`` issues, or before a request that would end later than ``seconds``.
+        """
 
     @abstractmethod
-    def get_issue_detail(self, issue: Issue) -> IssueDetail:
+    def issue_detail(self, cid: int, stream: str) -> IssueDetail:
         """Warning path (events) and checker documentation."""
 
     @abstractmethod
-    def snapshot_revision(self, spec: FilterSpec, field: str) -> str | None:
-        """git commit / svn revision recorded in the latest snapshot, if any (spec D-17)."""
+    def snapshot_revision(self, stream: str, field: str) -> str | None:
+        """git commit / svn revision recorded in the latest snapshot, if any."""
 
     @abstractmethod
-    def write_triage(self, cids: list[int], attributes: TriageAttributes, comment: str,
-                     spec: FilterSpec) -> None:
-        """Register classification, action, severity and comment (spec D-31)."""
+    def write_triage(self, cids: list[int], attributes: TriageAttributes, comment: str) -> None:
+        """Register classification, action, severity and comment."""
 
 
 class FakeCoverityClient(CoverityClient):
-    """Issues from a YAML file. Writes are appended to ``<file>.writes.jsonl``."""
+    """Issues from a YAML file. Write-backs are appended to ``<file>.writes.jsonl``."""
 
     def __init__(self, path: str | Path):
+        super().__init__()
         self.path = Path(path)
         if not self.path.is_file():
             raise CoverityError(f"偽データのファイルが見つかりません: {self.path}")
@@ -80,33 +103,29 @@ class FakeCoverityClient(CoverityClient):
     def _records(self) -> list[dict]:
         return self.data.get("issues") or []
 
-    def _issue(self, record: dict) -> Issue:
-        fields = {k: v for k, v in record.items() if k in Issue.model_fields}
-        return Issue.model_validate(fields)
+    @staticmethod
+    def _issue(record: dict) -> Issue:
+        return Issue.model_validate({k: v for k, v in record.items() if k in Issue.model_fields})
 
-    def search_issues(self, spec: FilterSpec, limit: int | None = None) -> list[Issue]:
+    def search(self, spec: FilterSpec, limit: int, offset: int, seconds: float) -> SearchPage:
         found = [self._issue(r) for r in self._records()
                  if filter_matches(self._issue(r), spec, r.get("project"))]
-        self.last_total = len(found)
-        return found[:limit] if limit else found
+        end = offset + limit
+        return SearchPage(found[offset:end], len(found), end if end < len(found) else None)
 
-    def get_issue_detail(self, issue: Issue) -> IssueDetail:
+    def issue_detail(self, cid: int, stream: str) -> IssueDetail:
         for record in self._records():
-            if record.get("cid") == issue.cid:
-                return IssueDetail(
-                    issue=self._issue(record),
-                    events=[Event.model_validate(e) for e in record.get("events") or []],
-                    checker_description=record.get("checker_description", ""),
-                    checker_remediation=record.get("checker_remediation", ""),
-                )
-        raise CoverityError(f"CID が見つかりません: {issue.cid}")
+            if record.get("cid") == cid:
+                return IssueDetail(issue=self._issue(record),
+                                   events=[Event.model_validate(e) for e in record.get("events") or []],
+                                   checker_description=record.get("checker_description", ""))
+        raise CoverityError(f"CID {cid} が見つかりません", fatal=False)
 
-    def snapshot_revision(self, spec: FilterSpec, field: str) -> str | None:
-        snapshot = self.data.get("snapshot") or {}
-        value = snapshot.get(field)
+    def snapshot_revision(self, stream: str, field: str) -> str | None:
+        value = (self.data.get("snapshot") or {}).get(field)
         return str(value) if value else None
 
-    def write_triage(self, cids, attributes, comment, spec) -> None:
+    def write_triage(self, cids: list[int], attributes: TriageAttributes, comment: str) -> None:
         record = {"cids": cids, **attributes.model_dump(), "comment": comment}
         with self._lock, open(str(self.path) + ".writes.jsonl", "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")

@@ -5,15 +5,12 @@ on:
   pull_request:
 
 jobs:
-  server:
+  test:
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: plugins/coverity-triage/server
     steps:
       - uses: actions/checkout@v4
 
@@ -32,10 +29,14 @@ jobs:
 
       - name: Show tool versions
         run: |
+          uv --version
           git --version
           svn --version --quiet
-          git config --get core.autocrlf || echo "core.autocrlf not set"
+
+      - name: Check that the lock files match the projects
+        run: |
+          uv lock --check
+          uv lock --check --directory plugins/coverity-triage/server
 
       - name: Run tests
         run: uv run --python 3.12 pytest -q
-
