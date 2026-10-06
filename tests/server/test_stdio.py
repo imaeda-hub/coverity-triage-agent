@@ -47,3 +47,37 @@ async def session_checks(repo: Path) -> None:
         assert not result.is_error and result.structured_content["ok"]
         failed = await session.call_tool("check_connection", {"repo_root": "relative"})
         assert failed.is_error and "絶対パス" in failed.content[0].text
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
+def test_probe_then_initialize_like_copilot():
+    """An auto-negotiating client probes server/discover (2026-07-28) and then falls back to
+    initialize on the same connection. The handshake must still be accepted."""
+    import json
+    import subprocess
+
+    params = server_parameters()
+    proc = subprocess.Popen([params.command, *params.args], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                            text=True, encoding="utf-8")
+
+    def send(message: dict) -> dict:
+        proc.stdin.write(json.dumps(message) + "\n")
+        proc.stdin.flush()
+        return json.loads(proc.stdout.readline())
+
+    try:
+        meta = {"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {"name": "test", "version": "0"},
+                "io.modelcontextprotocol/clientCapabilities": {}}
+        probe = send({"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": {"_meta": meta}})
+        assert "error" in probe and probe["error"]["code"] != -32022
+        init = send({"jsonrpc": "2.0", "id": 2, "method": "initialize",
+                     "params": {"protocolVersion": "2025-11-25", "capabilities": {},
+                                "clientInfo": {"name": "test", "version": "0"}}})
+        assert init["result"]["protocolVersion"] == "2025-11-25"
+        proc.stdin.write(json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"}) + "\n")
+        tools = send({"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {}})
+        assert len(tools["result"]["tools"]) == 4
+    finally:
+        proc.stdin.close()
+        proc.wait(30)
