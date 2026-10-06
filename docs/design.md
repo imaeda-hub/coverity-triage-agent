@@ -154,6 +154,7 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 
 - どのツールも 20 秒以内に返す（Copilot の実行基盤はツール 1 回を既定 30 秒で打ち切るため、4 章）。次の問い合わせが 20 秒を超えそうなら、そこで止めて `done: false` を返す。エージェントは `done` が `true` になるまで同じ引数で呼び直す。保存済みの分は繰り返さない。
 - 結果は `ct.py` が示したファイルに保存し、ツールは件数などの要約だけを返す（大きなデータを会話に流さない）。
+- stdio では `initialize` で始まる版（2025-11-25 まで）だけで応える（SDK の `serve_loop`）。SDK の既定（`MCPServer.run`）は最初の要求で版を決めるため、Copilot が先に `server/discover`（2026-07-28）で問い合わせ、そのあと同じ接続で `initialize` に切り替えると -32022 で断ってしまう（初回の起動が遅いときに起きた）。
 - パスは絶対パスだけ受け付ける（サーバは `uv run --directory` で自分のフォルダで動くため）。保存先のフォルダが無ければエラーにする（`ct.py` が作る）。
 - ツールの注釈（MCP の `annotations`）：`check_connection` は読み取りだけ（`readOnlyHint`）。書き戻しは `destructiveHint`。どれも社内の Coverity だけを相手にするので `openWorldHint: false`。
 
@@ -277,6 +278,7 @@ verify:                     # options の代わりに、default が none 以外�
 | モデル名 | VS Code（Local）は表示名（例 `GPT-6 Luna`）で探す。Copilot の実行基盤は ID（例 `gpt-6-luna`）で、解決できないと親のモデルで動く（`modelPolicy: required` を除く） | VS Code のソース `languageModels.ts`、Copilot CLI リファレンス |
 | プルリクエスト | Copilot CLI が標準で AI に渡す GitHub のツールにプルリクエストの作成は含まれない（人が使う `/pr create` はある） | Copilot CLI リファレンス |
 | uv の証明書 | uv は既定では自分が持つ証明書だけを信頼する。社内のプロキシが証明書を差し替える環境では、`--native-tls`（OS の証明書を使う。uv 0.11 からは `--system-certs` が新しい名前で、`--native-tls` も同じ動きで使える）が要る | uv の changelog（0.11.0）、uv の環境変数の説明（`UV_NATIVE_TLS`、`UV_SYSTEM_CERTS`） |
+| MCP の版の決め方 | MCP の Python SDK 2.2 の `MCPServer.run("stdio")` は、最初の要求で版（2025 年までの handshake か 2026-07-28）を決め、あとから別の版の要求が来ると断る。`serve_loop` は handshake の版だけで応える | MCP Python SDK のソース `mcp/server/runner.py`（`serve_dual_era_loop`、`serve_loop`）、`mcp/client/_probe.py` |
 | スキルの `allowed-tools` | Copilot CLI はスキルが使われている間、書いたツールを確認なしで使う（文字列か配列。MCP は `サーバ名` か `サーバ名(ツール名)`、ターミナルは `shell(コマンド:*)`）。VS Code はこの項目を使わず、エディタでヒントを出すだけ（読み込みは妨げない） | Copilot CLI リファレンス（Skills reference、Tool permission patterns）、VS Code のソース `promptValidator.ts` |
 | VS Code の確認の設定 | MCP のツールは「Chat: Manage Tool Approval」でサーバごとに確認なしにできる。ターミナルのコマンドは `chat.tools.terminal.autoApprove` に `/正規表現/` で書ける | VS Code「Approvals」 |
 | MCP のツールの注釈 | VS Code は `readOnlyHint` が無いツールの実行前に確認を出し、`openWorldHint` が true のツールは結果も確認させる。このため Coverity だけを相手にするツールは `openWorldHint: false` にする | VS Code のソース `mcpLanguageModelToolContribution.ts`、MCP 仕様（Tool annotations） |

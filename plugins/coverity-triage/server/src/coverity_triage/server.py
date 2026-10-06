@@ -19,8 +19,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import anyio
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.runner import serve_loop
+from mcp.server.stdio import stdio_server
 from mcp.types import ToolAnnotations
 from pydantic import ValidationError
 
@@ -289,8 +292,24 @@ def update_triage(repo_root: str, plan_file: str, confirmation_token: str) -> di
             "seconds": round(deadline.elapsed(), 1), "next": None if done else CALL_AGAIN}
 
 
+async def serve_stdio() -> None:
+    """Serve over stdio with the initialize handshake only (protocol 2025-11-25 and older).
+
+    ``MCPServer.run("stdio")`` lets the client's first request choose the protocol era. A client
+    that first probes ``server/discover`` (2026-07-28) and then falls back to ``initialize`` on the
+    same connection, as GitHub Copilot does when the first start is slow, is refused with -32022
+    once the probe has locked the connection to 2026-07-28. Serving the handshake era only makes
+    the probe fail, and the client's fallback ``initialize`` succeeds. Every client this plugin
+    supports speaks the handshake era.
+    """
+    server = mcp._lowlevel_server  # the same object MCPServer.run_stdio_async serves
+    async with stdio_server() as (read_stream, write_stream), server.lifespan(server) as state:
+        await serve_loop(server, read_stream, write_stream, lifespan_state=state,
+                         init_options=server.create_initialization_options())
+
+
 def main() -> None:
-    mcp.run("stdio")
+    anyio.run(serve_stdio)
 
 
 if __name__ == "__main__":
