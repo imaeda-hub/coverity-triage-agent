@@ -51,6 +51,7 @@ def test_mcp_json_uses_only_what_every_client_expands():
     text = json.dumps(entry)
     assert "${PLUGIN_DATA}" not in text  # VS Code does not expand it
     assert entry["args"][-1] == "coverity-triage-mcp"
+    assert "--native-tls" in entry["args"]  # company proxies replace certificates; use the OS store
 
 
 def test_skills_frontmatter():
