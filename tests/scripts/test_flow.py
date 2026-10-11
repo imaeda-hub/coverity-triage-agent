@@ -36,14 +36,6 @@ def git(*args: str, cwd: Path) -> str:
     return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout
 
 
-@pytest.fixture(autouse=True)
-def git_identity(monkeypatch):
-    for key in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"):
-        monkeypatch.setenv(key, "test")
-    for key in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"):
-        monkeypatch.setenv(key, "test@example.com")
-
-
 @pytest.fixture
 def repo(tmp_path) -> Path:
     root = tmp_path / "repo"

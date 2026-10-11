@@ -184,7 +184,8 @@ def test_search_stops_at_limit_and_returns_where_to_continue(server, monkeypatch
 def test_search_stops_before_running_out_of_time(server, monkeypatch):
     monkeypatch.setattr(connect, "MIN_PAGE", 1)
     monkeypatch.setattr(connect, "MAX_PAGE", 1)
-    page = make(server).search(FilterSpec(streams=["main"]), 10, 0, 0)
+    # A negative budget: on Windows the clock can measure the first page as 0 seconds, which a budget of 0 allows.
+    page = make(server).search(FilterSpec(streams=["main"]), 10, 0, -1)
     assert len(page.issues) == 1 and page.next_offset == 1  # one page, then no time left
 
 

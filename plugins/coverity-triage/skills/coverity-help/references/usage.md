@@ -13,6 +13,12 @@
 - 途中で止まった実行があると、続きから再開するか聞かれます（終わった警告は飛ばし、途中とエラーの分だけやり直します）。
 - 終わると `<結果の置き場所>/<実行の日時>/summary.md` ができます。始めたら、終わるまで質問はしません。
 
+## Copilot CLI の dynamic workflow（オプション）
+
+- `/coverity-run` と同じ処理を、Copilot CLI の dynamic workflow `coverity-triage-run` で動かせます（VS Code では使えません）。Copilot CLI 1.0.79 以降を `--experimental` で起動すると使えます。
+- チャットで「coverity-triage-run の dynamic workflow を、このリポジトリで動かして」のように頼みます。進み具合は `/workflows` で見られ、一時停止と再開ができます。
+- 警告 1 件ごとに、調査役・修正役・逸脱役・確認役の 4 つの AI が調べます。結果は `/coverity-run` と同じ `summary.md` で、反映は `/coverity-apply` で行います。
+
 ## 一覧（summary.md）の読み方
 
 確信度の低い順に並びます。VS Code のプレビューで表として見られます。

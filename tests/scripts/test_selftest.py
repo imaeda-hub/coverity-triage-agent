@@ -9,7 +9,7 @@ import pytest
 
 from coverity_triage import server
 from ctlib import prepare, selftest
-from test_flow import git_identity, run_ct, work_item  # noqa: F401 - fixture
+from test_flow import run_ct, work_item
 
 
 @pytest.fixture(autouse=True)

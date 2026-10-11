@@ -79,6 +79,19 @@ def test_worker_agent():
         assert f"`{skill}`" in body, skill
 
 
+@pytest.mark.parametrize("role, tools", [("investigator", ["read", "search", "skill"]),
+                                         ("fixer", ["read", "search", "edit", "skill"]),
+                                         ("deviation", ["read", "search", "edit", "skill"]),
+                                         ("reviewer", ["read", "search", "skill"])])
+def test_workflow_role_agents(role, tools):
+    path = WORKER.parent / f"coverity-triage-{role}.agent.md"
+    meta, body = frontmatter(path)
+    assert meta["name"] == f"coverity-triage-{role}" and meta["tools"] == tools  # no terminal, no MCP tools
+    assert meta["models"] == ["gpt-6-luna"] and meta["modelPolicy"] == "required" and meta["user-invocable"] is False
+    for skill in re.findall(r"スキル `([a-z-]+)`", body):
+        assert skill in WORKER_SKILLS, skill
+
+
 def test_skills_name_only_existing_commands_and_tools():
     parser = ct.parser()
     commands = set(parser._subparsers._group_actions[0].choices)  # noqa: SLF001 - argparse has no public API for this
