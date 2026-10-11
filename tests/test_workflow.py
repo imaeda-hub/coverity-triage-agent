@@ -51,19 +51,31 @@ def table_column(section: str, column: int = 0) -> list[str]:
     return [r[column].strip().strip("`") for r in rows[2:]]  # skip the header and the rule
 
 
-def mermaid_nodes() -> set[str]:
-    blocks = re.findall(r"```mermaid\n(.*?)```", WORKFLOW_MD.read_text(encoding="utf-8"), re.S)
-    # Node ids (A1, L5, ...) are mermaid identifiers: in the source, not in the rendered picture.
-    return {n for block in blocks for n in re.findall(r"(?<![\w\[])([A-Z][0-9]+)(?=[\[{(])", block)}
+MERMAID_NODE = r"([A-Z][0-9]+)(?:\(\[.*?\]\)|\[.*?\]|\{.*?\})?"
+EDGE = re.compile(rf"^\s*{MERMAID_NODE}\s*(?:--\s*\"([^\"]*)\"\s*)?-->\s*{MERMAID_NODE}\s*$")
+
+
+def mermaid_graphs() -> list[dict]:
+    """Start, nodes, edges, AI nodes and end nodes of each mermaid diagram, in order (RUN, then ITEM)."""
+    graphs = []
+    for block in re.findall(r"```mermaid\n(.*?)```", WORKFLOW_MD.read_text(encoding="utf-8"), re.S):
+        start, nodes, edges, ends, ai = None, set(), set(), set(), set()
+        for line in block.splitlines():
+            if match := EDGE.match(line):
+                source, label, target = match.groups()
+                start = start or source
+                nodes |= {source, target}
+                edges.add((source, label, target))
+            elif line.strip().startswith("class "):
+                ai |= set(line.split()[1].split(","))
+            elif line.strip() and not line.strip().startswith(("flowchart", "classDef")):
+                raise AssertionError(f"読めない行: {line}")
+            ends |= set(re.findall(r"([A-Z][0-9]+)\(\[", line))
+        graphs.append({"start": start, "nodes": nodes, "edges": edges, "ai": ai, "end": ends})
+    return graphs
 
 
 # ---- the structure file and extension.mjs agree --------------------------------------------------
-
-
-def test_every_node_of_the_diagrams_is_marked_in_extension_mjs():
-    nodes = mermaid_nodes()
-    marked = set(re.findall(r"// \[([A-Z][0-9]+)\]", EXTENSION.read_text(encoding="utf-8")))
-    assert nodes and nodes == marked
 
 
 def test_phases_and_phase_calls_match_the_structure_file():
@@ -142,6 +154,19 @@ def test_registration_matches_the_structure_file(capsys, home, tmp_path):
                         keywords(sub)
 
     keywords(meta["argsSchema"])
+
+
+@needs_node
+def test_diagrams_are_the_graphs_in_extension_mjs(capsys, home, tmp_path):
+    installed = Path(run_ct(capsys, "install-workflow")["path"]) / "extension.mjs"
+    graphs = harness(tmp_path, installed, mode="meta")["graphs"]
+    for drawn, name in zip(mermaid_graphs(), ["RUN", "ITEM"], strict=True):
+        coded = graphs[name]
+        assert coded["start"] == drawn["start"], name
+        assert set(coded["nodes"]) == drawn["nodes"], name
+        assert {(e["from"], e["label"], e["to"]) for e in coded["edges"]} == drawn["edges"], name
+        assert {n for n, spec in coded["nodes"].items() if spec["agent"]} == drawn["ai"], name
+        assert {n for n, spec in coded["nodes"].items() if spec["end"]} == drawn["end"], name
 
 
 # ---- the workflow runs ----------------------------------------------------------------------------

@@ -12,13 +12,20 @@ import { pathToFileURL } from "node:url";
 register("./sdk-hooks.mjs", import.meta.url);
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const sdk = await import("@github/copilot-sdk/extension");
-await import(pathToFileURL(config.extension).href);
+const extension = await import(pathToFileURL(config.extension).href);
 const [joined] = sdk.joined;
 
 if (config.mode === "meta") {
+    const shape = (g) => ({
+        start: g.start,
+        nodes: Object.fromEntries(Object.entries(g.nodes).map(([id, n]) => [id,
+            { agent: n.agent ?? null, join: Boolean(n.join), end: Boolean(n.end) }])),
+        edges: g.edges,
+    });
     process.stdout.write(JSON.stringify({
         workflows: joined.workflows.map((w) => w.meta),
         requestedEnvironmentVariables: joined.requestedEnvironmentVariables,
+        graphs: { RUN: shape(extension.RUN), ITEM: shape(extension.ITEM) },
     }));
     process.exit(0);
 }

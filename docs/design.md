@@ -124,7 +124,7 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 
 2.2 と同じ処理を、Copilot CLI の dynamic workflow `coverity-triage-run` が行う。エージェント（チャットの AI）の代わりに、拡張機能のコード（`extension.mjs`）が `ct.py` と `coverity-triage-call` を子プロセスで順に動かし、6-4 を 4 つの役のサブエージェントに分けて任せる（`ctx.agent`）。調査役 `coverity-triage-investigator` が判定し、修正役 `coverity-triage-fixer` と逸脱役 `coverity-triage-deviation` が同時に案を作り、確認役 `coverity-triage-reviewer` が確かめる（直す点があれば、その役に 2 回まで直させる）。各役は答えを JSON（`schema`）で返し、`result.json` は拡張機能のコードがまとめて書く。4 役の定義は `com.github.copilot/agents/` に置き、`ct.py install-workflow` が `~/.copilot/agents` にも写す。
 
-- 流れと分岐は [plugins/coverity-triage/workflow/coverity-triage-run.md](../plugins/coverity-triage/workflow/coverity-triage-run.md) の図を正本にする（決定 23）。人はこの md を直し、AI は md に合わせて `extension.mjs` を書く。図のノード ID（mermaid の識別子 `L5` など。図には表示されない）を `extension.mjs` のコメント `// [L5]` に書き、`tests/test_workflow.py` が図・表・コードの対応と段階の一致を確かめる。
+- 流れと分岐は [plugins/coverity-triage/workflow/coverity-triage-run.md](../plugins/coverity-triage/workflow/coverity-triage-run.md) の図を正本にする（決定 23）。人はこの md を直し、AI は md に合わせて `extension.mjs` を書く。`extension.mjs` は流れを 2 つのグラフ `RUN`（全体）と `ITEM`（1 件）として、ノード（処理）と矢印（ラベルつき）のデータで書き、小さな実行部がたどる（ラベルの無い矢印が 2 本以上なら同時に動かし、合流のノードで待つ）。md の mermaid の図はこのグラフそのもので、`tests/test_workflow.py` がノード・矢印・AI のノード・終わりのノードの一致を確かめる。
 - 2.2 との違い：
   - 2.2 の 3（フォルダへのアクセスの許可）は聞かない。サブエージェントの許可の確認は、会話の中で動かしたときは Copilot CLI がその場で出し、ターミナル（`copilot workflow run`）では先に `--allow-tool` と `--add-dir` で渡す。
   - `parallel` 本の作業の列を `ctx.parallel` で同時に動かす（`ct.py next` が列ごとに別の修正用のコピーを用意する）。
