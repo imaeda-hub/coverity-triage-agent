@@ -1,6 +1,6 @@
 ---
 name: coverity-setup
-description: Coverity トリアージを使う準備をする（uv、MCP サーバの環境、サブエージェントの配置、設定ファイル、認証情報、接続の確認、オプションでビルドでの検証）。何度実行してもよく、足りないものだけを補う。
+description: Coverity トリアージを使う準備をする（uv、MCP サーバの環境、サブエージェントの配置、設定ファイル、認証情報、接続の確認、オプションでビルドでの検証と Copilot CLI の dynamic workflow）。何度実行してもよく、足りないものだけを補う。
 argument-hint: 省略可
 disable-model-invocation: true
 allowed-tools: ["coverity-triage", "shell(uv run:*)"]
@@ -133,6 +133,14 @@ GitHub のトークンは要りません（プルリクエストは Copilot の�
 
 「修正前のコードで試しにビルドします（時間がかかることがあります）」と伝えて `ct.py trial-build` を実行する。失敗したら `log_tail` を見て、コマンドの誤りか環境の問題かを伝え、直して試す。成功したら、保存する値を見せて同意を得てから `ct.py set-verify` を実行し、コミットして共有するよう伝える。
 
-## 11. 終わり
+## 11. Copilot CLI の dynamic workflow（オプション）
+
+Copilot CLI を使う人にだけ、「`/coverity-run` と同じ処理を、Copilot CLI の dynamic workflow（実験的な機能）でも動かせるようにしますか？（使わなくてもかまいません。あとからでも設定できます）」と聞く。VS Code だけを使う人には聞かない（VS Code では動かない）。使わないなら 12 へ。
+
+使う場合は、「dynamic workflow の定義を、あなたのフォルダ `%USERPROFILE%\.copilot\extensions\coverity-triage-run` に置きます」と伝えて `ct.py install-workflow` を実行する。`restart_needed` が true なら、次を伝える。
+
+> Copilot CLI を `copilot --experimental` で起動し直すと使えます。使い方は README の「オプション：Copilot CLI の dynamic workflow」にあります。
+
+## 12. 終わり
 
 「準備ができました。`/coverity-run` で始められます。最初は件数の少ない条件で試すのがおすすめです」と伝える。1 で「すべて許可」にしてもらった場合は、元に戻してよいことも伝える。

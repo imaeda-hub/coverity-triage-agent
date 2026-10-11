@@ -13,6 +13,13 @@
 - 途中で止まった実行があると、続きから再開するか聞かれます（終わった警告は飛ばし、途中とエラーの分だけやり直します）。
 - 終わると `<結果の置き場所>/<実行の日時>/summary.md` ができます。始めたら、終わるまで質問はしません。
 
+## Copilot CLI の dynamic workflow（オプション）
+
+- `/coverity-run` と同じ処理を、Copilot CLI の dynamic workflow `coverity-triage-run` で動かせます（VS Code では使えません）。`/coverity-setup` で入れ（`ct.py install-workflow`）、Copilot CLI を `--experimental` で起動します。
+- チャットで「coverity-triage-run の dynamic workflow を、このリポジトリで動かして」のように頼みます。進み具合は `/workflows` で見られ、一時停止と再開ができます。
+- 入れたのに出てこないときは、`--experimental` で起動しているか、`~/.copilot/extensions/coverity-triage-run/` に `extension.mjs` と `paths.json` があるかを確かめます。プラグインを更新したら、もう一度 `/coverity-setup` で入れ直します。
+- 手順は README の「オプション：Copilot CLI の dynamic workflow」と、プラグインの `workflow/coverity-triage-run.md` にあります。
+
 ## 一覧（summary.md）の読み方
 
 確信度の低い順に並びます。VS Code のプレビューで表として見られます。

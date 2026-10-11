@@ -32,6 +32,7 @@ flowchart LR
 | MCP サーバ | `plugins/coverity-triage/server/` | Coverity との通信だけ（接続の確認、検索、警告経路、書き戻し） |
 | サブエージェント | `com.github.copilot/agents/coverity-triage-worker.agent.md` | 警告 1 件を調べて 2 つの案を書く。使えるのは読み取り・検索・編集・スキルだけ |
 | スキル（知識） | `skills/triage-investigation/` など 5 つ | サブエージェントが読む調べ方・書き方 |
+| dynamic workflow（オプション） | `workflow/coverity-triage-run.md`（構造の正本）、`workflow/coverity-triage-run/extension.mjs` | Copilot CLI で `/coverity-run` と同じ処理を動かす。md の図を直してから、AI に md に合わせて mjs を直させる |
 
 ## テスト
 
@@ -45,6 +46,7 @@ uv run pytest
 |---|---|
 | `tests/server/` | MCP サーバ（偽の Coverity の応答、時間で区切って続きを返すこと、`mcp.json` と同じ起動方法でつながること） |
 | `tests/scripts/` | スクリプト（実行から反映までの流れを git と svn で、準備、オプション、動作確認のコマンド） |
+| `tests/test_workflow.py` | dynamic workflow（md の図・表と `extension.mjs` のノード ID・段階・引数がそろっていること、偽の Coverity で検索から一覧まで通ること）。Node が要る（無ければ飛ばす）。SDK は `tests/workflow/` の代わりの部品で動かす |
 | `tests/test_plugin_files.py` | プラグインのファイルの形（スキルとサブエージェントの frontmatter、`mcp.json`）、スキルに書いたコマンドとツールが実在すること |
 
 テストは偽の Coverity と見本のリポジトリで動かします。サブエージェントの役はテストが代わりに行う（決まった修正と結果ファイルを書く）ので、AI の判断の質はテストしません。AI の判断や、Copilot の上での動き（ツールの許可、サブエージェントの起動、スキルの読み込み）は、`/coverity-selftest` と [selftest.md](selftest.md) の手順で確かめます。

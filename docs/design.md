@@ -43,7 +43,10 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 │  │  ├─ SKILL.md                              … コマンドの使い方
 │  │  └─ scripts/ct.py, scripts/ctlib/          … uv run で動く Python
 │  └─ triage-investigation/ checker-knowledge/ code-fix/ deviation-comment/ triage-report/   … 知識
-└─ com.github.copilot/agents/coverity-triage-worker.agent.md   … サブエージェント
+├─ com.github.copilot/agents/coverity-triage-worker.agent.md   … サブエージェント
+└─ workflow/                                   … （オプション）Copilot CLI の dynamic workflow
+   ├─ coverity-triage-run.md                   … 構造の正本（mermaid の図と表）。人が読んで直す
+   └─ coverity-triage-run/extension.mjs        … md に合わせて AI が書く拡張機能。ct.py install-workflow が写す
 
 <対象リポジトリ>/.coverity-triage/              … チームで共有（コミットする）
 ├─ config.yaml   filters/*.yaml   knowledge.md   no-grouping.yaml
@@ -117,7 +120,19 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 | 5 | エージェント | プルリクエストを Copilot の GitHub の機能で作る。使えないときは、作成用の URL を人に示す（決定 3） |
 | 6 | （オプション）`ct.py knowledge-candidates` / `add-knowledge` | 知識の追記の提案 |
 
-### 2.4 動作確認（`/coverity-selftest`）
+### 2.4 実行を dynamic workflow で（オプション、Copilot CLI だけ）
+
+2.2 と同じ処理を、Copilot CLI の dynamic workflow `coverity-triage-run` が行う。エージェント（チャットの AI）の代わりに、拡張機能のコード（`extension.mjs`）が `ct.py` と `coverity-triage-call` を子プロセスで順に動かし、6-4 だけをサブエージェント `coverity-triage-worker` に任せる（`ctx.agent`）。
+
+- 流れと分岐は [plugins/coverity-triage/workflow/coverity-triage-run.md](../plugins/coverity-triage/workflow/coverity-triage-run.md) の図を正本にする（決定 23）。人はこの md を直し、AI は md に合わせて `extension.mjs` を書く。図のノード ID（`[L5]` など）を `extension.mjs` のコメントに書き、`tests/test_workflow.py` が図・表・コードの対応と段階の一致を確かめる。
+- 2.2 との違い：
+  - 2.2 の 3（フォルダへのアクセスの許可）は聞かない。サブエージェントの許可の確認は、会話の中で動かしたときは Copilot CLI がその場で出し、ターミナル（`copilot workflow run`）では先に `--allow-tool` と `--add-dir` で渡す。
+  - `parallel` 本の作業の列を `ctx.parallel` で同時に動かす（`ct.py next` が列ごとに別の修正用のコピーを用意する）。
+  - 止まった実行は、Copilot CLI の再開（`/workflows`）か、引数 `run_dir` で続きから動かす。どちらも `ct.py resume` で処理中・エラーの作業を未処理に戻してから進む。実行フォルダは `ctx.step` で記録するので、再開しても同じ実行フォルダを使う。
+  - 9 の案内は、結果（返す値）の `next` に入れる。反映（2.3）はしない。
+- Coverity との通信（2.2 の 4 と 6-2）は、MCP サーバのパッケージに入れたコマンド `coverity-triage-call`（`check_connection`・`search_issues`・`get_issues` だけ）で行う（決定 24）。MCP のツールと同じ関数なので、20 秒で区切って `done: false` を返す動きも同じ。
+
+### 2.5 動作確認（`/coverity-selftest`）
 
 | 範囲 | 確かめること | 主な担当 |
 |---|---|---|
@@ -167,6 +182,8 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 
 `apply-plan.json` の `triage` の 1 項目：`{"id": "C002", "cids": [20002], "classification": "False Positive", "action": "Ignore", "severity": "Unspecified", "comment": "..."}`。
 
+dynamic workflow（2.4）のために、同じ関数を MCP の外で動かすコマンド `coverity-triage-call <ツールの名前>` を置く（`pyproject.toml` の `project.scripts`）。引数は JSON のオブジェクト 1 つを標準入力で受け、結果を JSON 1 つで標準出力に出す（`ok: false` と終了コード 1 は失敗）。書き戻し（`update_triage`）は人の同意を経る `/coverity-apply` だけで行うので、このコマンドでは使えない。
+
 `coverity.api: fake` のときは、偽データのファイルを読み、書き戻しは `<偽データ>.writes.jsonl` に記録する（動作確認と自動テスト用）。
 
 ### 3.3 スクリプト（スキル `coverity-triage-scripts` の `scripts/ct.py`）
@@ -179,6 +196,7 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 | | `doctor` | 準備の状況を調べる（Coverity への接続は MCP `check_connection`） |
 | | `detect` / `init-config` | 自動で決められる値を調べる／設定・条件・知識のひな形を書く |
 | | `install-agent` | サブエージェントの定義を `~/.copilot/agents` にコピーする |
+| | `install-workflow` | （オプション）dynamic workflow を `~/.copilot/extensions/coverity-triage-run/` にコピーし、`ct.py`・MCP サーバ・uv の場所を書いた `paths.json` を置く |
 | | `trial-build` / `set-verify` | （オプション）試しのビルド／検証の設定を書く |
 | 実行 | `runs` / `resume` / `status` | 実行の一覧／再開（処理中・エラーの作業を未処理に戻す）／進み具合 |
 | | `new-run` / `plan` | 実行フォルダと条件／作業の一覧（グループ化を含む） |
@@ -283,6 +301,8 @@ verify:                     # options の代わりに、default が none 以外�
 | VS Code の確認の設定 | MCP のツールは「Chat: Manage Tool Approval」でサーバごとに確認なしにできる。ターミナルのコマンドは `chat.tools.terminal.autoApprove` に `/正規表現/` で書ける | VS Code「Approvals」 |
 | MCP のツールの注釈 | VS Code は `readOnlyHint` が無いツールの実行前に確認を出し、`openWorldHint` が true のツールは結果も確認させる。このため Coverity だけを相手にするツールは `openWorldHint: false` にする | VS Code のソース `mcpLanguageModelToolContribution.ts`、MCP 仕様（Tool annotations） |
 | プラグインのサブエージェント | Copilot はプラグインの `com.github.copilot/agents/` からカスタムエージェントを読む。ユーザのフォルダ `~/.copilot/agents/` がいちばん優先される | GitHub「About plugins」、Copilot CLI リファレンス（Custom agent locations） |
+| dynamic workflow | Copilot CLI の拡張機能（`extension.mjs`、ES モジュール）の中で `defineWorkflow({ meta, run })` を書き、`joinSession({ workflows })` で登録する。`ctx.agent`（`label`・`agent` などの選択肢。失敗は `null`。同じ prompt と選択肢の呼び出しは 1 つにまとめられる）、`ctx.parallel`、`ctx.step`（key で記録し再開で使う）、`ctx.phase`、`ctx.log`、`ctx.signal` を使う。`argsSchema` で確かめられるのは `type`・`required`・`enum`・`const`・`properties`・`items`・`anyOf` などだけ。上限（`limits`）は費用が分かっていないなら書かない。Copilot CLI では `--experimental` で使える。`copilot workflow run` は確認の画面を出さない | GitHub Docs「Dynamic workflows」「Using dynamic workflows」、`@github/copilot-sdk` の `docs/workflows.md`・`dist/workflow.d.ts` |
+| 拡張機能の置き場所 | `~/.copilot/extensions/<名前>/extension.mjs`（ユーザ）か `.github/extensions/<名前>/`（リポジトリ）。SDK は CLI が自動で解決する。標準出力は JSON-RPC 用。機微な環境変数は外され、`requestedEnvironmentVariables` で頼む | GitHub Docs「About extensions for Copilot CLI」、`@github/copilot-sdk` の `docs/extensions.md`・`docs/agent-author.md` |
 | スキルの名前 | VS Code は、名前が小文字・数字・ハイフンだけで、フォルダ名と同じでないと読み込まない。プラグインのスキルは `/プラグイン名:スキル名` で出る | VS Code「Agent skills」 |
 
 ## 5. 開発

@@ -180,7 +180,7 @@ def next_item(run_dir: str) -> dict[str, Any]:
     folder.mkdir(parents=True, exist_ok=True)
     run.result_file(item.id).unlink(missing_ok=True)
     _log(run, "next", item=item.id, slot=item.slot, attempt=item.attempts)
-    return {"ok": True, "item": item.id, "cids": item.cids, "is_group": item.is_group,
+    return {"ok": True, "item": item.id, "cids": item.cids, "is_group": item.is_group, "attempt": item.attempts,
             "repo_root": str(run.repo), "stream": run.state.stream, "item_dir": str(folder),
             "counts": run.state.counts(),
             "next": "MCP の get_issues（repo_root, stream, cids, output_dir=item_dir）を done になるまで呼び、"
@@ -461,7 +461,8 @@ def resume(run_dir: str) -> dict[str, Any]:
     return {"ok": True, "run_dir": str(run.dir), "repo_root": str(run.repo), "stream": run.state.stream,
             "filter_file": str(run.dir / "filter.json"), "issues_file": str(run.dir / "issues.json"),
             "work_dir": str(run.dir / "work"), "verify": run.state.verify_mode,
-            "planned": run.state.planned, "back_to_pending": reset, "counts": run.state.counts(),
+            "planned": run.state.planned, "parallel": run.config.parallel, "back_to_pending": reset,
+            "counts": run.state.counts(),
             "next": "ct.py next" if run.state.planned else "MCP の search_issues を done まで呼び、ct.py plan"}
 
 

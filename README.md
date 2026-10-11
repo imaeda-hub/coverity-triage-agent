@@ -45,6 +45,30 @@ uv（このプラグインが使う Python の道具）は、無ければ準備�
 途中で止まっても、もう一度 `/coverity-run` と入力すると続きから再開できます。
 承認して反映するまで、あなたの作業中のファイルも Coverity も変わりません。
 
+## オプション：Copilot CLI の dynamic workflow
+
+Copilot CLI では、`/coverity-run` と同じ処理を **dynamic workflow**（Copilot CLI の実験的な機能。決まった手順をコードで動かす）でも動かせます。VS Code では使えません。
+進み具合を `/workflows` で見られ、一時停止と再開ができ、ターミナルから直接（チャットを開かずに）動かすこともできます。
+
+1. **入れる**：`/coverity-setup` の最後に「dynamic workflow を使いますか？」と聞かれたら、使うと答えます。`~/.copilot/extensions/coverity-triage-run/` に置かれます。
+2. **起動する**：Copilot CLI を `copilot --experimental` で起動します（起動したあとなら `/experimental on`）。
+3. **動かす**：チャットで頼みます。件数の上限や AI クレジットの上限も、言葉で付けられます。
+   ```
+   coverity-triage-run の dynamic workflow を、このリポジトリで High だけ 10 件、AI クレジット 300 までで動かして
+   ```
+   ターミナルから動かすときは、引数を JSON のファイル（例 `args.json`）に書き、`@` を付けて渡します。確認の画面が出ないので、サブエージェントに要る許可（読み書きと、結果の置き場所）を先に渡します。
+   ```json
+   {"repo_root": "C:\\work\\product", "impact": ["High"], "limit": 10}
+   ```
+   ```
+   copilot --experimental --allow-tool=read --allow-tool=write --add-dir <結果の置き場所> workflow run coverity-triage-run --args @args.json
+   ```
+   引数は `repo_root`（必須）のほか、`filter`（条件ファイルの名前）、`impact`、`checker`、`limit`、`verify` などです（一覧は下の図のファイルの 2 章）。
+   途中で止まった実行は、`/workflows` で選んで再開するか、引数を `{"run_dir": "<実行フォルダ>"}` にして続きから動かします。
+4. **その後**：いつもと同じく `summary.md` の承認欄を見て、`/coverity-apply` で反映します（dynamic workflow は反映しません）。
+
+dynamic workflow の手順は [plugins/coverity-triage/workflow/coverity-triage-run.md](plugins/coverity-triage/workflow/coverity-triage-run.md) に図で書いてあります。手順を変えたいときは、この図を直してから、AI に「この md に合わせて `extension.mjs` を直して」と頼みます。
+
 ## 困ったとき
 
 - `/coverity-help` に聞いてください。例：`/coverity-help このエラーは何？`、`/coverity-help MISRA だけ調べたい`

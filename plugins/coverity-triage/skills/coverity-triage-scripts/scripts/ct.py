@@ -62,6 +62,7 @@ def parser() -> argparse.ArgumentParser:
             ("--strip-prefix", {"action": "append", "default": [], "dest": "strip_prefixes"}),
             ("--overwrite", {"action": "store_true"}))
     command("install-agent", "サブエージェントの定義を ~/.copilot/agents に置く")
+    command("install-workflow", "（オプション）Copilot CLI の dynamic workflow を ~/.copilot/extensions に置く")
     command("trial-build", "（オプション）修正前の最新のコードを試しにビルドする", repo,
             ("--build-command", {"required": True}), ("--setup-command", {"default": ""}),
             ("--build-dir", {"default": ""}))
@@ -117,6 +118,8 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
                                    args.output_dir, args.strip_prefixes, args.overwrite)
     if c == "install-agent":
         return prepare.install_agent()
+    if c == "install-workflow":
+        return prepare.install_workflow()
     if c == "trial-build":
         return prepare.trial_build(args.repo, args.setup_command, args.build_command, args.build_dir)
     if c == "set-verify":

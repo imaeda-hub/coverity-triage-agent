@@ -1,7 +1,9 @@
-"""Commands of /coverity-setup: prewarm, doctor, detect, init-config, install-agent, trial-build, set-verify."""
+"""Commands of /coverity-setup: prewarm, doctor, detect, init-config, install-agent, install-workflow, trial-build,
+set-verify."""
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import time
@@ -20,6 +22,9 @@ from .verify import trial_build as run_trial_build
 
 SERVER_DIR = PLUGIN_ROOT / "server"
 WORKER_AGENT = PLUGIN_ROOT / "com.github.copilot" / "agents" / "coverity-triage-worker.agent.md"
+WORKFLOW_NAME = "coverity-triage-run"
+WORKFLOW_DIR = PLUGIN_ROOT / "workflow" / WORKFLOW_NAME  # structure: workflow/coverity-triage-run.md
+CT_PY = PLUGIN_ROOT / "skills" / "coverity-triage-scripts" / "scripts" / "ct.py"
 CONFIG_HEADER = ("# Coverity トリアージの設定（/coverity-setup で作成）。チームで共有するためコミットします。\n"
                  "# 認証情報はここに書きません（環境変数に置きます）。\n")
 
@@ -35,6 +40,11 @@ def _uv() -> str:
 def user_agents_dir() -> Path:
     """Folder of the person's own custom agents, read by GitHub Copilot."""
     return Path.home() / ".copilot" / "agents"
+
+
+def user_extensions_dir() -> Path:
+    """Folder of the person's own Copilot CLI extensions (dynamic workflows live in extensions)."""
+    return Path.home() / ".copilot" / "extensions"
 
 
 # ---- prewarm / install-agent -----------------------------------------------------------------
@@ -67,6 +77,30 @@ def install_agent() -> dict[str, Any]:
         shutil.copyfile(WORKER_AGENT, target)
     return {"ok": True, "status": {"missing": "installed", "outdated": "updated", "current": "unchanged"}[before],
             "path": str(target), "restart_needed": before != "current"}
+
+
+def install_workflow() -> dict[str, Any]:
+    """(Option) Copy the dynamic workflow coverity-triage-run to the person's Copilot CLI extensions folder.
+
+    The extension runs ct.py and the MCP server's tools as child processes; paths.json beside it says
+    where they are on this PC.
+    """
+    target = user_extensions_dir() / WORKFLOW_NAME
+    paths = {"uv": _uv(), "ct_py": str(CT_PY), "server_dir": str(SERVER_DIR)}
+    wanted = {p.name: p.read_bytes() for p in WORKFLOW_DIR.iterdir() if p.is_file()}
+    wanted["paths.json"] = (json.dumps(paths, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
+    present = {p.name: p.read_bytes() for p in target.iterdir() if p.is_file()} if target.is_dir() else {}
+    status = "unchanged" if present == wanted else ("updated" if target.is_dir() else "installed")
+    if status != "unchanged":
+        target.mkdir(parents=True, exist_ok=True)
+        for name in set(present) - set(wanted):
+            (target / name).unlink()
+        for name, data in wanted.items():
+            (target / name).write_bytes(data)
+    return {"ok": True, "status": status, "path": str(target), "workflow": WORKFLOW_NAME, **paths,
+            "restart_needed": status != "unchanged",
+            "next": "Copilot CLI を --experimental を付けて起動し直し、「What dynamic workflows are available?」で "
+                    f"{WORKFLOW_NAME} が出ることを確かめる"}
 
 
 # ---- detect / init-config --------------------------------------------------------------------

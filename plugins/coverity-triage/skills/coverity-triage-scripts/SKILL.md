@@ -40,6 +40,7 @@ uv run --native-tls <このスキルのフォルダ>/scripts/ct.py <コマンド
 | `detect --repo R` | git / svn、取り込み先のブランチ、出力先の候補を調べる | `vcs`、`base_branch`、`has_config`、`output_dir` |
 | `init-config --repo R --url U --project P --stream S [--base-branch B] [--output-dir D] [--strip-prefix X]...` | 設定 `config.yaml`、最初の条件 `filters/untriaged.yaml`、知識 `knowledge.md` を作る。人に値を見せて同意を得てから実行する | `written` |
 | `install-agent` | サブエージェントの定義を `~/.copilot/agents` に置く | `status`、`restart_needed` |
+| `install-workflow` | （オプション）Copilot CLI の dynamic workflow `coverity-triage-run` を `~/.copilot/extensions` に置く | `status`、`path`、`restart_needed` |
 | `trial-build --repo R --build-command C [--setup-command S] [--build-dir D]` | （オプション）修正前の最新のコードを試しにビルドする。時間がかかる | `build_ok`、`log`、`log_tail` |
 | `set-verify --repo R --build-command C [--setup-command S] [--build-dir D] [--default build]` | （オプション）ビルドでの検証の設定を書く | `written` |
 
@@ -51,7 +52,7 @@ uv run --native-tls <このスキルのフォルダ>/scripts/ct.py <コマンド
 | `resume --run D` | 止まった実行を続けられるようにする（処理中・エラーの作業を未処理に戻す） | `counts`、`next` |
 | `new-run --repo R [--filter F] [--impact X]... [--checker X]... [--status X]... [--classification X]... [--action X]... [--limit N] [--verify none\|build\|build+analyze]` | 実行フォルダを作り、条件を決める。チャットで言われた条件は引数で足す（同じ項目は置き換え） | `run_dir`、`repo_root`、`filter_file`、`issues_file`、`work_dir`、`limit` |
 | `plan --run D` | 検索結果（`issues.json`）から、パスの対応づけとグループ化をして作業の一覧を作る | `items`、`groups`、`analyzed_revision`、`notes` |
-| `next --run D` | 次の作業を取り出し、修正用のコピーを用意する（初回は時間がかかる） | `item`（無ければ null）、`cids`、`stream`、`item_dir` |
+| `next --run D` | 次の作業を取り出し、修正用のコピーを用意する（初回は時間がかかる） | `item`（無ければ null）、`cids`、`stream`、`item_dir`、`attempt` |
 | `brief --run D --item I` | サブエージェントへの指示ファイル `brief.md` を作る | `prompt`（サブエージェントにそのまま渡す）、`result_file` |
 | `finish --run D --item I` | 結果ファイルを確かめ、差分・ブランチ・詳細レポートを作る | `recommendation`、`confidence`、`warnings`、`split_into` |
 | `fail --run D --item I --reason "理由"` | 作業を処理できなかったと記録する（再開でやり直せる） | `counts` |
