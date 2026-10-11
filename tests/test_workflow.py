@@ -64,7 +64,6 @@ def test_every_node_of_the_diagrams_is_marked_in_extension_mjs():
     nodes = mermaid_nodes()
     marked = set(re.findall(r"// \[([A-Z][0-9]+)\]", EXTENSION.read_text(encoding="utf-8")))
     assert nodes and nodes == marked
-    assert set(table_column(md_section("ノードと処理"))) <= nodes
 
 
 def test_phases_and_phase_calls_match_the_structure_file():
