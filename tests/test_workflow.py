@@ -78,6 +78,7 @@ def home(tmp_path, monkeypatch) -> Path:
     """Keep the person's ~/.copilot/extensions out of the tests."""
     folder = tmp_path / "home" / ".copilot" / "extensions"
     monkeypatch.setattr(prepare, "user_extensions_dir", lambda: folder)
+    monkeypatch.setattr(prepare, "user_agents_dir", lambda: tmp_path / "home" / ".copilot" / "agents")
     return folder
 
 
@@ -104,7 +105,11 @@ def test_install_workflow(capsys, home):
     assert (target / "extension.mjs").read_bytes() == EXTENSION.read_bytes()
     paths = json.loads((target / "paths.json").read_text(encoding="utf-8"))
     assert Path(paths["ct_py"]).is_file() and (Path(paths["server_dir"]) / "pyproject.toml").is_file()
+    assert [Path(a).read_bytes() for a in first["agents"]] == [a.read_bytes() for a in prepare.ROLE_AGENTS]
     assert run_ct(capsys, "install-workflow")["status"] == "unchanged"
+    Path(first["agents"][0]).write_text("old", encoding="utf-8")
+    assert run_ct(capsys, "install-workflow")["status"] == "updated"
+    assert Path(first["agents"][0]).read_bytes() == prepare.ROLE_AGENTS[0].read_bytes()
     (target / "extension.mjs").write_text("old", encoding="utf-8")
     (target / "stale.mjs").write_text("old", encoding="utf-8")
     assert run_ct(capsys, "install-workflow")["status"] == "updated"
@@ -178,9 +183,14 @@ def test_workflow_runs_from_search_to_summary(capsys, home, repo, tmp_path):
     assert Path(result["summary"]).is_file()
     assert "20002: 修正を推奨（確信度 高）" in out["logs"]
 
-    labels = sorted(a["label"] for a in out["agents"])
-    assert labels == ["20001#1", "20002#1", "20002#1-fix1", "20003#1", "G1#1"]  # one fix round for 20002
-    assert {a["agent"] for a in out["agents"]} == {"coverity-triage-worker"}
+    labels = sorted(a["label"] for a in out["agents"] if a["label"].startswith("20002#"))
+    # the reviewer sent 20002's fix back once: only the fixer redoes it, then the reviewer looks again
+    assert labels == ["20002#1-deviation", "20002#1-fix", "20002#1-fix1", "20002#1-investigate",
+                      "20002#1-review", "20002#1-review1"]
+    assert len(out["agents"]) == 4 * 4 + 2
+    assert {a["agent"] for a in out["agents"]} == {f"coverity-triage-{r}" for r in
+                                                   ("investigator", "fixer", "deviation", "reviewer")}
+    assert "20002: 確認役の指摘で直します（1 回目）" in out["logs"]
 
     # Running it again with run_dir finds nothing left to do and keeps the summary.
     again = harness(tmp_path, installed, mode="run", args={"run_dir": result["run_dir"]}, result=RESULT)

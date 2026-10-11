@@ -43,9 +43,9 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 │  │  ├─ SKILL.md                              … コマンドの使い方
 │  │  └─ scripts/ct.py, scripts/ctlib/          … uv run で動く Python
 │  └─ triage-investigation/ checker-knowledge/ code-fix/ deviation-comment/ triage-report/   … 知識
-├─ com.github.copilot/agents/coverity-triage-worker.agent.md   … サブエージェント
+├─ com.github.copilot/agents/coverity-triage-worker.agent.md   … サブエージェント（ほかに dynamic workflow の 4 役の定義）
 └─ workflow/                                   … （オプション）Copilot CLI の dynamic workflow
-   ├─ coverity-triage-run.md                   … 構造の正本（mermaid の図と表）。人が読んで直す
+   ├─ coverity-triage-run.md                   … extension.mjs の図（mermaid）。人が読んで直す
    └─ coverity-triage-run/extension.mjs        … md に合わせて AI が書く拡張機能。ct.py install-workflow が写す
 
 <対象リポジトリ>/.coverity-triage/              … チームで共有（コミットする）
@@ -122,7 +122,7 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 
 ### 2.4 実行を dynamic workflow で（オプション、Copilot CLI だけ）
 
-2.2 と同じ処理を、Copilot CLI の dynamic workflow `coverity-triage-run` が行う。エージェント（チャットの AI）の代わりに、拡張機能のコード（`extension.mjs`）が `ct.py` と `coverity-triage-call` を子プロセスで順に動かし、6-4 だけをサブエージェント `coverity-triage-worker` に任せる（`ctx.agent`）。
+2.2 と同じ処理を、Copilot CLI の dynamic workflow `coverity-triage-run` が行う。エージェント（チャットの AI）の代わりに、拡張機能のコード（`extension.mjs`）が `ct.py` と `coverity-triage-call` を子プロセスで順に動かし、6-4 を 4 つの役のサブエージェントに分けて任せる（`ctx.agent`）。調査役 `coverity-triage-investigator` が判定し、修正役 `coverity-triage-fixer` と逸脱役 `coverity-triage-deviation` が同時に案を作り、確認役 `coverity-triage-reviewer` が確かめる（直す点があれば、その役に 2 回まで直させる）。各役は答えを JSON（`schema`）で返し、`result.json` は拡張機能のコードがまとめて書く。4 役の定義は `com.github.copilot/agents/` に置き、`ct.py install-workflow` が `~/.copilot/agents` にも写す。
 
 - 流れと分岐は [plugins/coverity-triage/workflow/coverity-triage-run.md](../plugins/coverity-triage/workflow/coverity-triage-run.md) の図を正本にする（決定 23）。人はこの md を直し、AI は md に合わせて `extension.mjs` を書く。図のノード ID（mermaid の識別子 `L5` など。図には表示されない）を `extension.mjs` のコメント `// [L5]` に書き、`tests/test_workflow.py` が図・表・コードの対応と段階の一致を確かめる。
 - 2.2 との違い：

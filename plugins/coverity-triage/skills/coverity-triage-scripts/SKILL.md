@@ -40,7 +40,7 @@ uv run --native-tls <このスキルのフォルダ>/scripts/ct.py <コマンド
 | `detect --repo R` | git / svn、取り込み先のブランチ、出力先の候補を調べる | `vcs`、`base_branch`、`has_config`、`output_dir` |
 | `init-config --repo R --url U --project P --stream S [--base-branch B] [--output-dir D] [--strip-prefix X]...` | 設定 `config.yaml`、最初の条件 `filters/untriaged.yaml`、知識 `knowledge.md` を作る。人に値を見せて同意を得てから実行する | `written` |
 | `install-agent` | サブエージェントの定義を `~/.copilot/agents` に置く | `status`、`restart_needed` |
-| `install-workflow` | （オプション）Copilot CLI の dynamic workflow `coverity-triage-run` を `~/.copilot/extensions` に置く | `status`、`path`、`restart_needed` |
+| `install-workflow` | （オプション）Copilot CLI の dynamic workflow `coverity-triage-run` を `~/.copilot/extensions` に、その 4 役のサブエージェントの定義を `~/.copilot/agents` に置く | `status`、`path`、`agents`、`restart_needed` |
 | `trial-build --repo R --build-command C [--setup-command S] [--build-dir D]` | （オプション）修正前の最新のコードを試しにビルドする。時間がかかる | `build_ok`、`log`、`log_tail` |
 | `set-verify --repo R --build-command C [--setup-command S] [--build-dir D] [--default build]` | （オプション）ビルドでの検証の設定を書く | `written` |
 

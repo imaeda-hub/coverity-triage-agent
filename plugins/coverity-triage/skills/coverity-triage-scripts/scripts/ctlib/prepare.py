@@ -25,6 +25,8 @@ WORKER_AGENT = PLUGIN_ROOT / "com.github.copilot" / "agents" / "coverity-triage-
 WORKFLOW_NAME = "coverity-triage-run"
 WORKFLOW_DIR = PLUGIN_ROOT / "workflow" / WORKFLOW_NAME  # structure: workflow/coverity-triage-run.md
 CT_PY = PLUGIN_ROOT / "skills" / "coverity-triage-scripts" / "scripts" / "ct.py"
+ROLE_AGENTS = [PLUGIN_ROOT / "com.github.copilot" / "agents" / f"coverity-triage-{role}.agent.md"
+               for role in ("investigator", "fixer", "deviation", "reviewer")]  # the workflow's subagents
 CONFIG_HEADER = ("# Coverity トリアージの設定（/coverity-setup で作成）。チームで共有するためコミットします。\n"
                  "# 認証情報はここに書きません（環境変数に置きます）。\n")
 
@@ -80,7 +82,8 @@ def install_agent() -> dict[str, Any]:
 
 
 def install_workflow() -> dict[str, Any]:
-    """(Option) Copy the dynamic workflow coverity-triage-run to the person's Copilot CLI extensions folder.
+    """(Option) Copy the dynamic workflow coverity-triage-run to the person's Copilot CLI extensions folder,
+    and its four role agents to the person's agents folder (as install-agent does for the worker).
 
     The extension runs ct.py and the MCP server's tools as child processes; paths.json beside it says
     where they are on this PC.
@@ -90,14 +93,22 @@ def install_workflow() -> dict[str, Any]:
     wanted = {p.name: p.read_bytes() for p in WORKFLOW_DIR.iterdir() if p.is_file()}
     wanted["paths.json"] = (json.dumps(paths, ensure_ascii=False, indent=1) + "\n").encode("utf-8")
     present = {p.name: p.read_bytes() for p in target.iterdir() if p.is_file()} if target.is_dir() else {}
-    status = "unchanged" if present == wanted else ("updated" if target.is_dir() else "installed")
-    if status != "unchanged":
+    agents = user_agents_dir()
+    stale_agents = [a for a in ROLE_AGENTS
+                    if not (agents / a.name).is_file() or (agents / a.name).read_bytes() != a.read_bytes()]
+    same = present == wanted and not stale_agents
+    status = "unchanged" if same else ("updated" if target.is_dir() else "installed")
+    if present != wanted:
         target.mkdir(parents=True, exist_ok=True)
         for name in set(present) - set(wanted):
             (target / name).unlink()
         for name, data in wanted.items():
             (target / name).write_bytes(data)
+    for agent in stale_agents:
+        agents.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(agent, agents / agent.name)
     return {"ok": True, "status": status, "path": str(target), "workflow": WORKFLOW_NAME, **paths,
+            "agents": [str(agents / a.name) for a in ROLE_AGENTS],
             "restart_needed": status != "unchanged",
             "next": "Copilot CLI を --experimental を付けて起動し直し、「What dynamic workflows are available?」で "
                     f"{WORKFLOW_NAME} が出ることを確かめる"}

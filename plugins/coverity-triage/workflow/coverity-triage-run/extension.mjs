@@ -7,12 +7,70 @@
 // ct.py と MCP サーバの場所を書いた paths.json を隣に置きます。
 
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { defineWorkflow, joinSession } from "@github/copilot-sdk/extension";
 
 const PATHS = JSON.parse(readFileSync(new URL("./paths.json", import.meta.url), "utf8"));
-const WORKER = "coverity-triage-worker";
-const MAX_FIX_ROUNDS = 2;
+const AGENTS = {
+    investigator: "coverity-triage-investigator",
+    fixer: "coverity-triage-fixer",
+    deviation: "coverity-triage-deviation",
+    reviewer: "coverity-triage-reviewer",
+};
+const MAX_REDO = 2;
+const TEXT = { type: "string" };
+const TEXTS = { type: "array", items: TEXT };
+const ATTRIBUTES = { classification: TEXT, action: TEXT, severity: TEXT };
+const SCHEMAS = {
+    investigator: {
+        type: "object",
+        required: ["verdict", "recommendation", "confidence", "confidence_reason", "revision_drift",
+            "group_excluded_cids"],
+        properties: {
+            verdict: {
+                type: "object",
+                required: ["judgement", "summary", "rationale", "evidence"],
+                properties: {
+                    judgement: { type: "string", enum: ["false_positive", "true_bug", "intentional", "undetermined"] },
+                    summary: TEXT,
+                    rationale: TEXT,
+                    evidence: {
+                        type: "array",
+                        items: {
+                            type: "object", required: ["file"],
+                            properties: { file: TEXT, line: { type: ["integer", "null"] }, note: TEXT },
+                        },
+                    },
+                },
+            },
+            recommendation: { type: "string", enum: ["fix", "deviation"] },
+            confidence: { type: "string", enum: ["high", "medium", "low"] },
+            confidence_reason: TEXT,
+            revision_drift: {
+                type: "object", required: ["status"],
+                properties: { status: { type: "string", enum: ["none", "detected", "unknown"] }, detail: TEXT },
+            },
+            group_excluded_cids: { type: "array", items: { type: "integer" } },
+        },
+    },
+    fixer: {
+        type: "object",
+        required: ["classification", "action", "severity", "summary", "impact", "exceeded_constraints",
+            "already_fixed_on_latest"],
+        properties: { ...ATTRIBUTES, summary: TEXT, impact: TEXT, exceeded_constraints: TEXTS,
+            already_fixed_on_latest: { type: "boolean" } },
+    },
+    deviation: {
+        type: "object",
+        required: ["classification", "action", "severity", "comment"],
+        properties: { ...ATTRIBUTES, comment: TEXT },
+    },
+    reviewer: {
+        type: "object",
+        required: ["ok", "fix_problems", "deviation_problems"],
+        properties: { ok: { type: "boolean" }, fix_problems: TEXTS, deviation_problems: TEXTS },
+    },
+};
 const PHASES = [
     { title: "準備", detail: "新しい実行を用意する、または前回の実行を開く" },
     { title: "検索", detail: "Coverity で警告を探す" },
@@ -97,7 +155,7 @@ function newRunOptions(args) {
     return options;
 }
 
-// ---- 作業の列（md の 4 章）----------------------------------------------------------------------
+// ---- 1 件の流れ----------------------------------------------------------------------
 
 async function lane(ctx, runDir, shared) {
     try {
@@ -116,9 +174,19 @@ async function lane(ctx, runDir, shared) {
     }
 }
 
+/** 1 つの役の AI を呼ぶ。返事は schema の形の JSON（失敗は null）。 */
+function askRole(ctx, role, brief, label, inputs) {
+    const prompt = [
+        `Coverity の警告を調べる作業の、あなたの役の分を行います。指示ファイル ${brief.brief} を読んでください。`,
+        "指示ファイルの「すること」と「終わったら」の代わりに、あなたの役の定義に従います。結果ファイルは書きません。",
+        ...Object.entries(inputs).map(([name, value]) => `\n## ${name}\n\n${JSON.stringify(value, null, 1)}`),
+    ].join("\n");
+    return ctx.agent(prompt, { agent: AGENTS[role], schema: SCHEMAS[role], label });
+}
+
 async function workItem(ctx, runDir, next, shared) {
     const item = next.item;
-    const label = `${item}#${next.attempt}`;
+    const base = `${item}#${next.attempt}`;
     const fail = async (reason) => { // [L8]
         must(await ct(ctx, "fail", "--run", runDir, "--item", item, "--reason", reason), `${item} を記録できません`);
         ctx.log(`${item}: 処理できませんでした — ${reason}`);
@@ -134,35 +202,60 @@ async function workItem(ctx, runDir, next, shared) {
     const brief = await ct(ctx, "brief", "--run", runDir, "--item", item); // [L4]
     if (!brief.ok) return fail(`指示ファイルを作れませんでした: ${brief.error}`);
 
-    const answer = await ctx.agent(brief.prompt, { agent: WORKER, label }); // [L5]
-    if (answer === null) return fail("サブエージェントが結果を返しませんでした");
+    const investigation = await askRole(ctx, "investigator", brief, `${base}-investigate`, {}); // [L5]
+    if (investigation === null) return fail("調査役が答えませんでした");
 
-    for (let round = 0; ; round++) {
-        const done = await ct(ctx, "finish", "--run", runDir, "--item", item); // [L6]
-        if (done.ok) {
-            const split = done.split_into.length ? `。原因が違う ${done.split_into.join(", ")} を個別の作業に戻しました` : "";
-            ctx.log(`${item}: ${RECOMMENDATION[done.recommendation] ?? done.recommendation}を推奨`
-                + `（確信度 ${CONFIDENCE[done.confidence] ?? done.confidence}）${split}`);
-            if (done.warnings.length) shared.warnings.push({ item, warnings: done.warnings });
-            return;
+    const judged = { "調査役の判定": investigation };
+    let [fix, deviation] = await ctx.parallel([
+        () => askRole(ctx, "fixer", brief, `${base}-fix`, judged), // [L12]
+        () => askRole(ctx, "deviation", brief, `${base}-deviation`, judged), // [L13]
+    ]);
+    for (let redo = 0; ; redo++) {
+        if (fix === null || deviation === null) return fail(`${fix === null ? "修正役" : "逸脱役"}が答えませんでした`);
+        const review = await askRole(ctx, "reviewer", brief, `${base}-review${redo || ""}`, // [L14]
+            { ...judged, "修正役の結果": fix, "逸脱役の結果": deviation });
+        if (review === null) return fail("確認役が答えませんでした");
+        if (review.ok) break;
+        if (redo >= MAX_REDO) {
+            return fail(`${MAX_REDO} 回直しても確認役が通しませんでした: `
+                + [...review.fix_problems, ...review.deviation_problems].join(" / "));
         }
-        if (!done.problems?.length || round >= MAX_FIX_ROUNDS) {
-            return fail([done.error, ...(done.problems ?? [])].join(" / "));
-        }
-        const prompt = `${brief.prompt}\n\n結果ファイルの次の点を直してください：\n`
-            + done.problems.map((p) => `- ${p}`).join("\n");
-        const fixed = await ctx.agent(prompt, { agent: WORKER, label: `${label}-fix${round + 1}` }); // [L7]
-        if (fixed === null) return fail("サブエージェントが直す途中で結果を返しませんでした");
+        ctx.log(`${item}: 確認役の指摘で直します（${redo + 1} 回目）`);
+        [fix, deviation] = await ctx.parallel([
+            () => (review.fix_problems.length ? askRole(ctx, "fixer", brief, `${base}-fix${redo + 1}`, // [L16]
+                { ...judged, "前の結果": fix, "直す点": review.fix_problems }) : fix),
+            () => (review.deviation_problems.length ? askRole(ctx, "deviation", brief, // [L17]
+                `${base}-deviation${redo + 1}`, { ...judged, "前の結果": deviation, "直す点": review.deviation_problems })
+                : deviation),
+        ]);
     }
+
+    writeFileSync(brief.result_file, JSON.stringify({ // [L6]
+        item,
+        verdict: investigation.verdict,
+        recommendation: investigation.recommendation,
+        confidence: investigation.confidence,
+        confidence_reason: investigation.confidence_reason,
+        deviation,
+        fix,
+        revision_drift: investigation.revision_drift,
+        group_excluded_cids: investigation.group_excluded_cids,
+    }, null, 1), "utf8");
+    const done = await ct(ctx, "finish", "--run", runDir, "--item", item);
+    if (!done.ok) return fail([done.error, ...(done.problems ?? [])].join(" / "));
+    const split = done.split_into.length ? `。原因が違う ${done.split_into.join(", ")} を個別の作業に戻しました` : "";
+    ctx.log(`${item}: ${RECOMMENDATION[done.recommendation] ?? done.recommendation}を推奨`
+        + `（確信度 ${CONFIDENCE[done.confidence] ?? done.confidence}）${split}`);
+    if (done.warnings.length) shared.warnings.push({ item, warnings: done.warnings });
 }
 
-// ---- 全体の流れ（md の 3 章）--------------------------------------------------------------------
+// ---- 全体の流れ--------------------------------------------------------------------
 
 const triageRun = defineWorkflow({
     meta: {
         name: "coverity-triage-run",
         description:
-            "Coverity の警告を 1 件ずつサブエージェント coverity-triage-worker に調べさせ、修正案と逸脱コメント案を作り、"
+            "Coverity の警告を 1 件ずつ、調査役・修正役・逸脱役・確認役の AI に調べさせ、修正案と逸脱コメント案を作り、"
             + "一覧 summary.md を作る（/coverity-run と同じ処理。反映はしない）。"
             + "args: { repo_root?: string（新しく始めるときの対象リポジトリの一番上の絶対パス）, "
             + "run_dir?: string（途中の実行を再開するときの実行フォルダ）, filter?: string, impact?: string[], "
