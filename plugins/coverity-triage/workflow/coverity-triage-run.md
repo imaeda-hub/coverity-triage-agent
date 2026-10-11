@@ -30,6 +30,8 @@ flowchart TD
 
 ## 1 件の調べ方
 
+4 つの役の AI が、順に受け渡しながら進めます。
+
 ```mermaid
 flowchart TD
     L1["次の作業を取る"] --> L2{"取れた？"}
@@ -38,15 +40,37 @@ flowchart TD
     L2 -- "取れた" --> L3["Coverity から<br>警告の経路を取る"]
     L3 -- "失敗" --> L8
     L3 --> L4["AI への指示書を作る"]
-    L4 --> L5["AI が調べて<br>修正案と逸脱案を書く"]
-    L5 -- "AI が答えない" --> L8
-    L5 --> L6["結果を確かめる"]
-    L6 -- "よい" --> L1
-    L6 -- "足りない点がある" --> L7["AI に直させる<br>（2 回まで）"]
-    L7 --> L6
-    L6 -- "2 回直してもだめ" --> L8["「処理できなかった」と<br>記録して次へ"]
+    L4 --> L5["🔍 調査役<br>本物のバグか誤検知かを判定する"]
+    L5 -- "答えない" --> L8
+    L5 --> L11{"最新のコードで<br>もう直っている？"}
+    L11 -- "いいえ" --> L12["🔧 修正役<br>修正案を作る"]
+    L11 -- "いいえ" --> L13["📝 逸脱役<br>逸脱コメント案を作る"]
+    L11 -- "はい" --> L13
+    L12 --> L14["✅ 確認役<br>2 つの案を確かめる"]
+    L13 --> L14
+    L14 -- "よい" --> L6["結果をまとめて記録する"]
+    L14 -- "修正案に問題" --> L16["修正役に直させる"]
+    L14 -- "逸脱案に問題" --> L17["逸脱役に直させる"]
+    L16 --> L14
+    L17 --> L14
+    L14 -- "2 回直してもだめ" --> L8["「処理できなかった」と<br>記録して次へ"]
+    L6 --> L1
     L8 --> L1
 ```
+
+修正役と逸脱役は同時に動きます。
+
+## 4 つの役
+
+| 役 | すること | 受け取るもの | 渡すもの | 使えるもの |
+|---|---|---|---|---|
+| 🔍 調査役 | コードを読み、本物のバグか誤検知か意図的かを判定する。推奨（修正／逸脱）と確信度も決める | 指示書 | 判定・根拠・推奨・確信度 | 読む・探す。スキル：調べ方、チェッカー別の観点 |
+| 🔧 修正役 | 修正用のコピーを最小限に直す | 指示書、調査役の判定 | 何をどう直したか、影響 | 読む・探す・直す（修正用のコピーだけ）。スキル：修正の決まり |
+| 📝 逸脱役 | 逸脱コメントと、分類（Classification / Action / Severity）の案を書く | 指示書、調査役の判定 | 逸脱コメント、分類の案 | 読む・探す。スキル：逸脱コメントの書き方 |
+| ✅ 確認役 | 2 つの案が判定と合っているか、決まりを守っているかを確かめる | 指示書、3 役の結果、修正の差分 | よい／直す点（修正案・逸脱案のどちらか） | 読む・探す。スキル：調べ方、修正の決まり、逸脱コメントの書き方 |
+
+- どの役もターミナルと Coverity は使いません。
+- 今の 1 人の AI（`coverity-triage-worker`）を、この 4 つに分けます。
 
 ## 決まりごと
 
@@ -131,11 +155,17 @@ flowchart TD
 | L1 | 次の作業を取り、修正用のコピーを用意する | 毎回：`ct.py next`（`ok: false` → L9、`item` が null → L10） | L9 |
 | L3 | 警告経路を取る。`done` が true になるまで同じ引数で呼ぶ | 毎回：`coverity-triage-call get_issues`（`repo_root`、`stream`、`cids`、`output_dir` = `item_dir`） | L8 |
 | L4 | 指示ファイルを作る | 毎回：`ct.py brief` | L8 |
-| L5 | `brief` の `prompt` をそのまま渡す | `ctx.agent`（`agent`: `coverity-triage-worker`、`label`: `<作業>#<attempt>`）。`null` → L8 | L8 |
-| L6 | 結果を確かめて記録する。`warnings` は返す値に入れる。進み具合を `ctx.log` で 1 行出す | 毎回：`ct.py finish` | L7 か L8 |
-| L7 | prompt に「結果ファイルの次の点を直してください：」と `problems` を足して渡す | `ctx.agent`（`label`: `<作業>#<attempt>-fix<回>`） | L8 |
+| L5 | 調査役。`brief` の `prompt` を渡し、判定を JSON で受け取る | `ctx.agent`（`agent`: 調査役、`schema`: 判定・根拠・推奨・確信度・`already_fixed_on_latest`、`label`: `<作業>#<attempt>-investigate`）。`null` → L8 | L8 |
+| L11 | 調査役の `already_fixed_on_latest` で分ける | — | — |
+| L12 | 修正役。prompt に調査役の判定を足す | `ctx.agent`（`agent`: 修正役、`schema`: 修正の要約・影響・分類、`label`: `…-fix`）。L13 と `ctx.parallel` で同時に | L8 |
+| L13 | 逸脱役。prompt に調査役の判定を足す。オプション annotation のときは注釈も入れる | `ctx.agent`（`agent`: 逸脱役、`schema`: 逸脱コメント・分類、`label`: `…-deviation`） | L8 |
+| L14 | 確認役。prompt に 3 役の結果と修正の差分の場所を足す | `ctx.agent`（`agent`: 確認役、`schema`: `ok` と、修正案・逸脱案ごとの直す点、`label`: `…-review<回>`） | L8 |
+| L16 | 修正役に直す点を渡す（L17 と合わせて 2 回まで） | `ctx.agent`（`label`: `…-fix<回>`） | L8 |
+| L17 | 逸脱役に直す点を渡す | `ctx.agent`（`label`: `…-deviation<回>`） | L8 |
+| L6 | 3 役の JSON をコードで `result.json`（スキル triage-report の形）にまとめ、確かめて記録する。`warnings` は返す値に入れる。進み具合を `ctx.log` で 1 行出す | 毎回：書き込みはコード、`ct.py finish`（`ok: false` → L8） | L8 |
 | L8 | 処理できなかったと記録する | 毎回：`ct.py fail --reason` | エラーで止める |
 
+- **未実装**：`extension.mjs` と 4 役のエージェント定義（`.agent.md`）は、まだこの図に合わせていない（今は 1 人の `coverity-triage-worker`）。各役の `.agent.md` の `tools` は「4 つの役」の表の「使えるもの」に合わせる。
 - `label` に `ct.py next` の `attempt` を入れる。同じ prompt と選択肢の `ctx.agent` は 1 つにまとめられるので、やり直しで前の結果が使い回されないようにするため。
 - 返す値：`run_dir`、`summary`、`found`、`counts`、`recommended`、`errors`、`warnings`、`verify`、`next`。
 
