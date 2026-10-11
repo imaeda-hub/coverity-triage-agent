@@ -1,7 +1,7 @@
 // dynamic workflow coverity-triage-run（GitHub Copilot CLI の拡張機能。実験的な機能）
 //
 // 構造の正本は ../coverity-triage-run.md（mermaid の図と表）です。この md に合わせて書きます。
-// コメントの [A1] などは、その図のノード ID です。md を直したら、このファイルも合わせて直します。
+// コメントの [A1] などは、その図のノード ID（mermaid の識別子）です。md を直したら、このファイルも合わせて直します。
 //
 // ct.py install-workflow が、このフォルダを ~/.copilot/extensions/coverity-triage-run/ に写し、
 // ct.py と MCP サーバの場所を書いた paths.json を隣に置きます。
@@ -14,11 +14,11 @@ const PATHS = JSON.parse(readFileSync(new URL("./paths.json", import.meta.url), 
 const WORKER = "coverity-triage-worker";
 const MAX_FIX_ROUNDS = 2;
 const PHASES = [
-    { title: "準備", detail: "実行フォルダを作る、または途中の実行を再開する" },
+    { title: "準備", detail: "新しい実行を用意する、または前回の実行を開く" },
     { title: "検索", detail: "Coverity で警告を探す" },
-    { title: "計画", detail: "グループ化して作業の一覧を作る" },
-    { title: "調査", detail: "作業ごとにサブエージェントが調べる" },
-    { title: "検証", detail: "（オプション）修正案をまとめてビルドで確かめる" },
+    { title: "計画", detail: "似た警告をまとめて作業の一覧を作る" },
+    { title: "調査", detail: "作業を 1 件ずつ調べる" },
+    { title: "検証", detail: "修正案をまとめてビルドで確かめる（設定したときだけ）" },
     { title: "一覧", detail: "一覧 summary.md を作る" },
 ];
 const LIST = { type: "array", items: { type: "string" } };

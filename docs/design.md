@@ -124,7 +124,7 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 
 2.2 と同じ処理を、Copilot CLI の dynamic workflow `coverity-triage-run` が行う。エージェント（チャットの AI）の代わりに、拡張機能のコード（`extension.mjs`）が `ct.py` と `coverity-triage-call` を子プロセスで順に動かし、6-4 だけをサブエージェント `coverity-triage-worker` に任せる（`ctx.agent`）。
 
-- 流れと分岐は [plugins/coverity-triage/workflow/coverity-triage-run.md](../plugins/coverity-triage/workflow/coverity-triage-run.md) の図を正本にする（決定 23）。人はこの md を直し、AI は md に合わせて `extension.mjs` を書く。図のノード ID（`[L5]` など）を `extension.mjs` のコメントに書き、`tests/test_workflow.py` が図・表・コードの対応と段階の一致を確かめる。
+- 流れと分岐は [plugins/coverity-triage/workflow/coverity-triage-run.md](../plugins/coverity-triage/workflow/coverity-triage-run.md) の図を正本にする（決定 23）。人はこの md を直し、AI は md に合わせて `extension.mjs` を書く。図のノード ID（mermaid の識別子 `L5` など。図には表示されない）を `extension.mjs` のコメント `// [L5]` に書き、`tests/test_workflow.py` が図・表・コードの対応と段階の一致を確かめる。
 - 2.2 との違い：
   - 2.2 の 3（フォルダへのアクセスの許可）は聞かない。サブエージェントの許可の確認は、会話の中で動かしたときは Copilot CLI がその場で出し、ターミナル（`copilot workflow run`）では先に `--allow-tool` と `--add-dir` で渡す。
   - `parallel` 本の作業の列を `ctx.parallel` で同時に動かす（`ct.py next` が列ごとに別の修正用のコピーを用意する）。

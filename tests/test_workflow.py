@@ -41,7 +41,7 @@ RESULT = {
 
 def md_section(title: str) -> str:
     text = WORKFLOW_MD.read_text(encoding="utf-8")
-    match = re.search(rf"^##+ {re.escape(title)}\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    match = re.search(rf"^##+ {re.escape(title)}\n(.*?)(?=^##+ |\Z)", text, re.M | re.S)
     assert match, title
     return match.group(1)
 
@@ -53,7 +53,8 @@ def table_column(section: str, column: int = 0) -> list[str]:
 
 def mermaid_nodes() -> set[str]:
     blocks = re.findall(r"```mermaid\n(.*?)```", WORKFLOW_MD.read_text(encoding="utf-8"), re.S)
-    return {n for block in blocks for n in re.findall(r"\[([A-Z][0-9]+)\]", block)}
+    # Node ids (A1, L5, ...) are mermaid identifiers: in the source, not in the rendered picture.
+    return {n for block in blocks for n in re.findall(r"(?<![\w\[])([A-Z][0-9]+)(?=[\[{(])", block)}
 
 
 # ---- the structure file and extension.mjs agree --------------------------------------------------
@@ -63,11 +64,11 @@ def test_every_node_of_the_diagrams_is_marked_in_extension_mjs():
     nodes = mermaid_nodes()
     marked = set(re.findall(r"// \[([A-Z][0-9]+)\]", EXTENSION.read_text(encoding="utf-8")))
     assert nodes and nodes == marked
-    assert set(table_column(md_section("5. ノードと処理"))) <= nodes
+    assert set(table_column(md_section("ノードと処理"))) <= nodes
 
 
 def test_phases_and_phase_calls_match_the_structure_file():
-    phases = table_column(md_section("段階（`phases`）"))
+    phases = table_column(md_section("画面に出る段階"))
     source = EXTENSION.read_text(encoding="utf-8")
     assert re.findall(r'\{ title: "([^"]+)", detail:', source) == phases
     assert sorted(set(re.findall(r'ctx\.phase\("([^"]+)"\)', source))) == sorted(phases)
@@ -118,8 +119,8 @@ def test_registration_matches_the_structure_file(capsys, home, tmp_path):
     assert registered["requestedEnvironmentVariables"] == ["COV_USER", "COV_AUTH_KEY"]
     [meta] = registered["workflows"]
     assert meta["name"] == "coverity-triage-run" and "limits" not in meta
-    assert [p["title"] for p in meta["phases"]] == table_column(md_section("段階（`phases`）"))
-    assert list(meta["argsSchema"]["properties"]) == table_column(md_section("2. 引数（`argsSchema`）"))
+    assert [p["title"] for p in meta["phases"]] == table_column(md_section("画面に出る段階"))
+    assert list(meta["argsSchema"]["properties"]) == table_column(md_section("始めるときに渡すもの"))
     # Only the keywords the SDK honours (docs/workflows.md, WorkflowJsonSchema).
     honoured = {"type", "required", "enum", "const", "properties", "items", "anyOf", "oneOf", "allOf"}
 
