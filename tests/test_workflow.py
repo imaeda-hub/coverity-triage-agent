@@ -148,11 +148,7 @@ def git(*args: str, cwd: Path) -> None:
 
 
 @pytest.fixture
-def repo(tmp_path, monkeypatch) -> Path:
-    for key in ("GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"):
-        monkeypatch.setenv(key, "test")
-    for key in ("GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"):
-        monkeypatch.setenv(key, "test@example.com")
+def repo(tmp_path) -> Path:
     root = tmp_path / "repo"
     shutil.copytree(SAMPLE, root)
     config = root / ".coverity-triage" / "config.yaml"
