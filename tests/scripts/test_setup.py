@@ -49,7 +49,7 @@ def test_detect_and_init_config(capsys, empty_repo):
     assert saved["coverity"]["path_strip_prefixes"] == ["C:/build/"]
     assert saved["vcs"] == {"type": "git", "base_branch": "develop", "branch_prefix": "coverity-fix/"}
     assert saved["options"] == {"annotation": False, "per_run_branch": False, "knowledge_suggestions": False,
-                                "metrics": False}
+                                "metrics": False, "markdown": False}
     server_settings.load_coverity_config(empty_repo)  # the MCP server accepts what was written
     first = yaml.safe_load((empty_repo / ".coverity-triage" / "filters" / "untriaged.yaml").read_text(encoding="utf-8"))
     assert first["streams"] == ["P-main"] and first["limit"] == 20

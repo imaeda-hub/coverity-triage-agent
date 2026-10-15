@@ -9,11 +9,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import metrics, oplog
+from . import approvals, metrics, oplog
 from .common import CtError, now, read_json, sha, write_json
 from .config import add_no_grouping
 from .models import TriageResult
-from .report import CONFIDENCE_JA, read_approvals, read_deviation
+from .report import CONFIDENCE_JA
 from .run import Run
 from .vcs import GitVcs, SvnVcs
 
@@ -27,13 +27,14 @@ def _token(path: Path) -> str:
 
 def preview(run_dir: str) -> dict[str, Any]:
     run = Run(run_dir)
-    summary = run.dir / "summary.md"
-    if not summary.is_file():
-        raise CtError("一覧 summary.md がありません（/coverity-run の最後に ct.py summary で作ります）")
-    approvals = read_approvals(summary.read_text(encoding="utf-8"))
+    # approvals.json alone is not enough: items approved in the screen while the run went on have one,
+    # the others get the AI's recommendation only from ct.py summary
+    if not approvals.summary_made(run):
+        raise CtError("一覧がありません（/coverity-run の最後に ct.py summary で作ります）")
+    decided = approvals.decisions(run)
     triage, code, reject, skipped, problems = [], [], [], [], []
     for item in run.state.items:
-        decision = approvals.get(item.id)
+        decision = decided.get(item.id)
         if decision is None or item.status != "done":
             continue
         saved = read_json(run.item_dir(item.id) / "saved.json", {})
@@ -52,7 +53,7 @@ def preview(run_dir: str) -> dict[str, Any]:
         elif decision == "deviation":
             if "coverity" in todo:
                 try:
-                    attrs, comment = read_deviation(run.report_file(item.id).read_text(encoding="utf-8"))
+                    attrs, comment = approvals.deviation_for(run, item.id)
                 except CtError as exc:
                     problems.append(f"{item.id}: {exc}")
                     continue
@@ -69,13 +70,17 @@ def preview(run_dir: str) -> dict[str, Any]:
     token = _token(path)
     counts = {"修正": sum(1 for c in code if c["kind"] == "fix"), "逸脱": len(triage), "却下": len(reject)}
     oplog.log(run.dir, "preview", counts=counts, token=token)
+    if triage or code or reject:
+        next_step = ("件数を人に見せて同意を得る。同意を得たら、逸脱が 1 件以上あれば MCP の update_triage"
+                     "（repo_root, plan_file, confirmation_token）を done まで呼び、そのあと ct.py apply-code --token")
+    else:
+        next_step = ("反映するものがありません（承認された作業が無いか、すべて反映済みです）。承認するときは、画面の「結果」で"
+                     f"承認してから、もう一度 ct.py preview（画面: ct.py gui --repo {run.repo} --run {run.dir} --view summary）")
     return {"ok": True, "counts": counts, "already_applied": skipped,
             "items": [{"id": e["id"], "approval": label, "cids": e["cids"]}
                       for label, entries in (("逸脱", triage), ("修正", [c for c in code if c["kind"] == "fix"]),
                                              ("却下", reject)) for e in entries],
-            "plan_file": str(path), "confirmation_token": token,
-            "next": "件数を人に見せて同意を得る。同意を得たら、逸脱が 1 件以上あれば MCP の update_triage"
-                    "（repo_root, plan_file, confirmation_token）を done まで呼び、そのあと ct.py apply-code --token"}
+            "plan_file": str(path), "confirmation_token": token, "next": next_step}
 
 
 def _pr_text(run: Run, entry: dict[str, Any]) -> tuple[str, str]:

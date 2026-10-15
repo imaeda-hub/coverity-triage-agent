@@ -22,12 +22,12 @@ from urllib.parse import urlparse
 
 import yaml
 
+from . import approvals
 from .common import PLUGIN_ROOT, CtError, out_text, read_json, resolve_path, run_cmd, write_json, write_text
 from .config import CONFIG_DIR, CONFIG_FILE, load_config
 from .envvars import get_env
 from .models import IssueDetail
 from .prepare import SERVER_DIR, agent_state, doctor
-from .report import read_approvals
 from .run import Run
 
 ASSETS = PLUGIN_ROOT / "skills" / "coverity-selftest" / "assets"
@@ -55,7 +55,7 @@ CHECKS = [
     Check("1-6", "サブエージェントのモデル", "サブエージェントが GPT-6 Luna で動く", "agent"),
     Check("1-7", "配置", "サブエージェントの定義が ~/.copilot/agents にあり最新、MCP サーバの Python 環境がある", "script"),
     Check("2-1", "見本のリポジトリ", "偽データの見本のリポジトリを作れる", "script"),
-    Check("2-2", "実行", "すべての作業が終わり、summary.md ができる", "script"),
+    Check("2-2", "実行", "すべての作業が終わり、summary.html ができる", "script"),
     Check("2-3", "レポートの形", "各レポートに逸脱案と修正案（差分つき）があり、承認欄に推奨が入っている", "script"),
     Check("2-4", "グループ", "CID 20004〜20006 が 1 つのグループになる", "script"),
     Check("2-5", "AI の結論", "想定の結論（assets/expected.yaml）と合う（合わなくても失敗にはしない）", "script"),
@@ -222,24 +222,24 @@ def check_run(folder: str, run_dir: str) -> dict[str, Any]:
     result = Result(folder)
     run = Run(run_dir)
     counts = run.state.counts()
-    summary = run.dir / "summary.md"
+    summary = run.summary_file()
     finished = counts["done"] == len(run.state.items) and summary.is_file()
     result.record("2-2", "pass" if finished else "fail", f"作業 {len(run.state.items)} 件: {counts}",
-                  "" if summary.is_file() else "summary.md がありません")
+                  "" if summary.is_file() else "summary.html がありません")
 
     problems = []
-    approvals = read_approvals(summary.read_text(encoding="utf-8")) if summary.is_file() else {}
+    decided = approvals.load(run)
     for item in run.state.items:
         if item.status != "done":
             continue
         text = run.report_file(item.id).read_text(encoding="utf-8") if run.report_file(item.id).is_file() else ""
         saved = read_json(run.item_dir(item.id) / "saved.json", {})
-        if "## 4. 案A: 逸脱" not in text or "## 5. 案B: 修正" not in text:
+        if "案A: 逸脱" not in text or "案B: 修正" not in text:
             problems.append(f"{item.id}: 逸脱案か修正案の節がありません")
-        if "fix" in saved and "```diff" not in text:
+        if "fix" in saved and 'class="diff"' not in text:
             problems.append(f"{item.id}: 修正の差分がレポートにありません")
-        if item.id not in approvals:
-            problems.append(f"{item.id}: 承認欄に推奨が入っていません")
+        if not (decided.get(item.id) or {}).get("decision"):
+            problems.append(f"{item.id}: 承認（approvals.json）に推奨が入っていません")
     result.record("2-3", "fail" if problems else "pass", "問題なし" if not problems else f"{len(problems)} 件の問題",
                   "\n".join(problems))
 

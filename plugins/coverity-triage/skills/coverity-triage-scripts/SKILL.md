@@ -1,6 +1,6 @@
 ---
 name: coverity-triage-scripts
-description: Coverity トリアージの決まった処理（実行フォルダ、グループ化、修正用のコピー、差分とブランチ、レポートと一覧、承認の読み取り、反映、準備の確認、動作確認）をするスクリプト ct.py の使い方。/coverity-setup・/coverity-run・/coverity-apply・/coverity-help・/coverity-selftest の手順で ct.py を使うときに読む。
+description: Coverity トリアージの決まった処理（実行フォルダ、グループ化、修正用のコピー、差分とブランチ、レポートと一覧、承認の読み取り、反映、準備の確認、動作確認、設定・結果・監視の画面）をするスクリプト ct.py の使い方。/coverity-setup・/coverity-run・/coverity-apply・/coverity-help・/coverity-selftest の手順で ct.py を使うときに読む。
 user-invocable: false
 ---
 
@@ -42,7 +42,6 @@ uv run --native-tls <このスキルのフォルダ>/scripts/ct.py <コマンド
 | `install-agent` | サブエージェントの定義を `~/.copilot/agents` に置く | `status`、`restart_needed` |
 | `trial-build --repo R --build-command C [--setup-command S] [--build-dir D]` | （オプション）修正前の最新のコードを試しにビルドする。時間がかかる | `build_ok`、`log`、`log_tail` |
 | `set-verify --repo R --build-command C [--setup-command S] [--build-dir D] [--default build]` | （オプション）ビルドでの検証の設定を書く | `written` |
-| `gui --repo R [--no-browser] [--foreground]` | 設定の画面をブラウザで開く（設定・条件・知識・グループ化しない CID・認証情報をまとめて設定する）。画面は裏で動き、コマンドはすぐ戻る。`--foreground` は画面を閉じるまで戻らない（人が自分のターミナルで動かすとき） | `url`、`browser_opened`、`log` |
 
 ### 実行（/coverity-run）
 
@@ -54,21 +53,31 @@ uv run --native-tls <このスキルのフォルダ>/scripts/ct.py <コマンド
 | `plan --run D` | 検索結果（`issues.json`）から、パスの対応づけとグループ化をして作業の一覧を作る | `items`、`groups`、`analyzed_revision`、`notes` |
 | `next --run D` | 次の作業を取り出し、修正用のコピーを用意する（初回は時間がかかる） | `item`（無ければ null）、`cids`、`stream`、`item_dir` |
 | `brief --run D --item I` | サブエージェントへの指示ファイル `brief.md` を作る | `prompt`（サブエージェントにそのまま渡す）、`result_file` |
-| `finish --run D --item I` | 結果ファイルを確かめ、差分・ブランチ・詳細レポートを作る | `recommendation`、`confidence`、`warnings`、`split_into` |
+| `finish --run D --item I` | 結果ファイルを確かめ、差分・ブランチ・詳細レポート `cid/<ID>.html` を作る（一覧をもう作った実行では、その作業の承認に AI の推奨も入れる） | `recommendation`、`confidence`、`warnings`、`split_into` |
 | `fail --run D --item I --reason "理由"` | 作業を処理できなかったと記録する（再開でやり直せる） | `counts` |
 | `status --run D` | 進み具合 | `counts`、`errors` |
 | `verify --run D` | （オプション）全部の修正案をまとめてビルドで確かめる。時間がかかる | `build_ok`、`downgraded_to_low` |
-| `summary --run D` | 一覧 `summary.md` を作り、修正用のコピーを片付ける | `summary`、`recommended`、`errors` |
+| `summary --run D` | 一覧 `summary.html`（設定 `options.markdown` が true なら `summary.md` も）を作り、まだ承認の無い作業に AI の推奨を入れて `approvals.json` に保存し、修正用のコピーを片付ける | `summary`（`summary.html` の場所）、`recommended`、`errors` |
 
 ### 反映（/coverity-apply）
 
 | コマンド | すること | 主な結果 |
 |---|---|---|
-| `preview --run D` | 一覧の承認欄と詳細レポートの逸脱の節を読み、反映の内容 `apply-plan.json` と確認用の文字列を作る | `counts`、`items`、`plan_file`、`confirmation_token` |
+| `preview --run D` | 人が画面で入れた承認と逸脱の手直し（`approvals.json`。古い実行は `summary.md` の承認欄と `cid/<ID>.md` の逸脱の節）を読み、反映の内容 `apply-plan.json` と確認用の文字列を作る | `counts`、`items`、`plan_file`、`confirmation_token`、`next` |
 | `apply-code --run D --token T` | 修正を反映する（git：ブランチを push、svn：ワーキングコピーに差分を適用）。却下したグループは次から個別にする | `pull_requests`（`title`、`body`、`branch`、`compare_url`）、`svn_applied`、`coverity`、`errors` |
 | `knowledge-candidates --run D` | （オプション）人が推奨を変えた・手直しした作業から、知識の候補を出す | `candidates`、`current_knowledge` |
 | `add-knowledge --run D --entry "1 行の知識"...` | （オプション）人が選んだ知識を `knowledge.md` に追記する | `file` |
 | `stats --repo R` | （オプション）効果測定の集計 | `recommendation_taken_rate` など |
+
+### 画面（/coverity-setup・/coverity-run・/coverity-apply）
+
+| コマンド | すること | 主な結果 |
+|---|---|---|
+| `gui --repo R [--run D] [--view monitor\|summary\|settings] [--no-browser] [--foreground]` | 画面をブラウザで開く。画面には「監視」（AI の動きと重大なエラー）、「結果」（実行の一覧、一覧、詳細レポート、承認の入力、差分と修正後のファイル）、「設定」（設定・条件・知識・グループ化しない CID・認証情報）がある。`--run` で実行フォルダを、`--view` で最初に見せる区分を選ぶ（`--run` があれば既定は `monitor`）。画面は裏で動き、コマンドはすぐ戻る。同じリポジトリの画面が動いていれば、新しく起動せずに使い回す。`--foreground` は画面のサーバが止まるまで戻らない（人が自分のターミナルで動かすとき。動いている画面は止めて、新しく起動する） | `url`、`browser_opened`、`reused`、`log`（起動できなかったときは `error`、`log_tail`） |
+
+- 画面のサーバは、人が画面の「サーバを止める」を押すまで動き続けます（タブを閉じても止まりません）。止めるコマンドはありません。同じリポジトリで新しい画面のサーバが起動したとき（`--foreground` など）は、古いほうが自分で止まります。
+- 承認（`approvals.json`）は人が画面で入れます。AI は書き換えません。
+- `--run` を持つコマンドが `ok: false` で終わると、その実行の `operations.log` に記録され、画面の「監視」の「重大なエラー」に出ます。
 
 ### 動作確認（/coverity-selftest）
 

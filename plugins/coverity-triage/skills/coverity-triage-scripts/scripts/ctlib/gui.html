@@ -3,12 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Coverity トリアージの設定</title>
+<title>Coverity トリアージ</title>
 <style>
 :root {
   --bg: #f5f6f8; --surface: #ffffff; --surface-2: #f0f2f5; --line: #d9dde3; --line-strong: #b8bfc9;
   --text: #1d2330; --muted: #5d6675; --accent: #1f5fbf; --accent-text: #ffffff; --accent-soft: #e6eefb;
   --ok: #1b7a43; --ok-soft: #e3f4ea; --warn: #8a5a00; --warn-soft: #fff4d6; --ng: #b42318; --ng-soft: #fde8e6;
+  --violet: #6b3fb8; --violet-soft: #efe8fb;
   --focus: #1f5fbf55; --shadow: 0 1px 2px #0000000f, 0 2px 8px #0000000a;
   color-scheme: light;
 }
@@ -17,11 +18,13 @@
     --bg: #15181d; --surface: #1d2128; --surface-2: #252a33; --line: #343a45; --line-strong: #4a5260;
     --text: #e6e9ee; --muted: #9aa3b2; --accent: #6ea2f0; --accent-text: #0f1420; --accent-soft: #23324a;
     --ok: #5cc98a; --ok-soft: #1c3427; --warn: #e6b74f; --warn-soft: #3a311c; --ng: #f2877d; --ng-soft: #42211f;
+    --violet: #c4a6ff; --violet-soft: #2e2246;
     --focus: #6ea2f066; --shadow: 0 1px 2px #00000040;
     color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg); color: var(--text);
@@ -32,16 +35,37 @@ code, .mono { font-family: Consolas, "BIZ UDGothic", "MS Gothic", ui-monospace, 
 
 /* header */
 .top {
-  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 16px;
+  position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 10px 20px;
   padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--line);
 }
-.top h1 { font-size: 17px; margin: 0; font-weight: 650; }
+.top h1 { font-size: 17px; margin: 0; font-weight: 650; white-space: nowrap; }
 .top .repo { color: var(--muted); font-size: 12.5px; word-break: break-all; }
-.top .title { flex: 1; min-width: 0; }
-.top .actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.top .title { flex: 0 1 auto; min-width: 0; }
+.top .actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; margin-left: auto; }
 .dirty { color: var(--warn); font-size: 12.5px; white-space: nowrap; }
 .dirty::before { content: "●"; margin-right: 4px; }
 .dirty[hidden] { display: none; }
+nav.views { display: flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--surface-2); flex-shrink: 0; }
+nav.views button {
+  border: 0; background: transparent; color: var(--muted); padding: 5px 18px; border-radius: 7px; cursor: pointer;
+  font-weight: 600; white-space: nowrap; display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+}
+nav.views button:hover { color: var(--text); }
+nav.views button[aria-selected="true"] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow); }
+.vmark { font-size: 9px; }
+.vmark.error { color: var(--ng); }
+.vmark.changed { color: var(--warn); }
+#settingsActions { display: inline-flex; align-items: center; gap: 8px; }
+.menu { position: relative; }
+.menu .micon { display: none; }
+.menu-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); min-width: 230px; z-index: 20; padding: 6px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 24px #0000002e;
+}
+.menu-pop .label { font-size: 11.5px; color: var(--muted); padding: 4px 10px 2px; }
+.menu-pop button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
+.menu-pop button:hover { background: var(--surface-2); }
+.menu-pop button.danger { color: var(--ng); }
 
 .btn {
   border: 1px solid var(--line-strong); background: var(--surface); border-radius: 6px;
@@ -58,17 +82,17 @@ code, .mono { font-family: Consolas, "BIZ UDGothic", "MS Gothic", ui-monospace, 
 /* layout */
 .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; max-width: 1120px; margin: 0 auto; padding: 20px 24px 80px; }
 nav.tabs { position: sticky; top: 76px; align-self: start; display: flex; flex-direction: column; gap: 2px; }
-nav .group { font-size: 11.5px; color: var(--muted); margin: 14px 10px 4px; letter-spacing: .04em; }
-nav .group:first-child { margin-top: 0; }
-nav button {
+nav.tabs .group { font-size: 11.5px; color: var(--muted); margin: 14px 10px 4px; letter-spacing: .04em; }
+nav.tabs .group:first-child { margin-top: 0; }
+nav.tabs button {
   text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 6px; cursor: pointer;
   display: flex; align-items: center; gap: 8px;
 }
-nav button:hover { background: var(--surface-2); }
-nav button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-nav button .mark { margin-left: auto; font-size: 10px; }
-nav button .mark.changed { color: var(--warn); }
-nav button .mark.error { color: var(--ng); }
+nav.tabs button:hover { background: var(--surface-2); }
+nav.tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav.tabs button .mark { margin-left: auto; font-size: 10px; }
+nav.tabs button .mark.changed { color: var(--warn); }
+nav.tabs button .mark.error { color: var(--ng); }
 
 .panel[hidden] { display: none; }
 .panel > h2 { font-size: 20px; margin: 0 0 4px; }
@@ -186,14 +210,171 @@ table.changes td.before { color: var(--muted); }
 .ended { max-width: 560px; margin: 15vh auto; text-align: center; padding: 0 24px; }
 .ended h1 { font-size: 22px; }
 
+/* views: monitor and results */
+.wrap { max-width: 1240px; margin: 0 auto; padding: 20px 24px 80px; }
+.wrap h2 { font-size: 20px; margin: 0; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 14px; }
+.toolbar .grow { flex: 1; }
+.toolbar select { width: auto; min-width: 0; max-width: 100%; }
+.runpick { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; font-weight: 600; white-space: nowrap; }
+.runpick select { flex: 1 1 auto; font-weight: normal; }
+.card > h3 .help { font-weight: normal; }
+.view a:not(.btn) { color: var(--accent); }
+a.btn { display: inline-block; text-decoration: none; color: inherit; }
+.linkish { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; text-align: left; font-weight: 600; }
+.sub { display: block; color: var(--muted); font-size: 12px; font-weight: normal; }
+.sub.bad { color: var(--ng); }
+.muted { color: var(--muted); }
+
+/* monitor */
+pre.board {
+  margin: 0; padding: 12px; border-radius: 8px; background: var(--surface-2); color: var(--text); overflow-x: auto;
+  white-space: pre; font: 13px/1.15 Consolas, "Cascadia Mono", Menlo, "DejaVu Sans Mono", ui-monospace, monospace;
+}
+/* line-height near 1 so that the vertical lines of the boxes join */
+pre.board .w1, pre.board .w2 { display: inline-block; height: 1.15em; vertical-align: top; text-align: center; overflow: hidden; }
+pre.board .w1 { width: 1ch; }
+pre.board .w2 { width: 2ch; }
+pre.board .probe { position: absolute; visibility: hidden; }
+.b-main { color: var(--accent); }
+.b-run { color: var(--accent); }
+.b-retry { color: var(--violet); }
+.b-stall { color: var(--warn); font-weight: 700; }
+.b-err { color: var(--ng); font-weight: 700; }
+.b-idle, .b-line, .b-dim, .bar-off { color: var(--muted); }
+.bar-off { opacity: .6; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--muted); margin: 10px 0 0; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.legend .run { background: var(--accent); }
+.legend .retry { background: var(--violet); }
+.legend .stall { background: var(--warn); }
+.legend .err { background: var(--ng); }
+.legend .idle { background: var(--line-strong); }
+.slots { list-style: none; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
+.slots li { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 12px; background: var(--surface); min-width: 0; overflow-wrap: anywhere; }
+.slots li.stall { border-left-color: var(--warn); }
+.slots li.retry { border-left-color: var(--violet); }
+.slots li.err { border-left-color: var(--ng); }
+.slots .memo { font-size: 13px; margin-top: 2px; }
+.slots li.none { border: 0; padding: 0; background: none; color: var(--muted); }
+.mon-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.alerts { display: flex; flex-direction: column; gap: 6px; }
+details.alert { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 8px; background: var(--surface); min-width: 0; }
+details.alert.critical { border-left-color: var(--ng); background: var(--ng-soft); }
+details.alert.warning { background: var(--warn-soft); }
+details.alert > summary { cursor: pointer; padding: 8px 12px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+details.alert .a-title { font-weight: 600; flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
+details.alert .a-meta { font-size: 12px; color: var(--muted); }
+details.alert .a-body { padding: 0 12px 10px; }
+details.alert pre { margin: 0 0 8px; padding: 8px 10px; border-radius: 6px; background: var(--surface); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
+.pill.critical { background: var(--ng); color: var(--accent-text); }
+.recent { list-style: none; margin: 0; padding: 0; max-height: 460px; overflow: auto; font-size: 13px; }
+.recent li { display: grid; grid-template-columns: auto auto minmax(0, 1fr); gap: 8px; align-items: baseline; padding: 5px 2px; border-bottom: 1px solid var(--line); }
+.recent li:last-child { border-bottom: 0; }
+.recent time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.recent .src { font-size: 11px; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 4px; }
+.recent .text { overflow-wrap: anywhere; }
+.recent li.warning .text { color: var(--warn); }
+.recent li.critical .text { color: var(--ng); font-weight: 600; }
+
+/* results */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 13px; color: var(--muted); margin: 0 0 12px; }
+.crumbs a { color: var(--accent); }
+.crumbs [aria-current] { color: var(--text); font-weight: 600; overflow-wrap: anywhere; }
+.res-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 10px 16px; margin-bottom: 14px; }
+.res-head .lead { color: var(--muted); margin: 2px 0 0; overflow-wrap: anywhere; }
+.res-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin: 0 0 14px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; box-shadow: var(--shadow); min-width: 0; }
+.tile .label { font-size: 12px; color: var(--muted); }
+.tile .value { font-size: 22px; font-weight: 700; line-height: 1.3; }
+.tile .sub { overflow-wrap: anywhere; }
+.tile.warn { border-color: var(--warn); }
+.tile.warn .value { color: var(--warn); }
+.tile.bad { border-color: var(--ng); }
+.tile.bad .value { color: var(--ng); }
+.table-card { padding: 6px 0 0; }
+.table-card > h3 { padding: 10px 18px 6px; }
+.table-wrap { overflow-x: auto; }
+table.items { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.items th, table.items td { text-align: left; padding: 9px 12px; border-top: 1px solid var(--line); vertical-align: top; }
+table.items th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+table.items tbody tr { cursor: pointer; }
+table.items tbody tr:hover { background: var(--surface-2); }
+table.items select { width: auto; min-width: 8.5em; padding: 4px 6px; }
+table.items .prose { min-width: 16em; overflow-wrap: anywhere; }
+table.items td.acts { white-space: nowrap; }
+.edited { display: block; color: var(--warn); font-size: 12px; font-weight: 600; margin-top: 3px; white-space: nowrap; }
+.badge { display: inline-block; padding: 0 8px; border-radius: 99px; font-size: 12px; font-weight: 600; line-height: 1.7; white-space: nowrap; background: var(--surface-2); color: var(--muted); }
+.badge.fix { background: var(--accent-soft); color: var(--accent); }
+.badge.deviation { background: var(--violet-soft); color: var(--violet); }
+.badge.conf-high { background: var(--ok-soft); color: var(--ok); }
+.badge.conf-medium { background: var(--warn-soft); color: var(--warn); }
+.badge.conf-low { background: var(--ng-soft); color: var(--ng); }
+.badges { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; font-size: 12.5px; color: var(--muted); }
+.detail-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: -4px 0 12px; }
+.detail-nav .pos { color: var(--muted); font-size: 13px; }
+.detail { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start; }
+.frame-wrap { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); min-width: 0; }
+.frame-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--surface-2); font-size: 13px; }
+.frame-bar .frame-label { font-weight: 600; flex: 1 1 160px; min-width: 0; overflow-wrap: anywhere; }
+.frame-wrap iframe { display: block; width: 100%; height: calc(100vh - 200px); min-height: 480px; border: 0; background: var(--bg); }
+.frame-none { padding: 40px 20px; text-align: center; color: var(--muted); }
+.apanel { position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; margin: 0; }
+.apanel > h3 { font-size: 16px; margin: 0 0 6px; overflow-wrap: anywhere; }
+.apanel .ap-summary { margin: 8px 0 2px; overflow-wrap: anywhere; }
+.apanel fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px 12px; margin: 0 0 12px; min-width: 0; }
+.apanel legend { font-weight: 600; padding: 0 4px; }
+.apanel textarea { min-height: 120px; }
+.diffmark { font-size: 11px; color: var(--warn); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 6px; font-weight: 600; }
+.ap-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.ap-state { font-size: 12.5px; margin-top: 6px; min-height: 1.6em; }
+.ap-state.dirty-state { color: var(--warn); }
+.ap-msg { margin-top: 8px; white-space: pre-wrap; }
+.ap-msg.ok { background: var(--ok-soft); color: var(--text); }
+.files h4 { font-size: 13px; margin: 14px 0 4px; }
+.files ul { margin: 0; padding-left: 18px; }
+.files li { margin: 3px 0; overflow-wrap: anywhere; }
+.files .newtab { margin-left: 4px; text-decoration: none; }
+.btn.danger-fill { background: var(--ng); border-color: var(--ng); color: var(--accent-text); font-weight: 600; }
+#stopNotes { margin: 8px 0; }
+
+@media (max-width: 980px) {
+  .detail { grid-template-columns: minmax(0, 1fr); }
+  .apanel { position: static; max-height: none; }
+  .frame-wrap iframe { height: 70vh; min-height: 360px; }
+  .mon-grid { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 780px) {
-  .top { padding: 10px 16px; flex-wrap: wrap; }
+  .top { padding: 8px 16px; flex-wrap: wrap; gap: 8px 10px; }
+  .top .title { flex: 1 1 0; }
+  .top h1 { font-size: 15.5px; }
+  .menu .mlabel { display: none; }
+  .menu .micon { display: inline; }
+  #menuBtn { padding: 6px 11px; }
+  .top .repo { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dirty { font-size: 0; }
+  .dirty::before { font-size: 12.5px; margin: 0; }
+  nav.views { order: 3; flex: 1 1 100%; }
+  nav.views button { flex: 1; padding: 5px 8px; }
   .layout { grid-template-columns: 1fr; padding: 12px 16px 80px; gap: 12px; }
+  .wrap { padding: 12px 16px 80px; }
   nav.tabs { position: static; flex-direction: row; overflow-x: auto; gap: 4px; }
-  nav .group { display: none; }
-  nav button { white-space: nowrap; }
+  nav.tabs .group { display: none; }
+  nav.tabs button { white-space: nowrap; }
   .split { grid-template-columns: 1fr; }
   .banner { padding: 0 16px; }
+  .board-card { padding: 12px; }
+  pre.board { padding: 8px; font-size: 12px; }
+}
+@media (max-width: 700px) {
+  table.items thead { display: none; }
+  table.items, table.items tbody, table.items tr, table.items td { display: block; width: 100%; }
+  table.items tr { border-top: 1px solid var(--line); padding: 8px 14px; }
+  table.items td { border: 0; padding: 3px 0; display: grid; grid-template-columns: 4.5em minmax(0, 1fr); gap: 8px; }
+  table.items td::before { content: attr(data-label); color: var(--muted); font-size: 12px; padding-top: 2px; }
+  table.items .prose { min-width: 0; }
+  table.items select { min-width: 0; width: 100%; }
 }
 </style>
 </head>
@@ -201,15 +382,31 @@ table.changes td.before { color: var(--muted); }
 <div id="app">
 <header class="top">
   <div class="title">
-    <h1>Coverity トリアージの設定</h1>
+    <h1>Coverity トリアージ</h1>
     <div class="repo" id="repo">読み込んでいます…</div>
   </div>
+  <nav class="views" role="tablist" aria-label="画面の種類">
+    <button role="tab" type="button" data-view="monitor" aria-selected="false">監視<span class="vmark"></span></button>
+    <button role="tab" type="button" data-view="summary" aria-selected="false">結果<span class="vmark"></span></button>
+    <button role="tab" type="button" data-view="settings" aria-selected="true">設定<span class="vmark"></span></button>
+  </nav>
   <div class="actions">
-    <span class="dirty" id="dirty" hidden>保存していない変更があります</span>
-    <button class="btn primary" id="saveBtn" type="button">保存…</button>
-    <button class="btn" id="closeBtn" type="button">終了</button>
+    <span id="settingsActions">
+      <span class="dirty" id="dirty" title="保存していない変更があります" hidden>保存していない変更があります</span>
+      <button class="btn primary" id="saveBtn" type="button">保存…</button>
+    </span>
+    <div class="menu">
+      <button class="btn" id="menuBtn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="menuPop" aria-label="メニュー" title="メニュー"><span class="mlabel">メニュー ▾</span><span class="micon" aria-hidden="true">☰</span></button>
+      <div class="menu-pop" id="menuPop" hidden>
+        <div class="label">この画面のサーバ</div>
+        <button type="button" class="danger" id="stopBtn">サーバを止める…</button>
+      </div>
+    </div>
   </div>
 </header>
+<div class="banner" id="sysBanner"></div>
+
+<div class="view" id="view-settings">
 <div class="banner" id="banners"></div>
 
 <div class="layout">
@@ -331,6 +528,10 @@ table.changes td.before { color: var(--muted); }
         <div class="switch-row">
           <div class="text"><b>効果測定の記録</b><span>承認の内訳、推奨どおりに採用された割合、手直しの割合、1 件あたりの処理時間を記録します。</span></div>
           <label class="switch"><input type="checkbox" data-bind="options.metrics" data-kind="bool" aria-label="効果測定の記録"><i></i></label>
+        </div>
+        <div class="switch-row">
+          <div class="text"><b>Markdown も出す</b><span>一覧と詳細レポートを、HTML（<code>summary.html</code>、<code>cid/&lt;ID&gt;.html</code>）に加えて Markdown（<code>summary.md</code>、<code>cid/&lt;ID&gt;.md</code>）でも出します。GitHub などで読みたいときに使います。どちらも表示だけで、承認はこの画面の「結果」で入れます。</span></div>
+          <label class="switch"><input type="checkbox" data-bind="options.markdown" data-kind="bool" aria-label="Markdown も出す"><i></i></label>
         </div>
       </div>
 
@@ -474,7 +675,7 @@ table.changes td.before { color: var(--muted); }
             <div class="field">
               <label for="ff-name">表示名<span class="cond">任意</span></label>
               <input type="text" id="ff-name" data-fbind="name" autocomplete="off">
-              <div class="help">一覧 <code>summary.md</code> の見出しや、実行の一覧に出る、人が読むための説明です。空ならファイル名を使います。</div>
+              <div class="help">一覧 <code>summary.html</code> の見出しや、実行の一覧に出る、人が読むための説明です。空ならファイル名を使います。</div>
             </div>
           </div>
           <div class="row">
@@ -540,6 +741,55 @@ table.changes td.before { color: var(--muted); }
     </section>
   </main>
 </div>
+</div>
+
+<!-- ================= monitor ================= -->
+<section class="view wrap" id="view-monitor" hidden>
+  <div class="toolbar">
+    <label class="runpick" for="monRun">実行 <select id="monRun"></select></label>
+    <span class="pill info" id="monStage" hidden></span>
+    <span class="grow"></span>
+    <span class="help" id="monUpdated"></span>
+    <a class="btn small" id="monToResults" href="#view=summary" hidden>結果を見る</a>
+  </div>
+  <div class="note warn" id="monError" hidden style="margin-bottom:14px"></div>
+  <div class="card" id="monEmpty" hidden></div>
+  <div id="monBody">
+    <div class="card board-card">
+      <h3>エージェントの動き</h3>
+      <p class="desc">上がメインのエージェント（Copilot）、下が同時に動くサブエージェント（worker）です。1 つの枠が 1 つのサブエージェントです。このタブを開いている間、2 秒ごとに新しくします。</p>
+      <pre class="board" id="board"></pre>
+      <div class="legend">
+        <span><i class="run"></i>調べている</span><span><i class="retry"></i>結果を直している</span>
+        <span><i class="stall"></i>止まっているかもしれない（10 分以上動きがない）</span><span><i class="err"></i>エラー</span><span><i class="idle"></i>空き</span>
+      </div>
+      <ul class="slots" id="slots"></ul>
+    </div>
+    <div class="mon-grid">
+      <div class="card">
+        <h3>重大なエラー <span class="help" id="alertCount"></span></h3>
+        <p class="desc">赤は重大なエラー（作業が止まったもの）、黄は注意です。押すと詳しい内容を開きます。新しい順です。</p>
+        <div class="alerts" id="alerts"></div>
+      </div>
+      <div class="card">
+        <h3>最近の動き</h3>
+        <p class="desc">スクリプト（ct.py）と MCP サーバの記録です。新しい順です。</p>
+        <ul class="recent" id="recent"></ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= results ================= -->
+<section class="view wrap" id="view-summary" hidden>
+  <nav class="crumbs" id="resCrumbs" aria-label="今いる場所"></nav>
+  <div class="note warn" id="resMsg" hidden style="margin-bottom:14px;white-space:pre-wrap"></div>
+  <div id="resBody"></div>
+</section>
+
+<datalist id="dl-classification"><option value="False Positive"><option value="Intentional"><option value="Bug"><option value="Pending"></datalist>
+<datalist id="dl-action"><option value="Ignore"><option value="Fix Required"><option value="Fix Submitted"><option value="Modeling Required"><option value="Undecided"></datalist>
+<datalist id="dl-severity"><option value="Unspecified"><option value="Major"><option value="Moderate"><option value="Minor"></datalist>
 
 <dialog id="dlg" aria-labelledby="dlg-title">
   <div class="head"><h2 id="dlg-title">保存する内容</h2></div>
@@ -547,6 +797,18 @@ table.changes td.before { color: var(--muted); }
   <div class="foot">
     <button class="btn" type="button" id="dlgCancel">戻る</button>
     <button class="btn primary" type="button" id="dlgOk">保存する</button>
+  </div>
+</dialog>
+<dialog id="stopDlg" aria-labelledby="stop-title">
+  <div class="head"><h2 id="stop-title">サーバを止めますか？</h2></div>
+  <div class="body">
+    <p>この画面のサーバを止めます。止めると、この画面（監視・結果・設定）は使えなくなります。</p>
+    <ul class="problems" id="stopNotes" hidden></ul>
+    <p class="help">AI のトリアージ（/coverity-run）は止まりません。もう一度開くときは <code>ct.py gui</code> を実行します（チャットで頼むこともできます）。</p>
+  </div>
+  <div class="foot">
+    <button class="btn" type="button" id="stopCancel">戻る</button>
+    <button class="btn danger-fill" type="button" id="stopOk">止める</button>
   </div>
 </dialog>
 <div id="toast" role="status" aria-live="polite"></div>
@@ -569,7 +831,7 @@ const LABELS = {
   "vcs.type": "バージョン管理", "vcs.base_branch": "取り込み先のブランチ", "vcs.branch_prefix": "ブランチ名の先頭",
   "output_dir": "結果を置く場所", "max_items": "1 回で調べる上限", "parallel": "同時に調べる数",
   "options.annotation": "アノテーション", "options.per_run_branch": "1 つのブランチにまとめる",
-  "options.knowledge_suggestions": "知識の追記の提案", "options.metrics": "効果測定の記録",
+  "options.knowledge_suggestions": "知識の追記の提案", "options.metrics": "効果測定の記録", "options.markdown": "Markdown も出す",
   "verify.default": "ビルドでの検証", "verify.setup_command": "環境設定のコマンド", "verify.build_dir": "ビルドするフォルダ",
   "verify.build_command": "ビルドのコマンド", "verify.cov_build_args": "cov-build の引数", "verify.cov_analyze_args": "cov-analyze の引数",
 };
@@ -615,7 +877,11 @@ async function api(path, body) {
     opts.method = "POST"; opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body);
   }
   const res = await fetch(path, opts);
-  return res.json();
+  try {
+    return await res.json();
+  } catch (e) {
+    return { ok: false, error: `サーバの答えを読めませんでした（HTTP ${res.status}）` };
+  }
 }
 
 // ---------- values of inputs ----------
@@ -676,7 +942,7 @@ async function load(keepView) {
   if (!S.filters.length) S.filters.push(firstFilterDraft());
   if (!keepView) selected = 0;
   selected = Math.min(selected, S.filters.length - 1);
-  $("#repo").textContent = `${res.repo_root}（${res.vcs || "git / svn ではありません"}）`;
+  $("#repo").textContent = $("#repo").title = `${res.repo_root}（${res.vcs || "git / svn ではありません"}）`;
   renderAll();
 }
 function banner(items) {
@@ -860,6 +1126,7 @@ function markDirty() {
   const shown = state.config_exists || userTouched;
   const configChanged = state.config_exists && c.config.length > 0;
   $("#dirty").hidden = !shown || countChanges(c) === 0;
+  setViewMark("settings", $("#dirty").hidden ? "" : "changed", $("#dirty").hidden ? "" : "保存していない設定の変更があります");
   const basicKeys = new Set(["Coverity の URL", "取り込み先のブランチ", "結果を置く場所"]);
   const basicChanged = (configChanged && c.config.some((r) => basicKeys.has(r.what))) || c.cred.length > 0;
   const optionsChanged = configChanged && c.config.some((r) => !basicKeys.has(r.what));
@@ -1008,7 +1275,7 @@ async function doSave() {
     $("#dlg").close();
     userTouched = false;
     await load(true);
-    banner([...stateBanners(), { kind: "ok", text: "保存しました。設定が終わったら「終了」を押して、チャットに戻ってください。" }]);
+    banner([...stateBanners(), { kind: "ok", text: "保存しました。設定が終わったら、チャットで知らせてください。画面はこのまま使えます（結果の確認や、AI の動きの監視にも使います）。" }]);
     toast("保存しました");
   } catch (e) {
     toast("保存できませんでした: " + e);
@@ -1019,6 +1286,7 @@ async function doSave() {
 function renderTrial(st) {
   const box = $("#trialResult");
   const btn = $("#trialBtn");
+  trialRunning = !!st && st.status === "running";
   if (!st) { btn.disabled = false; return; }
   box.replaceChildren();
   btn.disabled = st.status === "running";
@@ -1134,34 +1402,1008 @@ function wire() {
   $("#saveBtn").addEventListener("click", openSave);
   $("#dlgCancel").addEventListener("click", () => $("#dlg").close());
   $("#dlgOk").addEventListener("click", doSave);
-  $("#closeBtn").addEventListener("click", closeScreen);
-  window.addEventListener("beforeunload", (e) => { if (S && countChanges(changes()) && userTouched) { e.preventDefault(); e.returnValue = ""; } });
-  document.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && e.key === "s") { e.preventDefault(); openSave(); } });
+  window.addEventListener("beforeunload", (e) => {
+    if ((S && countChanges(changes()) && userTouched) || detailDirty()) { e.preventDefault(); e.returnValue = ""; }
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!(e.ctrlKey || e.metaKey) || e.key !== "s") return;
+    if (route.view === "settings") { e.preventDefault(); openSave(); }
+    else if (route.view === "summary" && det && det.data && route.item) { e.preventDefault(); saveDetail(); }
+  });
 }
-async function closeScreen() {
-  if (S && userTouched && countChanges(changes()) && !confirm("保存していない変更があります。保存せずに終了しますか？")) return;
-  try { await api("/api/close", {}); } catch (e) { /* already stopped */ }
-  clearInterval(pingTimer);
-  userTouched = false;
-  document.body.replaceChildren(el("div", { class: "ended" },
-    el("h1", {}, "設定の画面を終了しました"),
-    el("p", {}, "このタブは閉じてかまいません。チャットに戻って、設定が終わったことを伝えてください。")));
-}
+// ---------- the server: menu, stop button and ping ----------
 let pingTimer = null;
+let serverDown = false;
+let trialRunning = false;
+function sysBanner(kind, text) {
+  $("#sysBanner").replaceChildren(...(text ? [el("div", { class: kind }, text)] : []));
+}
 function startPing() {
   let failed = 0;
+  // Only to tell the person that the server is gone; the page never closes by itself.
   pingTimer = setInterval(async () => {
     try { const r = await api("/api/ping"); failed = r.ok ? 0 : failed + 1; } catch (e) { failed++; }
-    if (failed >= 2) {
-      clearInterval(pingTimer);
-      banner([{ kind: "ng", text: "設定の画面のサーバが止まっています。保存はできません。チャットで、もう一度画面を開くよう頼んでください。" }]);
-      $("#saveBtn").disabled = true;
-    }
+    if (failed >= 2) serverLost();
   }, 20000);
+}
+function serverLost() {
+  if (serverDown) return;
+  serverDown = true;
+  clearInterval(pingTimer);
+  stopMonitor();
+  sysBanner("ng", "画面のサーバが止まっています。設定や承認の保存はできません。もう一度開くときは ct.py gui を実行します（チャットで頼むこともできます）。");
+  $("#saveBtn").disabled = true;
+  if ($("#apSave")) $("#apSave").disabled = true;
+}
+function toggleMenu(open) {
+  const pop = $("#menuPop");
+  const show = open === undefined ? pop.hidden : open;
+  pop.hidden = !show;
+  $("#menuBtn").setAttribute("aria-expanded", String(show));
+}
+function openStop() {
+  toggleMenu(false);
+  const notes = [];
+  if (S && userTouched && countChanges(changes())) notes.push("保存していない設定の変更があります。止めると、その変更はなくなります。");
+  if (detailDirty()) notes.push("保存していない承認の変更があります。止めると、その変更はなくなります。");
+  if (trialRunning) notes.push("試しのビルドが動いています。止めると、ビルドも止まります。");
+  const box = $("#stopNotes");
+  box.replaceChildren(...notes.map((t) => el("li", {}, t)));
+  box.hidden = !notes.length;
+  $("#stopOk").disabled = false;
+  $("#stopDlg").showModal();
+}
+async function stopServer() {
+  $("#stopOk").disabled = true;
+  try {
+    const res = await api("/api/close", {});
+    if (!res.ok) {
+      $("#stopOk").disabled = false;
+      toast("止められませんでした: " + (res.error || ""));
+      return;
+    }
+  } catch (e) { /* already stopped */ }
+  $("#stopDlg").close();
+  serverDown = true;
+  clearInterval(pingTimer); clearTimeout(buildTimer); stopMonitor();
+  userTouched = false; det = null;
+  document.title = "サーバを止めました — Coverity トリアージ";
+  // Hidden rather than removed: the handlers of the page still find their elements.
+  $("#app").hidden = true;
+  document.body.append(el("div", { class: "ended" },
+    el("h1", {}, "サーバを止めました"),
+    el("p", {}, "この画面はもう使えません。このタブは閉じてかまいません。"),
+    el("p", {}, "もう一度開くときは ", el("code", {}, "ct.py gui"), " を実行します（チャットで、画面を開くよう頼むこともできます）。")));
+}
+
+// ---------- views: monitor, results and settings ----------
+const VIEWS = ["monitor", "summary", "settings"];
+const VIEW_TITLES = { monitor: "監視 — Coverity トリアージ", summary: "結果 — Coverity トリアージ", settings: "Coverity トリアージの設定" };
+const RUN_ID = /^[0-9]{8}-[0-9]{6}(-[0-9]+)?$/;
+const ITEM_ID = /^[A-Za-z0-9_-]{1,40}$/;
+const STAGE_JA = { search: "Coverity で警告を検索中", plan: "作業の一覧を作っている", items: "警告を調べている",
+  verify: "ビルドで確かめている", summary: "一覧を作っている", apply: "反映の途中", done: "終わりました" };
+const PLAN_JA = { fix: "修正", deviation: "逸脱" };
+const CONF_JA = { high: "高", medium: "中", low: "低" };
+const CONF_ORDER = { low: 0, medium: 1, high: 2 };
+const DECISIONS = [["fix", "修正"], ["deviation", "逸脱"], ["reject", "却下"], ["", "反映しない"]];
+const DECISION_JA = Object.fromEntries(DECISIONS);
+const KIND_JA = { fix: "修正", annotation: "アノテーション" };
+const SOURCE_JA = { ct: "ct.py", mcp: "MCP サーバ", stall: "停止の疑い", verify: "ビルドでの確かめ", apply: "反映" };
+const STATUS_JA = { done: "調べ終わり", error: "エラー", in_progress: "調査中", pending: "待ち" };
+const DEVIATION_FIELDS = ["classification", "action", "severity", "comment"];
+const enc = encodeURIComponent;
+// Values from the server are looked up only as own keys (never "constructor" and the like).
+const own = (map, key) => (typeof key === "string" && Object.prototype.hasOwnProperty.call(map, key) ? map[key] : undefined);
+
+let route = { view: "settings", run: null, item: null };
+let runs = null;           // /api/runs, newest first (null until read)
+let runsNote = "";
+let runsError = "";
+let autoRun = false;       // the monitor chose the run (not the person), so it may move to a newer run
+
+function parseHash() {
+  const q = new URLSearchParams(location.hash.replace(/^#/, ""));
+  const run = RUN_ID.test(q.get("run") || "") ? q.get("run") : null;
+  let view = q.get("view");
+  if (!VIEWS.includes(view)) view = run ? "monitor" : "settings";
+  const item = view === "summary" && run && ITEM_ID.test(q.get("item") || "") ? q.get("item") : null;
+  return { view, run, item };
+}
+function hashFor(r) {
+  const q = new URLSearchParams();
+  if (r.run) q.set("run", r.run);
+  q.set("view", r.view);
+  if (r.view === "summary" && r.run && r.item) q.set("item", r.item);
+  return "#" + q.toString();
+}
+function go(next, replace = false) {
+  const r = { ...route, ...next };
+  if (r.view !== "summary" || !r.run) r.item = null;
+  const hash = hashFor(r);
+  if (replace || location.hash === hash) {
+    history.replaceState(null, "", hash);
+    applyRoute();
+  } else {
+    location.hash = hash;  // applyRoute runs on hashchange
+  }
+}
+function applyRoute() {
+  const next = parseHash();
+  const prev = route;
+  if (detailDirty() && !(next.view === "summary" && next.run === det.run && next.item === det.id)) {
+    if (!confirm("保存していない承認の変更があります。保存せずに移りますか？")) {
+      history.replaceState(null, "", hashFor(prev));
+      return;
+    }
+    det = null;
+  }
+  route = next;
+  showView(next.view);
+  if (prev.view !== next.view) window.scrollTo({ top: 0 });
+  if (next.view === "monitor") enterMonitor(); else stopMonitor();
+  if (next.view === "summary") enterResults();
+}
+function showView(view) {
+  for (const b of $$("nav.views [data-view]")) b.setAttribute("aria-selected", String(b.dataset.view === view));
+  for (const v of $$(".view")) v.hidden = v.id !== "view-" + view;
+  $("#settingsActions").hidden = view !== "settings";
+  document.title = VIEW_TITLES[view];
+}
+function setViewMark(view, kind, title) {
+  const m = $(`nav.views [data-view="${view}"] .vmark`);
+  m.className = "vmark" + (kind ? " " + kind : "");
+  m.textContent = kind ? "●" : "";
+  m.title = title || "";
+}
+
+// ---------- small helpers ----------
+const pad2 = (n) => String(n).padStart(2, "0");
+const hms = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+function clock(sec) {
+  if (sec == null || !Number.isFinite(sec)) return "--:--";
+  const s = Math.max(0, Math.floor(sec)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return (h ? `${h}:${pad2(m)}` : pad2(m)) + ":" + pad2(s % 60);
+}
+function ago(sec) {
+  if (sec == null || !Number.isFinite(sec)) return "—";
+  if (sec < 60) return `${Math.max(0, Math.floor(sec))} 秒前`;
+  if (sec < 3600) return `${Math.floor(sec / 60)} 分前`;
+  return `${Math.floor(sec / 3600)} 時間 ${Math.floor((sec % 3600) / 60)} 分前`;
+}
+function shortTime(iso) {
+  const m = /^(\d{4}-(\d{2})-(\d{2}))T(\d{2}:\d{2}:\d{2})/.exec(String(iso || ""));
+  if (!m) return String(iso || "");
+  const now = new Date();
+  const today = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+  return m[1] === today ? m[4] : `${m[2]}/${m[3]} ${m[4].slice(0, 5)}`;
+}
+function dateTime(iso) {
+  const s = String(iso || "");
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) ? s.slice(0, 16).replace("T", " ") : s;
+}
+const loading = () => el("p", { class: "help" }, "読み込んでいます…");
+// replaceChildren without the empty parts (it would show null as text)
+function fill(node, ...kids) { node.replaceChildren(...kids.flat().filter((k) => k != null && k !== false)); }
+
+// ---------- runs ----------
+async function refreshRuns() {
+  try {
+    const res = await api("/api/runs");
+    if (res.ok) {
+      runs = (Array.isArray(res.runs) ? res.runs : []).filter((r) => r && RUN_ID.test(r.run_id || ""))
+        .sort((a, b) => (a.run_id < b.run_id) - (a.run_id > b.run_id));
+      runsNote = res.note || "";
+      runsError = "";
+    } else {
+      runsError = res.error || "実行の一覧を読めませんでした。";
+    }
+  } catch (e) {
+    runsError = "サーバに接続できません。";
+  }
+}
+function latestRun() {
+  if (!runs || !runs.length) return null;
+  return (runs.find((r) => r.unfinished) || runs[0]).run_id;
+}
+function chooseRun(id, view) {
+  autoRun = false;
+  go({ run: id, view, item: null });
+}
+function runLabel(r) {
+  return [r.run_id, r.filter_name, r.unfinished ? "（途中）" : ""].filter(Boolean).join("  ");
+}
+
+// ---------- monitor ----------
+const BOX_W = 14;          // a worker's box, borders included (as in the example of the spec)
+const BAR = 9;             // progress bar inside it
+const STEP_SHORT = { read: "読む", judge: "判断", fix: "修正", deviation: "逸脱", result: "結果",
+  fetch: "取得", brief: "指示", investigate: "調査", retry: "直す", finishing: "確認" };
+let monTimer = null;
+let monGen = 0;            // a newer poll makes older answers stale
+let monTick = 0;
+let board = null;
+let boardError = "";
+let boardAt = null;
+let pickerKey = "";
+let recentKey = null;
+const openAlerts = new Set();
+const alertNodes = new Map();
+
+function monitorLive() { return route.view === "monitor" && document.visibilityState === "visible" && !serverDown; }
+function stopMonitor() { clearTimeout(monTimer); monTimer = null; monGen++; }
+async function enterMonitor() {
+  renderMonitor();
+  if (runs === null || !route.run) await refreshRuns();
+  if (route.view !== "monitor") return;
+  if (!route.run && autoSwitch()) return;  // comes back here with the run
+  pollMonitor();
+}
+// Without a run chosen by the person: the newest unfinished run (else the newest), and a newer
+// unfinished run when one starts.
+function autoSwitch() {
+  const id = latestRun();
+  if (route.view !== "monitor" || !id || id === route.run) return false;
+  if (route.run && !(autoRun && id > route.run && runs.find((r) => r.run_id === id).unfinished)) return false;
+  autoRun = true;
+  go({ run: id }, true);
+  return true;
+}
+async function pollMonitor() {
+  clearTimeout(monTimer);
+  monTimer = null;
+  const gen = ++monGen;
+  if (!monitorLive()) return;
+  try {
+    if (++monTick % 5 === 0 || !route.run) {
+      await refreshRuns();
+      if (gen !== monGen) return;
+      if (autoSwitch()) return;
+    }
+    const run = route.run;
+    if (run) {
+      const res = await api(`/api/runs/${enc(run)}/activity`);
+      if (gen !== monGen) return;
+      if (res.ok) { board = res; boardError = ""; boardAt = new Date(); }
+      else boardError = res.error || "AI の動きを読めませんでした。";
+    }
+  } catch (e) {
+    if (gen !== monGen) return;
+    boardError = "サーバに接続できません。";
+  }
+  renderMonitor();
+  if (monitorLive()) monTimer = setTimeout(pollMonitor, 2000);
+}
+function renderRunPicker() {
+  const sel = $("#monRun");
+  const list = runs || [];
+  const opts = list.map((r) => [r.run_id, runLabel(r)]);
+  if (route.run && !list.some((r) => r.run_id === route.run)) opts.unshift([route.run, route.run]);
+  if (!opts.length) opts.push(["", "（実行がありません）"]);
+  const key = JSON.stringify(opts);
+  if (key !== pickerKey) {  // rebuilding would close the list while the person looks at it
+    pickerKey = key;
+    sel.replaceChildren(...opts.map(([v, t]) => el("option", { value: v }, t)));
+  }
+  sel.value = route.run || "";
+  sel.disabled = !list.length;
+}
+function renderMonitor() {
+  renderRunPicker();
+  const b = board && board.run_id === route.run ? board : null;
+  const noRun = !route.run;
+  const empty = $("#monEmpty");
+  empty.hidden = !noRun;
+  $("#monBody").hidden = noRun;
+  if (noRun) {
+    const text = runsError || (runs === null ? "読み込んでいます…" : runsNote
+      || "まだ実行がありません。チャットで /coverity-run を実行すると、ここで AI の動きを見られます。");
+    empty.replaceChildren(el("p", { style: "margin:0" }, text));
+  }
+  const err = $("#monError");
+  err.hidden = noRun || !boardError;
+  err.textContent = boardError;
+  const stage = $("#monStage");
+  stage.hidden = !b;
+  stage.textContent = b ? b.stage_label || own(STAGE_JA, b.stage) || b.stage || "" : "";
+  $("#monUpdated").textContent = b && boardAt ? `${hms(boardAt)} に更新` : "";
+  const link = $("#monToResults");
+  link.hidden = noRun;
+  link.href = hashFor({ view: "summary", run: route.run, item: null });
+  if (noRun) return;
+  drawBoard(b);
+  renderSlots(b);
+  renderAlerts(b);
+  renderRecent(b);
+  const critical = b ? (b.alerts || []).filter((a) => a.level === "critical").length : 0;
+  setViewMark("monitor", critical ? "error" : "", critical ? `重大なエラーが ${critical} 件あります` : "");
+}
+
+// The board is ASCII art: one column per character on a terminal, East Asian wide characters two.
+const WIDE = [[0x1100, 0x115f], [0x2e80, 0x303e], [0x3041, 0x33ff], [0x3400, 0x4dbf], [0x4e00, 0x9fff],
+  [0xa000, 0xa4cf], [0xac00, 0xd7a3], [0xf900, 0xfaff], [0xfe30, 0xfe4f], [0xff00, 0xff60], [0xffe0, 0xffe6],
+  [0x1f300, 0x1f64f], [0x1f900, 0x1f9ff], [0x20000, 0x3fffd]];
+function cw(ch) {
+  const cp = ch.codePointAt(0);
+  if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0) || cp === 0x2028 || cp === 0x2029) return -1;
+  if ((cp >= 0x300 && cp <= 0x36f) || (cp >= 0x200b && cp <= 0x200f) || (cp >= 0xfe00 && cp <= 0xfe0f) || cp === 0xfeff) return 0;
+  return WIDE.some(([a, b]) => cp >= a && cp <= b) ? 2 : 1;
+}
+function clean(text) {
+  let out = "";
+  for (const ch of String(text ?? "")) {
+    const w = cw(ch);
+    out += w < 0 ? " " : w === 0 ? "" : ch;
+  }
+  return out;
+}
+function textWidth(text) {
+  let n = 0;
+  for (const ch of text) n += Math.max(0, cw(ch));
+  return n;
+}
+// One line of segments [text, class], cut (ending in "…") or padded to exactly `width` columns.
+function fitSegs(segs, width) {
+  const parts = segs.map(([t, c]) => [clean(t), c || ""]);
+  const total = parts.reduce((n, [t]) => n + textWidth(t), 0);
+  if (total <= width) return total < width ? [...parts, [" ".repeat(width - total), ""]] : parts;
+  const out = [];
+  let used = 0;
+  for (const [t, c] of parts) {
+    let kept = "";
+    for (const ch of t) {
+      const w = cw(ch);
+      if (used + w > width - 1) {
+        out.push([kept + "…", c]);
+        used += 1;
+        return used < width ? [...out, [" ".repeat(width - used), ""]] : out;
+      }
+      kept += ch;
+      used += w;
+    }
+    out.push([kept, c]);
+  }
+  return out;
+}
+function boxRow(segs, inner, cls) {
+  return [["│", cls], [" ", ""], ...fitSegs(segs, inner - 2), [" ", ""], ["│", cls]];
+}
+// The main agent has left no record for 10 minutes while nothing else is working.
+function mainQuiet(b) {
+  const m = b.main || {};
+  const busy = (b.workers || []).some((w) => w.item && !w.stalled);
+  return ["search", "plan", "items", "verify", "summary"].includes(b.stage) && !busy && (m.idle_seconds || 0) >= 600;
+}
+function mainBox(b, width) {
+  const inner = width - 2, cls = "b-main", m = b.main || {}, c = b.counts || {};
+  const head = "─ MAIN (Copilot) ", tail = ` run ${clean(b.run_id)} ─`;
+  const hw = textWidth(head), tw = textWidth(tail);
+  const withRun = hw + tw + 1 <= inner;
+  const top = withRun ? "┌" + head + "─".repeat(inner - hw - tw) + tail + "┐"
+    : "┌" + (hw < inner ? head + "─".repeat(inner - hw) : "─".repeat(inner)) + "┐";
+  const lines = [[[top, cls]]];
+  const row = (segs) => lines.push(boxRow(segs, inner, cls));
+  if (!withRun) row([["run ", "b-dim"], [b.run_id, ""]]);
+  row([["段階: ", "b-dim"], [b.stage_label || own(STAGE_JA, b.stage) || b.stage || "—", ""]]);
+  const quiet = mainQuiet(b);
+  row([["状態: ", "b-dim"], [m.label || "—", quiet ? "b-stall" : ""],
+    [quiet ? `  ⚠ ${Math.floor(m.idle_seconds / 60)} 分動きがない` : "", "b-stall"]]);
+  const done = [`${c.done || 0}/${b.total || 0} 完了`, ""], gap = ["  ", ""];
+  const busy = [`実行中 ${c.in_progress || 0}`, ""], wait = [`待ち ${c.pending || 0}`, ""];
+  const err = [`エラー ${c.error || 0}`, c.error ? "b-err" : ""];
+  const all = [done, gap, busy, gap, wait, gap, err];
+  if (textWidth(all.map(([t]) => t).join("")) <= inner - 2) row(all);
+  else { row([done, gap, err]); row([busy, gap, wait]); }
+  const last = (b.recent || [])[0];
+  row([[m.idle_seconds != null ? `最後 ${ago(m.idle_seconds)}: ` : "最後: ", "b-dim"], [last ? last.text : m.last_event || "—", ""]]);
+  return lines;
+}
+function workerState(w, b) {
+  if (!w.item) return "idle";
+  const started = Date.now() - (w.elapsed_seconds || 0) * 1000 - 5000;
+  // A critical alert of this item since it started (an unreadable time counts as recent).
+  if ((b.alerts || []).some((a) => a.level === "critical" && a.source !== "stall" && a.item === w.item
+      && !(Date.parse(a.time) < started))) return "err";
+  if (w.stalled) return "stall";
+  return w.stage === "retry" ? "retry" : "run";
+}
+function workerBox(w, connect, b) {
+  const st = workerState(w, b), cls = "b-" + st, inner = BOX_W - 2;
+  const top = connect ? "┌" + "─".repeat(6) + "┴" + "─".repeat(inner - 7) + "┐" : "┌" + "─".repeat(inner) + "┐";
+  const lines = [[[top, cls]]];
+  const row = (segs) => lines.push(boxRow(segs, inner, cls));
+  row([[`worker #${w.slot}`, cls]]);
+  if (!w.item) {
+    row([["（空き）", "b-idle"]]);
+    row([]);
+    row([["░".repeat(BAR), "bar-off"]]);
+    row([]);
+  } else {
+    let target = w.is_group ? `${w.item} (${(w.cids || []).length}件)` : `CID ${w.item}`;
+    if (!w.is_group && textWidth(target) > inner - 2) target = String(w.item);
+    const step = st === "err" ? ["✖ エラー", "b-err"] : w.stalled ? ["⚠ 停止?", "b-stall"]
+      : ["▶ " + (own(STEP_SHORT, w.phase) || own(STEP_SHORT, w.stage) || "調査"), cls];
+    const filled = w.stage === "finishing" ? BAR
+      : Math.max(0, Math.min(BAR, Math.round((BAR * (w.phase_index || 0)) / (w.phase_total || 5))));
+    row([[target, ""]]);
+    row([step]);
+    row([["█".repeat(filled), cls], ["░".repeat(BAR - filled), "bar-off"]]);
+    row([[clock(w.elapsed_seconds), ""], [w.attempts > 1 ? ` ×${w.attempts}` : "", "b-retry"]]);
+  }
+  lines.push([["└" + "─".repeat(inner) + "┘", cls]]);
+  return lines;
+}
+function boardLines(b, cols) {
+  const workers = b.workers || [];
+  const per = Math.max(1, Math.floor((cols + 1) / (BOX_W + 1)));
+  const rowW = Math.min(Math.max(workers.length, 1), per) * (BOX_W + 1) - 1;
+  const width = Math.max(rowW, 30, Math.min(cols, 64));
+  const lines = mainBox(b, width);
+  const centers = workers.slice(0, per).map((_, i) => i * (BOX_W + 1) + 7);
+  const bottom = ["└", ..."─".repeat(width - 2), "┘"];
+  for (const x of centers) bottom[x] = "┬";
+  lines.push([[bottom.join(""), "b-main"]]);
+  if (!workers.length) return lines;
+  const link = Array(rowW).fill(" ");
+  for (const x of centers) link[x] = "│";
+  lines.push([[link.join(""), "b-line"]]);
+  for (let start = 0; start < workers.length; start += per) {
+    const boxes = workers.slice(start, start + per).map((w) => workerBox(w, start === 0, b));
+    if (start) lines.push([]);
+    for (let j = 0; j < boxes[0].length; j++) lines.push(boxes.flatMap((box, i) => (i ? [[" ", ""], ...box[j]] : box[j])));
+  }
+  return lines;
+}
+function boardCols(pre) {
+  const probe = el("span", { class: "probe" }, "0000000000");
+  pre.append(probe);
+  const ch = probe.getBoundingClientRect().width / 10;
+  probe.remove();
+  const style = getComputedStyle(pre);
+  const room = pre.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  return ch > 0 && room > 0 ? Math.floor(room / ch) : 60;
+}
+function drawBoard(b) {
+  const pre = $("#board");
+  if (!b) { pre.textContent = boardError ? "（読めませんでした）" : "読み込んでいます…"; return; }
+  const lines = boardLines(b, boardCols(pre));
+  const frag = document.createDocumentFragment();
+  lines.forEach((segs, n) => {
+    if (n) frag.append("\n");
+    for (const [text, cls] of segs) {
+      const target = cls ? el("span", { class: cls }) : frag;
+      let plain = "";
+      for (const ch of text) {
+        const cp = ch.codePointAt(0);
+        // ASCII, box drawing and blocks come from the monospace font. Any other character gets a
+        // cell of its own width, so a fallback font (Japanese, symbols) cannot shift the lines.
+        if (cp < 0x80 || (cp >= 0x2500 && cp <= 0x259f)) { plain += ch; continue; }
+        if (plain) { target.append(plain); plain = ""; }
+        target.append(el("span", { class: cw(ch) === 2 ? "w2" : "w1" }, ch));
+      }
+      if (plain) target.append(plain);
+      if (target !== frag) frag.append(target);
+    }
+  });
+  pre.replaceChildren(frag);
+}
+function renderSlots(b) {
+  const box = $("#slots");
+  if (!b) { box.replaceChildren(); return; }
+  const busy = (b.workers || []).filter((w) => w.item);
+  if (!busy.length) { box.replaceChildren(el("li", { class: "none" }, "いま動いているサブエージェントはありません。")); return; }
+  box.replaceChildren(...busy.map((w) => {
+    const st = workerState(w, b);
+    const target = w.is_group ? `${w.item}（${(w.cids || []).length} 件）` : `CID ${w.item}`;
+    const steps = [w.stage_label, w.phase ? `${w.phase_label}（${w.phase_index}/${w.phase_total}）` : "",
+      w.attempts > 1 ? `${w.attempts} 回目` : ""].filter(Boolean).join("・");
+    const flag = st === "err" ? el("span", { class: "pill ng" }, "エラー")
+      : st === "stall" ? el("span", { class: "pill warn" }, "止まっているかもしれません") : null;
+    return el("li", { class: st },
+      el("div", {}, el("b", {}, `#${w.slot} ${target}`), " ", flag),
+      el("div", { class: "help" }, steps || "—"),
+      w.note ? el("div", { class: "memo" }, "メモ: ", w.note) : null,
+      el("div", { class: "help" }, `経過 ${clock(w.elapsed_seconds)}・最後の動き ${ago(w.idle_seconds)}`));
+  }));
+}
+// A stalled item is reported again on every poll with a new time; it stays the same alert.
+function alertId(a) {
+  return a.source === "stall" ? `stall|${a.item}` : [a.time, a.level, a.source, a.item, a.title].join("|");
+}
+function alertNode(a, id, openable) {
+  const critical = a.level === "critical";
+  const when = a.source === "stall" ? "" : shortTime(a.time);
+  const node = el("details", { class: "alert " + (critical ? "critical" : "warning"), open: openAlerts.has(id) },
+    el("summary", {},
+      el("span", { class: "pill " + (critical ? "critical" : "warn") }, critical ? "重大" : "注意"),
+      el("span", { class: "a-title" }, a.title || "—"),
+      el("span", { class: "a-meta" }, [when, own(SOURCE_JA, a.source) || a.source, a.item ? `作業 ${a.item}` : ""].filter(Boolean).join("・"))),
+    el("div", { class: "a-body" },
+      a.detail ? el("pre", {}, a.detail) : el("p", { class: "help" }, "詳しい内容はありません。"),
+      openable ? el("a", { class: "btn small", href: hashFor({ view: "summary", run: route.run, item: a.item }) }, "この作業の詳細を開く") : null));
+  node.addEventListener("toggle", () => { if (node.open) openAlerts.add(id); else openAlerts.delete(id); });
+  return node;
+}
+function renderAlerts(b) {
+  const box = $("#alerts");
+  const list = b ? b.alerts || [] : [];
+  const critical = list.filter((a) => a.level === "critical").length;
+  $("#alertCount").textContent = list.length ? `（重大 ${critical} 件・注意 ${list.length - critical} 件）` : "";
+  if (!b) { alertNodes.clear(); box.replaceChildren(); return; }
+  if (!list.length) {
+    alertNodes.clear();
+    if (!box.querySelector(".none")) box.replaceChildren(el("p", { class: "none pill ok" }, "重大なエラーはありません"));
+    return;
+  }
+  const busy = new Set((b.workers || []).filter((w) => w.item).map((w) => w.item));
+  const seen = new Set();
+  // Keep the nodes of unchanged alerts, so an open one stays open and its text stays selected.
+  const nodes = list.map((a) => {
+    const id = alertId(a);
+    const openable = !!(a.item && ITEM_ID.test(a.item) && !busy.has(a.item));
+    const key = JSON.stringify([route.run, { ...a, time: a.source === "stall" ? "" : a.time }, openable]);
+    seen.add(id);
+    const known = alertNodes.get(id);
+    if (known && known.key === key) return known.node;
+    const node = alertNode(a, id, openable);
+    alertNodes.set(id, { key, node });
+    return node;
+  });
+  for (const id of [...alertNodes.keys()]) if (!seen.has(id)) alertNodes.delete(id);
+  const kids = box.children;
+  if (nodes.length !== kids.length || nodes.some((n, i) => kids[i] !== n)) box.replaceChildren(...nodes);
+}
+function renderRecent(b) {
+  const box = $("#recent");
+  const list = b ? b.recent || [] : [];
+  const key = JSON.stringify([route.run, !!b, list]);
+  if (key === recentKey) return;
+  recentKey = key;
+  if (!b) { box.replaceChildren(); return; }
+  if (!list.length) { box.replaceChildren(el("li", {}, el("span", {}), el("span", {}), el("span", { class: "help" }, "まだ記録がありません。"))); return; }
+  box.replaceChildren(...list.map((r) => el("li", { class: r.level === "critical" || r.level === "warning" ? r.level : "" },
+    el("time", { datetime: r.time || null, title: r.time || "" }, shortTime(r.time)),
+    el("span", { class: "src" }, r.source === "mcp" ? "MCP" : "ct"),
+    el("span", { class: "text" }, r.text || r.event || ""))));
+}
+
+// ---------- results: runs, the summary and the detail ----------
+let sum = null;            // { run, data } or { run, error } of the summary shown
+let det = null;            // the item shown in the detail: { run, id, data, saved, form, ai, frame }
+
+const safeUrl = (u) => typeof u === "string" && /^\/(?:files|view)\//.test(u);
+const itemTitle = (it) => String(it.title || it.id);
+const where = (it) => (it.file ? `${it.file}${it.line != null ? ":" + it.line : ""}` : "");
+function planBadge(plan) { return el("span", { class: "badge " + (own(PLAN_JA, plan) ? plan : "") }, own(PLAN_JA, plan) || "—"); }
+function confBadge(conf) { return el("span", { class: "badge " + (own(CONF_JA, conf) ? "conf-" + conf : "") }, own(CONF_JA, conf) || "—"); }
+function isApplied(it) {
+  const a = it.applied;
+  return a === true || (!!a && typeof a === "object" && Object.keys(a).some((k) => k !== "at"));
+}
+function statusPill(it) {
+  if (isApplied(it)) return el("span", { class: "pill ok" }, "反映済み");
+  return el("span", { class: "pill info" }, own(STATUS_JA, it.status) || STATUS_JA.done);
+}
+function decisionSelect(value, label, id) {
+  return el("select", { id, "aria-label": label },
+    DECISIONS.map(([v, t]) => el("option", { value: v, selected: (value || "") === v }, t)));
+}
+function doneItems(d) {
+  const rank = (c) => own(CONF_ORDER, c) ?? 3;
+  return (Array.isArray(d.items) ? d.items : []).filter((it) => it && (!it.status || it.status === "done"))
+    .sort((a, b) => rank(a.confidence) - rank(b.confidence));
+}
+function showResMsg(kind, text) {
+  const m = $("#resMsg");
+  m.className = "note" + (kind === "warn" ? " warn" : kind === "ok" ? " ap-msg ok" : "");
+  m.textContent = text || "";
+  m.hidden = !text;
+}
+function errorText(res) {
+  return [res.error || "保存できませんでした。", ...(Array.isArray(res.problems) ? res.problems : []).map((p) => "・" + p)].join("\n");
+}
+async function postApproval(run, item, decision, deviation) {
+  if (serverDown) return { ok: false, error: "画面のサーバが止まっているため、保存できません。" };
+  try {
+    return await api(`/api/runs/${enc(run)}/approvals`, { item, decision: decision || null, deviation });
+  } catch (e) {
+    return { ok: false, error: "サーバに接続できないため、保存できませんでした。" };
+  }
+}
+// The saved approval (approvals.update), at the top of the answer or under a key of its own.
+function approvalEntry(res, decision) {
+  const e = [res.approval, res.entry, res.item].find((x) => x && typeof x === "object") || res;
+  return { decision: "decision" in e ? e.decision || null : decision || null, edited: !!e.edited };
+}
+function approvalWarning(res) {
+  const w = res.warning || res.warnings || res.note;
+  return Array.isArray(w) ? w.join("\n") : typeof w === "string" ? w : "";
+}
+
+async function enterResults() {
+  showResMsg("", "");
+  renderCrumbs();
+  const { run, item } = route;
+  if (!run) {
+    renderRunList();
+    await refreshRuns();
+    if (route.view === "summary" && !route.run) renderRunList();
+    return;
+  }
+  if (item) { await openDetail(run, item); return; }
+  if (sum && sum.run === run && sum.data) renderSummary(); else $("#resBody").replaceChildren(loading());
+  await loadSummary(run);
+  if (route.view === "summary" && route.run === run && !route.item) renderSummary();
+}
+async function loadSummary(run) {
+  let s;
+  try {
+    const res = await api(`/api/runs/${enc(run)}/summary`);
+    s = res.ok ? { run, data: res } : { run, error: res.error || "一覧を読めませんでした。" };
+  } catch (e) {
+    s = { run, error: "サーバに接続できません。" };
+  }
+  if (route.run === run) sum = s;
+  return s;
+}
+function renderCrumbs() {
+  const { run, item } = route;
+  const here = (text) => el("span", { "aria-current": "page" }, text);
+  const link = (text, r) => el("a", { href: hashFor({ view: "summary", ...r }) }, text);
+  const parts = [link("実行の一覧", { run: null })];
+  if (run) parts.push("›", item ? link(run, { run }) : here(run));
+  if (item) parts.push("›", here(item));
+  $("#resCrumbs").replaceChildren(...parts);
+  $("#resCrumbs").hidden = !run;  // the list of runs has its own heading
+}
+function runStatePill(r) {
+  const stage = own(STAGE_JA, r.stage) || r.stage || "";
+  if (r.unfinished) return el("span", { class: "pill warn" }, stage ? `途中: ${stage}` : "途中");
+  if (r.summary) return el("span", { class: "pill ok" }, "一覧あり");
+  return el("span", { class: "pill info" }, stage || "—");
+}
+function cell(label, ...children) {
+  return el("td", { "data-label": label }, el("div", {}, ...children));
+}
+function renderRunList() {
+  const box = $("#resBody");
+  const head = el("div", { class: "res-head" },
+    el("div", {}, el("h2", {}, "実行の一覧"), el("p", { class: "lead" }, "結果を見る実行を選びます。新しい順です。")),
+    el("div", { class: "res-actions" }, el("button", { class: "btn small", type: "button", onclick: () => enterResults() }, "新しくする")));
+  if (runs === null) { box.replaceChildren(head, runsError ? el("div", { class: "note warn" }, runsError) : loading()); return; }
+  if (!runs.length) {
+    box.replaceChildren(head, el("div", { class: "card" }, el("p", { style: "margin:0" },
+      runsError || runsNote || "まだ実行がありません。チャットで /coverity-run を実行すると、ここに出ます。")));
+    return;
+  }
+  const rows = runs.map((r) => {
+    const c = r.counts || {};
+    const open = () => chooseRun(r.run_id, "summary");
+    return el("tr", { onclick: (e) => { if (!e.target.closest("a, button")) open(); } },
+      cell("実行", el("a", { href: hashFor({ view: "summary", run: r.run_id }), onclick: (e) => { e.preventDefault(); open(); } }, r.run_id),
+        el("span", { class: "sub" }, dateTime(r.created_at))),
+      el("td", { "data-label": "条件", class: "prose" }, el("div", {}, r.filter_name || "—")),
+      cell("進み具合", `${c.done || 0}/${r.total || 0} 完了`, c.error ? el("span", { class: "sub bad" }, `エラー ${c.error}`) : null),
+      cell("状態", runStatePill(r)),
+      el("td", { "data-label": "", class: "acts" }, el("div", {},
+        el("a", { class: "btn small", href: hashFor({ view: "summary", run: r.run_id }), onclick: (e) => { e.preventDefault(); open(); } }, "結果"), " ",
+        el("a", { class: "btn small", href: hashFor({ view: "monitor", run: r.run_id }), onclick: (e) => { e.preventDefault(); chooseRun(r.run_id, "monitor"); } }, "監視"))));
+  });
+  fill(box, head, runsError ? el("div", { class: "note warn", style: "margin-bottom:14px" }, runsError) : null,
+    el("div", { class: "card table-card" }, el("div", { class: "table-wrap" }, el("table", { class: "items" },
+      el("thead", {}, el("tr", {}, ["実行", "条件", "進み具合", "状態", ""].map((h) => el("th", {}, h)))),
+      el("tbody", {}, rows)))));
+}
+function renderSummary() {
+  const box = $("#resBody");
+  if (!sum || sum.run !== route.run) return;
+  if (sum.error) { box.replaceChildren(el("div", { class: "note warn" }, sum.error)); return; }
+  const d = sum.data, run = d.run || {}, items = doneItems(d);
+  const errors = (Array.isArray(d.errors) ? d.errors : []).map((e) => (Array.isArray(e) ? [e[0], e[1]]
+    : e && typeof e === "object" ? [e.id ?? e.item, e.error ?? e.reason ?? e.message] : ["", e]).map((x) => String(x ?? "")));
+  const unprocessed = (Array.isArray(d.unprocessed) ? d.unprocessed : [])
+    .map((u) => String((u && typeof u === "object" ? u.id ?? u.item : u) ?? ""));
+  const head = el("div", { class: "res-head" },
+    el("div", { style: "min-width:0" }, el("h2", {}, "トリアージ結果 ", el("span", { class: "muted" }, sum.run)),
+      el("p", { class: "lead" }, [run.filter_name ? `条件: ${run.filter_name}` : "", run.created_at ? `始めた時刻: ${dateTime(run.created_at)}` : ""]
+        .filter(Boolean).join("　"))),
+    el("div", { class: "res-actions" },
+      el("a", { class: "btn small", href: hashFor({ view: "monitor", run: sum.run }) }, "監視"),
+      d.summary_html ? el("a", { class: "btn small", href: `/files/${enc(sum.run)}/summary.html`, target: "_blank", rel: "noopener" }, "一覧のページを開く") : null,
+      el("button", { class: "btn small", type: "button", onclick: () => enterResults() }, "新しくする")));
+  const parts = [head, el("div", { class: "tiles", id: "sumTiles" }),
+    el("p", { class: "note", style: "margin:0 0 14px" }, "承認は、表の「承認」で選ぶとすぐに保存します（はじめは AI の推奨が入っています）。"
+      + "「反映しない」の行は反映しません。逸脱コメントを直すときは、行を押して詳細を開きます。承認を確かめたら、チャットで /coverity-apply を実行して反映します。"),
+    d.summary_html ? null : el("p", { class: "note warn", style: "margin:0 0 14px" }, "この実行の一覧（summary.html）はまだできていません。"
+      + "一覧は /coverity-run の最後に作ります。それまでは /coverity-apply で反映できません（ここで選んだ承認は保存されます）。")];
+  if (items.length) {
+    parts.push(el("div", { class: "card table-card" }, el("h3", {}, "作業の一覧（確信度の低い順）"),
+      el("div", { class: "table-wrap" }, el("table", { class: "items" },
+        el("thead", {}, el("tr", {}, ["承認", "ID", "推奨", "確信度", "見立て", "状態"].map((h) => el("th", {}, h)))),
+        el("tbody", {}, items.map(itemRow))))));
+  } else {
+    parts.push(el("div", { class: "card" }, el("p", { style: "margin:0" }, "終わった作業はまだありません。")));
+  }
+  if (errors.length) {
+    parts.push(el("div", { class: "card" }, el("h3", {}, "処理できなかった作業"),
+      el("ul", { class: "problems" }, errors.map(([id, msg]) => el("li", { style: "white-space:pre-wrap" }, el("b", {}, id), " ", msg)))));
+  }
+  if (unprocessed.length) {
+    parts.push(el("div", { class: "card" }, el("h3", {}, "まだの作業"),
+      el("p", { style: "margin:6px 0 0" }, "/coverity-run で続きから調べられます: ", unprocessed.join("、"))));
+  }
+  fill(box, ...parts);
+  renderTiles();
+}
+function renderTiles() {
+  const box = $("#sumTiles");
+  if (!box || !sum || !sum.data) return;
+  const d = sum.data, items = doneItems(d);
+  const count = (f) => items.filter(f).length;
+  const tally = Object.fromEntries(DECISIONS.map(([v]) => [v, count((it) => (it.decision || "") === v)]));
+  const warnings = items.reduce((n, it) => n + ((it.cids || []).length || 1), 0);
+  const groups = count((it) => String(it.id).startsWith("G"));
+  const low = count((it) => it.confidence === "low"), edited = count((it) => it.edited);
+  const errors = (Array.isArray(d.errors) ? d.errors : []).length, rest = (Array.isArray(d.unprocessed) ? d.unprocessed : []).length;
+  const tile = (label, value, sub, kind) => el("div", { class: "tile" + (kind ? " " + kind : "") },
+    el("div", { class: "label" }, label), el("div", { class: "value" }, String(value)), sub ? el("div", { class: "sub" }, sub) : null);
+  fill(box,
+    tile("作業", items.length, `警告 ${warnings} 件・うちグループ ${groups}`),
+    tile("修正の推奨", count((it) => it.recommendation === "fix")),
+    tile("逸脱の推奨", count((it) => it.recommendation === "deviation")),
+    tile("承認の内訳", `${items.length - tally[""]}/${items.length}`,
+      `修正 ${tally.fix}・逸脱 ${tally.deviation}・却下 ${tally.reject}・反映しない ${tally[""]}`),
+    tile("推奨から変更", edited, "人が変えたもの", edited ? "warn" : ""),
+    tile("確信度 低", low, "先に確かめます", low ? "warn" : ""),
+    tile("エラー", errors, "処理できなかった作業", errors ? "bad" : ""),
+    rest ? tile("未処理", rest, "まだの作業", "warn") : null);
+}
+function itemRow(it) {
+  const mark = el("span", { class: "edited", hidden: !it.edited }, "✎ 推奨から変更");
+  const sel = decisionSelect(it.decision, `${itemTitle(it)} の承認`);
+  sel.addEventListener("change", () => saveRowDecision(it, sel, mark));
+  const open = () => go({ item: String(it.id) });
+  return el("tr", { onclick: (e) => { if (!e.target.closest("select, button, a, input, label")) open(); } },
+    cell("承認", sel, mark),
+    cell("ID", el("button", { type: "button", class: "linkish", onclick: open }, itemTitle(it)), el("span", { class: "sub" }, it.checker || "")),
+    cell("推奨", planBadge(it.recommendation)),
+    cell("確信度", confBadge(it.confidence)),
+    el("td", { "data-label": "見立て", class: "prose" }, el("div", {}, it.summary || "—", el("span", { class: "sub" }, where(it)))),
+    cell("状態", statusPill(it)));
+}
+async function saveRowDecision(it, sel, mark) {
+  const value = sel.value;
+  sel.disabled = true;
+  const res = await postApproval(sum.run, String(it.id), value, null);
+  sel.disabled = false;
+  if (!res.ok) {
+    sel.value = it.decision || "";
+    showResMsg("warn", `${itemTitle(it)} の承認を保存できませんでした。\n${errorText(res)}`);
+    toast("保存できませんでした");
+    return;
+  }
+  const entry = approvalEntry(res, value);
+  it.decision = entry.decision;
+  it.edited = entry.edited;
+  sel.value = it.decision || "";
+  mark.hidden = !it.edited;
+  renderTiles();
+  const warning = approvalWarning(res);
+  showResMsg(warning ? "warn" : "", warning);
+  toast(`${itemTitle(it)} の承認を「${own(DECISION_JA, it.decision || "") || it.decision}」にして保存しました`);
+}
+
+async function openDetail(run, id) {
+  const shown = det && det.run === run && det.id === id && det.data ? det : null;
+  if (!shown) $("#resBody").replaceChildren(loading());
+  const fresh = await loadDetail(run, id);
+  if (route.view !== "summary" || route.run !== run || route.item !== id) return;
+  if (shown && det === shown && detailDirty()) return;  // keep what the person is typing
+  fresh.frame = det && det.run === run && det.id === id ? det.frame : null;
+  det = fresh;
+  renderDetail();
+  if (!sum || sum.run !== run || !sum.data) {
+    await loadSummary(run);
+    if (det === fresh && route.item === id) renderDetailNav();
+  }
+}
+const pickDev = (d) => Object.fromEntries(DEVIATION_FIELDS.map((k) => [k, d && typeof d[k] === "string" ? d[k] : ""]));
+async function loadDetail(run, id) {
+  try {
+    const res = await api(`/api/runs/${enc(run)}/items/${enc(id)}`);
+    if (!res.ok) return { run, id, error: res.error || "詳細を読めませんでした。" };
+    const item = res.item || {};
+    const saved = { decision: own(DECISION_JA, item.decision || "") !== undefined ? item.decision || "" : "", ...pickDev(res.deviation) };
+    return { run, id, data: res, saved, form: { ...saved }, ai: pickDev(res.ai_deviation || res.deviation), frame: null };
+  } catch (e) {
+    return { run, id, error: "サーバに接続できません。" };
+  }
+}
+function detailDirty() {
+  return !!(det && det.data && (det.form.decision !== det.saved.decision
+    || DEVIATION_FIELDS.some((k) => det.form[k] !== det.saved[k])));
+}
+function renderDetail() {
+  const box = $("#resBody");
+  if (det.error) {
+    box.replaceChildren(el("div", { class: "note warn", style: "margin-bottom:12px;white-space:pre-wrap" }, det.error),
+      el("a", { class: "btn small", href: hashFor({ view: "summary", run: det.run, item: null }) }, "← 一覧に戻る"));
+    return;
+  }
+  const frame = el("iframe", { id: "repFrame", title: "詳細レポート", referrerpolicy: "no-referrer",
+    sandbox: "allow-same-origin allow-popups allow-popups-to-escape-sandbox" });
+  box.replaceChildren(
+    el("div", { class: "detail-nav", id: "detailNav" }),
+    el("div", { class: "detail" },
+      el("div", { class: "frame-wrap" }, el("div", { class: "frame-bar", id: "frameBar" }), frame,
+        el("div", { class: "frame-none", id: "frameNone", hidden: true }, "詳細レポートはまだありません。")),
+      approvalPanel()));
+  renderDetailNav();
+  setFrame(det.frame, false);
+  formChanged();
+}
+function renderDetailNav() {
+  const nav = $("#detailNav");
+  if (!nav || !det) return;
+  const order = sum && sum.run === det.run && sum.data ? doneItems(sum.data).map((it) => String(it.id)) : [];
+  const i = order.indexOf(det.id);
+  const step = (id, text) => (id ? el("a", { class: "btn small", href: hashFor({ view: "summary", run: det.run, item: id }) }, text)
+    : el("button", { class: "btn small", type: "button", disabled: true }, text));
+  nav.replaceChildren(
+    el("a", { class: "btn small", href: hashFor({ view: "summary", run: det.run, item: null }) }, "← 一覧に戻る"),
+    ...(i >= 0 ? [step(order[i - 1], "前の作業"), step(order[i + 1], "次の作業"),
+      el("span", { class: "pos" }, `${i + 1} / ${order.length}（確信度の低い順）`)] : []));
+}
+function setFrame(target, scroll) {
+  if (!det || !det.data || !$("#repFrame")) return;
+  det.frame = target;
+  const d = det.data, it = d.item || {};
+  const report = it.report !== null && safeUrl(d.report_url) ? d.report_url : null;
+  const url = target ? target.url : report;
+  const frame = $("#repFrame");
+  fill($("#frameBar"),
+    el("span", { class: "frame-label" }, target ? target.label : "詳細レポート"),
+    target ? el("button", { class: "btn small", type: "button", onclick: () => setFrame(null, false) }, "詳細レポートに戻る") : null,
+    url ? el("a", { class: "btn small", href: url, target: "_blank", rel: "noopener" }, "新しいタブで開く") : null);
+  frame.hidden = !url;
+  $("#frameNone").hidden = !!url;
+  if (url) { if (frame.getAttribute("src") !== url) frame.src = url; } else frame.removeAttribute("src");
+  if (scroll && matchMedia("(max-width: 980px)").matches) frame.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+function approvalPanel() {
+  const d = det.data, it = d.item || {}, f = det.form;
+  const sel = decisionSelect(f.decision, "承認", "apDecision");
+  sel.addEventListener("change", () => { f.decision = sel.value; formChanged(); });
+  const field = (key, label, list) => {
+    const id = "ap-" + key;
+    const input = key === "comment" ? el("textarea", { id, rows: 7, spellcheck: "false" })
+      : el("input", { id, type: "text", list, autocomplete: "off", spellcheck: "false" });
+    input.value = f[key];
+    input.addEventListener("input", () => { f[key] = input.value; formChanged(); });
+    return el("div", { class: "field" },
+      el("label", { for: id }, label, el("span", { class: "diffmark", id: id + "-mark", hidden: true }, "AI の案から変更")), input);
+  };
+  const applied = isApplied(it);
+  return el("aside", { class: "apanel card", "aria-label": "承認" },
+    el("h3", {}, itemTitle(it)),
+    el("div", { class: "badges" }, "推奨", planBadge(it.recommendation), "確信度", confBadge(it.confidence),
+      applied ? el("span", { class: "pill ok" }, "反映済み") : null),
+    it.summary ? el("p", { class: "ap-summary" }, it.summary) : null,
+    el("p", { class: "help", style: "margin:2px 0 12px;overflow-wrap:anywhere" }, [it.checker, where(it)].filter(Boolean).join("・")),
+    applied ? el("div", { class: "note warn", style: "margin-bottom:12px" }, "この作業はもう反映しています。ここで承認を変えても、反映した内容は元に戻りません。") : null,
+    el("div", { class: "field" },
+      el("label", { for: "apDecision" }, "承認", el("span", { class: "diffmark", id: "apDecision-mark", hidden: true }, "推奨から変更")), sel,
+      el("div", { class: "help" }, `AI の推奨は「${own(PLAN_JA, it.recommendation) || "—"}」です。「反映しない」にすると、/coverity-apply で何もしません。`)),
+    el("fieldset", {}, el("legend", {}, "逸脱の内容"),
+      el("p", { class: "help", style: "margin:0 0 10px" }, "承認が「逸脱」のとき、/coverity-apply でこの内容を Coverity に書き込みます。直して保存すると、詳細レポートにも直した内容が出ます。"),
+      typeof d.deviation_note === "string" && d.deviation_note ? el("div", { class: "note warn", style: "margin-bottom:10px;white-space:pre-wrap" }, d.deviation_note) : null,
+      field("classification", "Classification", "dl-classification"), field("action", "Action", "dl-action"),
+      field("severity", "Severity", "dl-severity"), field("comment", "逸脱コメント")),
+    el("div", { class: "ap-actions" },
+      el("button", { class: "btn primary", type: "button", id: "apSave", onclick: saveDetail }, "保存"),
+      el("button", { class: "btn", type: "button", onclick: resetToAi }, "AI の案に戻す")),
+    el("div", { class: "ap-state", id: "apState", role: "status" }),
+    el("div", { class: "note ap-msg", id: "apMsg", hidden: true }),
+    fileLinks(d));
+}
+function fileLinks(d) {
+  const patches = (Array.isArray(d.patches) ? d.patches : []).filter((p) => p && safeUrl(p.url));
+  const fixed = (Array.isArray(d.fixed_files) ? d.fixed_files : []).filter((x) => x && safeUrl(x.url));
+  const kind = (k) => own(KIND_JA, k) || k || "";
+  const entry = (url, label, text) => el("li", {},
+    el("button", { type: "button", class: "linkish", onclick: () => setFrame({ url, label }, true) }, text),
+    el("a", { class: "newtab", href: url, target: "_blank", rel: "noopener", title: "新しいタブで開く", "aria-label": `${text}（新しいタブで開く）` }, "↗"));
+  return el("div", { class: "files" },
+    el("h4", {}, "差分ファイル"),
+    patches.length ? el("ul", {}, patches.map((p) => entry(p.url, `差分 ${p.name}`, `${kind(p.kind)}: ${p.name}`)))
+      : el("p", { class: "help" }, "ありません。"),
+    el("h4", {}, "修正後のファイル"),
+    fixed.length ? el("ul", {}, fixed.map((x) => entry(x.url, `修正後のファイル ${x.path}`, `${kind(x.kind)}: ${x.path}`)))
+      : el("p", { class: "help" }, "ありません。"),
+    el("p", { class: "help", style: "margin-top:10px" }, "名前を押すと、詳細レポートの欄に出します。↗ は新しいタブで開きます。"));
+}
+function formChanged() {
+  if (!det || !det.data || !$("#apState")) return;
+  const f = det.form, it = det.data.item || {};
+  $("#apDecision-mark").hidden = (f.decision || "") === (it.recommendation || "");
+  for (const k of DEVIATION_FIELDS) $(`#ap-${k}-mark`).hidden = f[k] === det.ai[k];
+  const dirty = detailDirty();
+  const st = $("#apState");
+  st.className = "ap-state" + (dirty ? " dirty-state" : "");
+  st.textContent = dirty ? "● 保存していない変更があります" : det.savedAt ? `${det.savedAt} に保存しました` : "";
+  $("#apSave").disabled = !dirty || serverDown;
+}
+function showApMsg(kind, text) {
+  const m = $("#apMsg");
+  if (!m) return;
+  m.className = "note ap-msg" + (kind === "warn" ? " warn" : kind === "ok" ? " ok" : "");
+  m.textContent = text || "";
+  m.hidden = !text;
+}
+async function saveDetail() {
+  if (!detailDirty()) return;
+  const cur = det, f = cur.form;
+  // Only a changed deviation is sent; null keeps the one saved before.
+  const changedDev = DEVIATION_FIELDS.some((k) => f[k] !== cur.saved[k]);
+  $("#apSave").disabled = true;
+  const res = await postApproval(cur.run, cur.id, f.decision, changedDev ? pickDev(f) : null);
+  if (det !== cur) return;
+  if (!res.ok) { showApMsg("warn", errorText(res)); formChanged(); return; }
+  const warning = approvalWarning(res);
+  toast(`${cur.id} の承認を保存しました`);
+  const fresh = await loadDetail(cur.run, cur.id);
+  if (det !== cur) return;
+  if (fresh.error) {
+    cur.saved = { ...f };
+    formChanged();
+    showApMsg("warn", `保存しましたが、新しい内容を読めませんでした: ${fresh.error}`);
+    return;
+  }
+  fresh.frame = cur.frame;
+  fresh.savedAt = hms(new Date());
+  det = fresh;
+  renderDetail();  // the report is written again with the saved approval
+  showApMsg(warning ? "warn" : "ok", warning || "保存しました。一覧と詳細レポートも新しくしました。");
+}
+function resetToAi() {
+  if (!det || !det.data) return;
+  const it = det.data.item || {};
+  Object.assign(det.form, { decision: own(PLAN_JA, it.recommendation) ? it.recommendation : "", ...det.ai });
+  $("#apDecision").value = det.form.decision;
+  for (const k of DEVIATION_FIELDS) $("#ap-" + k).value = det.form[k];
+  formChanged();
+  showApMsg("", detailDirty() ? "AI の案を入れました。「保存」を押すと保存します。" : "いまの内容は AI の案と同じです。");
+}
+
+function wireViews() {
+  for (const b of $$("nav.views [data-view]")) b.addEventListener("click", () => {
+    const view = b.dataset.view;
+    go(view === route.view && view === "summary" ? { item: null } : { view });
+  });
+  window.addEventListener("hashchange", () => {
+    if (parseHash().run !== route.run) autoRun = false;  // the person chose a run (a link, the back button)
+    applyRoute();
+  });
+  $("#monRun").addEventListener("change", (e) => { if (e.target.value) chooseRun(e.target.value, "monitor"); });
+  document.addEventListener("visibilitychange", () => { if (monitorLive()) pollMonitor(); else stopMonitor(); });
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => { if (route.view === "monitor" && board && board.run_id === route.run) drawBoard(board); }, 150);
+  });
+  $("#menuBtn").addEventListener("click", (e) => { e.stopPropagation(); toggleMenu(); });
+  document.addEventListener("click", (e) => { if (!e.target.closest(".menu")) toggleMenu(false); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") toggleMenu(false); });
+  $("#stopBtn").addEventListener("click", openStop);
+  $("#stopCancel").addEventListener("click", () => $("#stopDlg").close());
+  $("#stopOk").addEventListener("click", stopServer);
 }
 
 wire();
-load().then(() => { startPing(); pollTrial(); }).catch((e) => banner([{ kind: "ng", text: "読み込めませんでした: " + e }]));
+wireViews();
+applyRoute();
+startPing();
+load().then(() => pollTrial()).catch((e) => banner([{ kind: "ng", text: "読み込めませんでした: " + e }]));
 </script>
 </body>
 </html>

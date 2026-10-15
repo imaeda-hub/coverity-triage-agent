@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G1（3 件） MISRA C-2012 Rule 10.3 — Coverity トリアージ</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f5f6f8; --surface: #ffffff; --sunken: #eef0f3; --text: #1c2230; --muted: #5d6676;
+  --border: #d8dde5; --link: #1f56c9; --shadow: 0 1px 2px rgba(20, 30, 50, .06);
+  --blue: #1f56c9; --blue-bg: #e5edfc; --violet: #6b3fb8; --violet-bg: #efe8fb;
+  --green: #1d7044; --green-bg: #e2f3e8; --amber: #8a5800; --amber-bg: #fbf0d6;
+  --red: #b02a30; --red-bg: #fbe5e5; --gray: #4f5866; --gray-bg: #e9ecf0;
+  --add-bg: #e4f5e8; --add-fg: #14532d; --del-bg: #fce6e6; --del-fg: #8b1d1d;
+  --hunk-bg: #e6ecfb; --hunk-fg: #2b4a9b; --meta-fg: #6b7383;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "BIZ UDGothic", "MS Gothic", monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", Meiryo, sans-serif;
+}
+@media screen and (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c; --surface: #1c2027; --sunken: #242a33; --text: #e4e7ec; --muted: #9aa3b2;
+    --border: #343c48; --link: #8fb3ff; --shadow: none;
+    --blue: #8fb3ff; --blue-bg: #1d2b4a; --violet: #c4a6ff; --violet-bg: #2e2246;
+    --green: #7fd6a2; --green-bg: #173526; --amber: #f0c36b; --amber-bg: #3a2d10;
+    --red: #ff9a9a; --red-bg: #4a1d20; --gray: #b5bdc9; --gray-bg: #2a3039;
+    --add-bg: #16351f; --add-fg: #a6e9b9; --del-bg: #43191b; --del-fg: #ffb3b3;
+    --hunk-bg: #1d2a48; --hunk-fg: #a9c1ff; --meta-fg: #8f98a7;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.7 var(--sans); }
+.page { max-width: 76rem; margin: 0 auto; padding: 20px 16px 40px; }
+a { color: var(--link); }
+code, pre, .mono { font-family: var(--mono); font-size: .92em; }
+h1, h2, h3, h4 { line-height: 1.35; margin: 0; }
+h1 { font-size: 1.55rem; }
+h2 { font-size: 1.15rem; margin-bottom: 10px; }
+h3 { font-size: 1rem; margin: 16px 0 6px; }
+h4 { font-size: .92rem; margin: 12px 0 4px; color: var(--muted); }
+p { margin: 6px 0; }
+.muted, .sub { color: var(--muted); }
+.sub { display: block; font-size: .85em; }
+.crumbs { margin: 0 0 8px; font-size: .9rem; }
+.head { margin-bottom: 18px; }
+.head .where { margin: 4px 0 10px; color: var(--muted); overflow-wrap: anywhere; }
+.head .checker, .head .when { color: var(--muted); font-weight: 600; margin-left: .4em; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.badge { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: .82rem; font-weight: 600;
+  line-height: 1.6; white-space: nowrap; border: 1px solid transparent; background: var(--gray-bg); color: var(--gray); }
+.badge.fix { background: var(--blue-bg); color: var(--blue); }
+.badge.deviation { background: var(--violet-bg); color: var(--violet); }
+.badge.reject { background: var(--gray-bg); color: var(--gray); }
+.badge.none { background: transparent; color: var(--muted); border-color: var(--border); }
+.badge.conf-high { background: var(--green-bg); color: var(--green); }
+.badge.conf-medium { background: var(--amber-bg); color: var(--amber); }
+.badge.conf-low { background: var(--red-bg); color: var(--red); }
+.badge.impact-high { background: var(--red-bg); color: var(--red); }
+.badge.impact-medium { background: var(--amber-bg); color: var(--amber); }
+.badge.ok { background: var(--green-bg); color: var(--green); }
+.badge.ng { background: var(--red-bg); color: var(--red); }
+.badge.edited { background: var(--amber-bg); color: var(--amber); }
+.card, section.block { background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 16px 18px; margin: 0 0 16px; box-shadow: var(--shadow); }
+.lead { font-size: 1.08rem; font-weight: 600; margin: 0 0 10px; }
+.conclusion { border-left: 5px solid var(--blue); }
+.conclusion.deviation { border-left-color: var(--violet); }
+dl.kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 16px; margin: 6px 0; }
+dl.kv dt { color: var(--muted); font-weight: 600; }
+dl.kv dd { margin: 0; overflow-wrap: anywhere; }
+.callout { background: var(--amber-bg); color: var(--text); border-radius: 8px; padding: 8px 12px; margin: 10px 0 0; }
+.callout ul { margin: 4px 0 0; padding-left: 1.3em; }
+.prose { white-space: pre-wrap; overflow-wrap: anywhere; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+th, td { text-align: left; vertical-align: top; padding: 7px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 600; background: var(--sunken); white-space: nowrap; }
+td { overflow-wrap: anywhere; }
+ol.path { margin: 4px 0 8px; padding-left: 2.2em; }
+ol.path li { padding: 3px 8px; border-radius: 6px; margin: 2px 0; }
+ol.path li.main { background: var(--red-bg); font-weight: 600; }
+ol.path li.main::marker { color: var(--red); }
+.loc { font-family: var(--mono); font-size: .9em; color: var(--muted); margin-right: .4em; overflow-wrap: anywhere; }
+.tag { font-family: var(--mono); font-size: .82em; padding: 0 5px; border-radius: 4px; background: var(--sunken);
+  margin-right: .4em; }
+ul.evidence { margin: 6px 0; padding-left: 1.3em; }
+.plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 16px; }
+.plan { background: var(--surface); border: 1px solid var(--border); border-top: 5px solid var(--gray);
+  border-radius: 10px; padding: 14px 16px; min-width: 0; box-shadow: var(--shadow); }
+.plan.deviation { border-top-color: var(--violet); }
+.plan.fix { border-top-color: var(--blue); }
+.plan.recommended { outline: 2px solid var(--border); }
+.plan h3 { margin: 0 0 6px; font-size: 1.08rem; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.plan .note { font-size: .88rem; color: var(--muted); }
+.comment { background: var(--sunken); border-radius: 8px; padding: 10px 12px; margin: 4px 0; }
+details { margin: 10px 0 0; }
+summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+ul.files { margin: 0; padding-left: 1.2em; }
+.diffs h3 { margin-top: 20px; }
+pre.diff, pre.log { margin: 6px 0; padding: 10px 0; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 8px; overflow-x: auto; font-size: .84rem; line-height: 1.5; }
+pre.log { padding: 10px 12px; background: var(--sunken); }
+pre.diff > span { display: block; padding: 0 12px; min-height: 1.5em; }
+pre.diff > .add { background: var(--add-bg); color: var(--add-fg); }
+pre.diff > .del { background: var(--del-bg); color: var(--del-fg); }
+pre.diff > .hunk { background: var(--hunk-bg); color: var(--hunk-fg); }
+pre.diff > .meta { color: var(--meta-fg); font-weight: 600; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 10px; margin: 0 0 16px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px;
+  box-shadow: var(--shadow); }
+.tile .label { color: var(--muted); font-size: .82rem; font-weight: 600; }
+.tile .value { font-size: 1.6rem; font-weight: 700; line-height: 1.3; font-variant-numeric: tabular-nums; }
+.tile .sub { font-size: .78rem; }
+.tile.warn .value { color: var(--amber); }
+.tile.bad .value { color: var(--red); }
+.notice { border-left: 5px solid var(--blue); }
+table.items td.id a { font-weight: 700; }
+table.items .edited-mark { display: block; color: var(--amber); font-size: .8rem; font-weight: 600; }
+footer.foot { color: var(--muted); font-size: .85rem; margin-top: 24px; }
+@media (max-width: 40rem) {
+  dl.kv { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  dl.kv dd { margin-bottom: 6px; }
+  table.items thead { display: none; }
+  table.items, table.items tbody, table.items tr, table.items td { display: block; width: 100%; }
+  table.items tr { border: 1px solid var(--border); border-radius: 10px; margin: 0 0 10px; padding: 6px 0;
+    background: var(--surface); }
+  table.items td { border: 0; padding: 3px 12px; display: grid; grid-template-columns: 5.5em minmax(0, 1fr); gap: 8px; }
+  table.items td::before { content: attr(data-label); color: var(--muted); font-size: .82rem; font-weight: 600; }
+}
+@media print {
+  :root { --bg: #fff; --surface: #fff; --sunken: #f3f4f6; --text: #000; --muted: #444; --border: #bbb;
+    --shadow: none; --link: #000; }
+  body { font-size: 11pt; }
+  .page { max-width: none; padding: 0; }
+  .crumbs { display: none; }
+  .card, section.block, .plan, .tile, pre.diff, ol.path li.main { break-inside: avoid; }
+  pre.diff, pre.log { white-space: pre-wrap; overflow-wrap: anywhere; overflow: visible; }
+  pre.diff > span, .badge, ol.path li.main { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="head">
+<p class="crumbs"><a href="../summary.html">← 一覧（summary）</a></p>
+<h1>G1（3 件）<span class="checker">MISRA C-2012 Rule 10.3</span></h1>
+<p class="where"><code>src/reader.c:57 to_u8() ほか 2 件</code></p>
+<div class="badges"><span class="badge fix">推奨 修正</span><span class="badge conf-high">確信度 高</span><span class="badge">Impact Low</span><span class="badge">本物のバグ</span><span class="badge fix">承認 修正</span></div>
+</header>
+<section class="card conclusion fix">
+<h2>結論</h2>
+<p class="lead">int を unsigned char へ暗黙に変換して代入している（Rule 10.3）</p>
+<dl class="kv">
+<dt>推奨</dt><dd><strong>修正</strong>（案B）</dd>
+<dt>確信度</dt><dd><strong>高</strong> — 規則の違反をコードで確かめた。直し方も明示のキャストだけで済む</dd>
+<dt>見立て</dt><dd>本物のバグ</dd>
+<dt>リビジョンのずれ</dt><dd>なし</dd>
+</dl>
+</section>
+<section class="block">
+<h2>警告の概要</h2>
+<div class="table-wrap"><table>
+<thead><tr><th>CID</th><th>チェッカー</th><th>ファイル</th><th>関数</th><th>行</th><th>Impact</th><th>CWE</th></tr></thead>
+<tbody>
+<tr><td>20004</td><td>MISRA C-2012 Rule 10.3</td><td class="mono">src/reader.c</td><td>to_u8</td><td>57</td><td>Low</td><td>-</td></tr>
+<tr><td>20005</td><td>MISRA C-2012 Rule 10.3</td><td class="mono">src/reader.c</td><td>to_u8</td><td>58</td><td>Low</td><td>-</td></tr>
+<tr><td>20006</td><td>MISRA C-2012 Rule 10.3</td><td class="mono">src/reader.c</td><td>to_u8</td><td>59</td><td>Low</td><td>-</td></tr>
+</tbody></table></div>
+<p class="muted">チェッカーの説明: より狭い型への代入（暗黙の変換）</p>
+</section>
+<section class="block">
+<h2>真偽の根拠</h2>
+<h3>警告経路（CID 20004）</h3>
+<ol class="path">
+<li class="main"><span class="loc">src/reader.c:57</span><span class="tag">misra_violation</span>int を unsigned char に代入 <span class="badge conf-low">警告の場所</span></li>
+</ol>
+<h3>警告経路（CID 20005）</h3>
+<ol class="path">
+<li class="main"><span class="loc">src/reader.c:58</span><span class="tag">misra_violation</span>int を unsigned char に代入 <span class="badge conf-low">警告の場所</span></li>
+</ol>
+<h3>警告経路（CID 20006）</h3>
+<ol class="path">
+<li class="main"><span class="loc">src/reader.c:59</span><span class="tag">misra_violation</span>int を unsigned char に代入 <span class="badge conf-low">警告の場所</span></li>
+</ol>
+<h3>調査結果</h3>
+<p class="prose">57〜59 行目で int の式を unsigned char の変数へ代入しており、より狭い型への暗黙の変換に当たる。3 件とも同じ関数で同じ書き方のため、同じ原因と判断した。</p>
+<ul class="evidence"><li><span class="loc">src/reader.c:57</span>int から unsigned char への暗黙の変換</li></ul>
+</section>
+<section class="proposals">
+<h2>対応の案</h2>
+<div class="plans">
+<article class="plan deviation">
+<h3>案A: 逸脱</h3>
+<p class="note">「逸脱」で反映すると、この内容が Coverity に登録されます。</p>
+<dl class="kv">
+<dt>Classification</dt><dd>Intentional</dd>
+<dt>Action</dt><dd>Ignore</dd>
+<dt>Severity</dt><dd>Unspecified</dd>
+</dl>
+<h4>逸脱コメント</h4>
+<div class="comment prose">意図的。to_u8() は下位 8 ビットを取り出す関数で、上位ビットが切り捨てられることを前提にしている（src/reader.c:55〜60）ため、動作への影響はない。</div>
+</article>
+<article class="plan fix recommended">
+<h3>案B: 修正 <span class="badge fix">推奨</span></h3>
+<p class="note">「修正」で反映すると、修正をブランチ（svn では差分）で取り込みます。</p>
+<dl class="kv">
+<dt>概要</dt><dd>3 箇所の代入に明示のキャストを付ける</dd>
+<dt>影響とリスク</dt><dd>動きは変わらない（暗黙の変換を明示にするだけ）</dd>
+<dt>ブランチ</dt><dd><code>coverity-fix/20261015-134741-G1</code></dd>
+<dt>差分ファイル</dt><dd><a href="../patches/G1-fix.patch">G1-fix.patch</a></dd>
+<dt>修正後のファイル</dt><dd><ul class="files"><li><a href="../fixed/G1/fix/src/reader.c">src/reader.c</a></li></ul></dd>
+</dl>
+<details><summary>修正した場合の Classification / Action / Severity（参考。「修正」で反映しても Coverity には書き込みません）</summary>
+<dl class="kv">
+<dt>Classification</dt><dd>Bug</dd>
+<dt>Action</dt><dd>Fix Required</dd>
+<dt>Severity</dt><dd>Minor</dd>
+</dl>
+</details>
+</article>
+</div>
+<div class="diffs">
+<h3>修正の差分（案B）</h3>
+<pre class="diff"><span class="meta">diff --git a/src/reader.c b/src/reader.c
+</span><span class="meta">index ecfe7a8..ad69623 100644
+</span><span class="meta">--- a/src/reader.c
+</span><span class="meta">+++ b/src/reader.c
+</span><span class="hunk">@@ -54,8 +54,8 @@ int first_char(void)
+</span><span> 
+</span><span> unsigned char to_u8(int value)
+</span><span> {
+</span><span class="del">-    unsigned char a = value;
+</span><span class="del">-    unsigned char b = value + 1;
+</span><span class="del">-    unsigned char c = value + 2;
+</span><span class="add">+    unsigned char a = (unsigned char)value;
+</span><span class="add">+    unsigned char b = (unsigned char)(value + 1);
+</span><span class="add">+    unsigned char c = (unsigned char)(value + 2);
+</span><span>     return a + b + c;
+</span><span> }
+</span></pre>
+</div>
+</section>
+<section class="block info">
+<h2>処理情報</h2>
+<dl class="kv">
+<dt>調べたコード</dt><dd>手元のコード</dd>
+<dt>修正の元にしたリビジョン</dt><dd>be38054022</dd>
+</dl>
+</section>
+<footer class="foot">このレポートは表示専用です。承認（修正／逸脱／却下）と逸脱コメントの手直しは、画面（ct.py gui）の「結果」で入力します。</footer>
+</div>
+</body>
+</html>

@@ -282,3 +282,72 @@ def test_update_triage_refuses_an_incomplete_entry(repo, run):
     plan, token = write_plan(run, [{"id": "C001", "cids": [20001], "classification": "", "action": "Ignore"}])
     with pytest.raises(ToolError, match="反映の内容を読めません"):
         server.update_triage(str(repo), str(plan), token)
+
+
+# ---- the run's operations.log -------------------------------------------------------------------
+
+
+def log_lines(run: Path) -> list[dict]:
+    path = run / "operations.log"
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()] if path.exists() else []
+
+
+@pytest.fixture
+def run_folder(run) -> Path:
+    (run / "run.json").write_text("{}", encoding="utf-8")  # what marks a folder made by ct.py new-run
+    return run
+
+
+def test_calls_on_a_run_folder_are_logged(repo, run_folder):
+    server.search_issues(str(repo), str(write_filter(run_folder, limit=100)), str(run_folder / "issues.json"))
+    item = run_folder / "items" / "20001"
+    item.mkdir(parents=True)
+    server.get_issues(str(repo), "Sample-main", [20001, 99999], str(item))
+    lines = log_lines(run_folder)
+    assert [(r["event"], r["phase"], r["level"]) for r in lines] == [
+        ("mcp:search_issues", "start", "info"), ("mcp:search_issues", "end", "info"),
+        ("mcp:get_issues", "start", "info"), ("mcp:get_issues", "end", "warning")]
+    assert all(r["source"] == "mcp" and r["time"] for r in lines)
+    assert lines[1]["done"] and lines[1]["found"] == 6
+    assert lines[3]["item"] == "20001" and lines[3]["cids"] == [20001, 99999]
+    assert lines[3]["saved"] == 1 and lines[3]["failed"] == [99999] and lines[3]["done"]
+
+
+def test_a_failed_call_is_logged_as_critical_without_credentials(repo, run_folder, monkeypatch):
+    monkeypatch.setenv("COV_AUTH_KEY", "s3cr3t-key-value")
+
+    def search(self, spec, limit, offset, seconds):
+        raise CoverityError("Coverity が拒みました: key=s3cr3t-key-value")
+
+    monkeypatch.setattr(FakeCoverityClient, "search", search)
+    with pytest.raises(ToolError):
+        server.search_issues(str(repo), str(write_filter(run_folder)), str(run_folder / "issues.json"))
+    lines = log_lines(run_folder)
+    assert [(r["phase"], r["level"]) for r in lines] == [("start", "info"), ("error", "critical")]
+    assert lines[1]["error"] == "Coverity が拒みました: key=****"
+    assert "s3cr3t" not in (run_folder / "operations.log").read_text(encoding="utf-8")
+
+
+def test_update_triage_logs_its_outcome(repo, run_folder):
+    plan, token = write_plan(run_folder, [ENTRY])
+    with pytest.raises(ToolError):
+        server.update_triage(str(repo), str(plan), "000000000000")
+    server.update_triage(str(repo), str(plan), token)
+    lines = log_lines(run_folder)
+    assert [(r["event"], r["phase"], r["level"]) for r in lines] == [
+        ("mcp:update_triage", "start", "info"), ("mcp:update_triage", "error", "critical"),
+        ("mcp:update_triage", "start", "info"), ("mcp:update_triage", "end", "info")]
+    assert "確認用の文字列" in lines[1]["error"]
+    assert lines[3]["written"] == ["C002"] and lines[3]["failed"] == [] and lines[3]["entries"] == 1
+
+
+def test_nothing_is_logged_outside_a_run_folder(repo, run):
+    server.search_issues(str(repo), str(write_filter(run)), str(run / "issues.json"))
+    server.get_issues(str(repo), "Sample-main", [20001], str(run))
+    assert not (run / "operations.log").exists()
+
+
+def test_a_log_that_cannot_be_written_does_not_stop_the_tool(repo, run_folder):
+    (run_folder / "operations.log").mkdir()  # opening it to append fails
+    out = server.search_issues(str(repo), str(write_filter(run_folder)), str(run_folder / "issues.json"))
+    assert out["done"] and out["found"] == 6

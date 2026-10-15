@@ -2,7 +2,7 @@
 
 設定は対象リポジトリの `.coverity-triage/` にあり、コミットしてチームで共有します。認証情報は書きません（環境変数に置きます）。
 
-ここにある項目は、すべて設定の画面でも変えられます（`/coverity-setup` で「画面で準備する」を選ぶか、`ct.py gui --repo <フォルダ>` で開きます）。
+ここにある項目は、すべて画面の「設定」でも変えられます（`/coverity-setup` で「画面で準備する」を選ぶか、`ct.py gui --repo <フォルダ> --view settings` で開きます）。
 
 ## config.yaml
 
@@ -25,6 +25,7 @@
 | `options.per_run_branch` | 修正を警告ごとではなく、1 つのブランチにまとめる（git） | 既定 false |
 | `options.knowledge_suggestions` | 反映のあと、知識の追記の候補を示す | 既定 false |
 | `options.metrics` | 推奨の採用率などを記録する | 既定 false |
+| `options.markdown` | 一覧と詳細レポートを、HTML（`summary.html`、`cid/<ID>.html`）に加えて Markdown（`summary.md`、`cid/<ID>.md`）でも出す。VS Code のプレビューや GitHub で読みたいとき。Markdown も表示専用で、書き換えても承認にはならない | 既定 false（HTML だけ）。画面の「オプション設定」の「Markdown も出す」 |
 | `verify.default` | ビルドでの検証：`none` / `build` / `build+analyze` | 既定 `none` |
 | `verify.setup_command` | ビルドの前に実行する環境設定のコマンド。`{root}` はビルド用のフォルダに置き換わる | 例 `envset.bat "{root}" <引数>`。不要なら空 |
 | `verify.build_dir` | ビルドするフォルダ（リポジトリからの相対パス） | 空なら一番上 |
@@ -39,7 +40,7 @@
 
 | 項目 | 意味 |
 |---|---|
-| `name` | 表示名（一覧 `summary.md` の見出しや実行の一覧に出る。空ならファイル名）。`/coverity-run` で条件を選ぶときは、ファイル名を使う |
+| `name` | 表示名（一覧 `summary.html` の見出しや実行の一覧に出る。空ならファイル名）。`/coverity-run` で条件を選ぶときは、ファイル名を使う |
 | `project` / `streams` | Coverity のプロジェクトとストリーム（ストリームは 1 つだけ）。どちらも config.yaml ではなく条件ファイルに書く |
 | `checkers` | チェッカー名（`*` が使える。例 `"MISRA C-2012 *"`） |
 | `impacts` | `High` / `Medium` / `Low` / `Unspecified`（Impact が未指定の警告。High・Medium・Low だけでは対象にならない） |

@@ -70,8 +70,11 @@ def parser() -> argparse.ArgumentParser:
             ("--build-dir", {"default": ""}),
             ("--default", {"default": "build", "choices": ["none", "build", "build+analyze"]}),
             ("--cov-build-args", {}), ("--cov-analyze-args", {}))
-    command("gui", "設定の画面をブラウザで開く（裏で動かし、すぐ戻る）", repo,
-            ("--foreground", {"action": "store_true", "help": "画面を閉じるまで、このコマンドで動かす"}),
+    command("gui", "設定・結果・監視の画面をブラウザで開く（裏で動かし、すぐ戻る。動いていれば再利用する）", repo,
+            ("--run", {"help": "開く実行フォルダ（new-run が返す run_dir）"}),
+            ("--view", {"choices": list(gui.VIEWS), "help": "最初に出す画面（既定: --run があれば monitor）"}),
+            ("--foreground", {"action": "store_true",
+                              "help": "「サーバを止める」を押すまで、このコマンドで動かす（動いている画面は止めて置き換える）"}),
             ("--no-browser", {"action": "store_true", "help": "ブラウザを開かずにアドレスだけ返す"}),
             ("--serve", {"action": "store_true", "help": argparse.SUPPRESS}),
             ("--ready-file", {"help": argparse.SUPPRESS}))
@@ -94,7 +97,7 @@ def parser() -> argparse.ArgumentParser:
     command("status", "実行の進み具合", run)
     command("verify", "（オプション）修正案をまとめてビルドで確かめる", run,
             ("--mode", {"choices": ["none", "build", "build+analyze"]}))
-    command("summary", "一覧 summary.md を作る", run)
+    command("summary", "一覧 summary.html を作る", run)
 
     # apply
     command("preview", "反映の内容と確認用の文字列を作る", run)
@@ -128,11 +131,11 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
         return prepare.set_verify(args.repo, args.default, args.setup_command, args.build_command, args.build_dir,
                                   args.cov_build_args, args.cov_analyze_args)
     if c == "gui":
-        if args.serve:
-            return gui.serve(args.repo, os.environ.get(gui.TOKEN_ENV), args.ready_file)
+        if args.serve:  # the token is not passed on to the commands the screen runs (trial build)
+            return gui.serve(args.repo, os.environ.pop(gui.TOKEN_ENV, None), args.ready_file)
         if args.foreground:
-            return gui.serve(args.repo, open_browser=not args.no_browser)
-        return gui.launch(args.repo, open_browser=not args.no_browser)
+            return gui.serve(args.repo, open_browser=not args.no_browser, run_dir=args.run, view=args.view)
+        return gui.launch(args.repo, open_browser=not args.no_browser, run_dir=args.run, view=args.view)
     if c == "runs":
         return triage.runs(args.repo, args.limit)
     if c == "new-run":
@@ -174,6 +177,32 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="backslashreplace")
     args = parser().parse_args(argv)
+
+    def log_failure(failed: dict[str, Any]) -> None:
+        """Record a failed step of a run in its operations.log, for the monitor of ``ct.py gui``.
+
+        Problems in the result file are for the subagent to fix (warning); anything else stops the
+        work (critical). Recording never changes what the command prints or returns."""
+        if not getattr(args, "run", None) or args.command in ("gui", "selftest"):
+            return
+        try:
+            from ctlib import oplog
+            from ctlib.run import Run
+
+            run = Run(args.run)
+            try:
+                secrets = oplog.secrets_of(run.config)
+            except Exception:  # noqa: BLE001 - the settings may be what failed
+                secrets = []
+            level = "warning" if args.command == "finish" and failed.get("problems") else "critical"
+            fields = {"command": args.command, "error": failed.get("error", ""),
+                      "problems": failed.get("problems") or []}
+            if getattr(args, "item", None):
+                fields["item"] = args.item
+            oplog.log(run.dir, "error", secrets, level=level, **fields)
+        except Exception:  # noqa: BLE001 - the log is best effort
+            pass
+
     try:
         result = dispatch(args)
         code = 0 if result.get("ok", True) else 1
@@ -181,6 +210,11 @@ def main(argv: list[str] | None = None) -> int:
         result, code = {"ok": False, "error": str(exc), **exc.details}, 1
     except OSError as exc:
         result, code = {"ok": False, "error": f"ファイルやコマンドの操作に失敗しました: {exc}"}, 1
+    except Exception as exc:
+        log_failure({"error": f"{type(exc).__name__}: {exc}"})
+        raise
+    if code:
+        log_failure(result)
     print(json.dumps(result, ensure_ascii=False, indent=1))
     return code
 
