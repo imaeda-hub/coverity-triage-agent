@@ -83,6 +83,8 @@ nav button .mark.error { color: var(--ng); }
 .field { margin: 0 0 14px; }
 .field:last-child { margin-bottom: 0; }
 .field > label, .field > .label { display: block; font-weight: 600; margin-bottom: 4px; }
+.cond { font-size: 11px; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 4px; margin-left: 6px; font-weight: 600; vertical-align: 1px; }
+.req[hidden], .cond[hidden] { display: none; }
 .req { font-size: 11px; color: var(--ng); border: 1px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 6px; font-weight: 600; vertical-align: 1px; }
 .help { color: var(--muted); font-size: 12.5px; margin-top: 4px; }
 .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 16px; }
@@ -238,33 +240,40 @@ table.changes td.before { color: var(--muted); }
       </div>
 
       <div class="card" data-show="first">
-        <h3>最初の条件 <span class="scope">チームで共有</span></h3>
-        <p class="desc">分類がまだの警告を 20 件まで調べる条件ファイル <code>untriaged.yaml</code> を作ります。あとから「条件」で変えたり、増やしたりできます。</p>
+        <h3>最初の条件（調べる警告） <span class="scope">チームで共有</span></h3>
+        <p class="desc">Coverity Connect のどのプロジェクト・ストリームの警告を調べるかを決めます。プロジェクトとストリームは config.yaml ではなく<b>条件ファイル</b>に書きます。ここで入れた値で、最初の条件ファイル <code>untriaged.yaml</code>（分類がまだの警告を 20 件まで）を作ります。作ったあとは「条件」で直したり、別の条件を足したりします。</p>
         <div class="row">
           <div class="field">
-            <label for="f-first-project">プロジェクト名<span class="req">必須</span></label>
+            <label for="f-first-project">Coverity のプロジェクト名<span class="req">必須</span></label>
             <input type="text" id="f-first-project" data-first="project" autocomplete="off">
+            <div class="help">Coverity Connect の画面のプロジェクトの一覧に出る名前です。</div>
           </div>
           <div class="field">
-            <label for="f-first-stream">ストリーム名<span class="req">必須</span></label>
+            <label for="f-first-stream">Coverity のストリーム名<span class="req">必須</span></label>
             <input type="text" id="f-first-stream" data-first="stream" autocomplete="off">
+            <div class="help">解析結果をコミットしている先のストリームの名前です（<code>cov-commit-defects --stream</code> に渡している名前）。</div>
           </div>
         </div>
       </div>
-      <div class="note" data-show="not-first" style="margin-bottom:18px">プロジェクトとストリームは、<a href="#" data-goto="filters">「条件」</a>で条件ファイルごとに決めます。</div>
+      <div class="note" data-show="not-first" style="margin-bottom:18px">調べる警告の Coverity のプロジェクトとストリームは、条件ファイルに書いてあります。<a href="#" data-goto="filters">「条件」</a>で、条件ファイルごとに直します。</div>
 
       <div class="card">
         <h3>バージョン管理 <span class="scope">チームで共有</span></h3>
-        <p class="desc">開いているリポジトリから自動で調べた値です。</p>
+        <p class="desc">修正案を作るときと、承認した修正を反映するときに使う、このリポジトリのソースの管理のしかたです。</p>
         <div class="row">
           <div class="field">
-            <label for="f-vcs">種類</label>
+            <label for="f-vcs">バージョン管理の種類</label>
             <input type="text" id="f-vcs" data-bind="vcs.type" readonly>
+            <div class="help">このリポジトリを管理している道具です（<code>.git</code> があれば git、<code>.svn</code> があれば svn）。開いているフォルダから自動で判定するので、変えられません。</div>
           </div>
           <div class="field" data-show="git">
             <label for="f-base">取り込み先のブランチ<span class="req">必須</span></label>
             <input type="text" id="f-base" data-bind="vcs.base_branch" autocomplete="off">
-            <div class="help">修正のプルリクエストを出す先のブランチです。</div>
+            <div class="help">修正案は、このブランチの最新のコードをもとに作ります。承認した修正は、このブランチに向けたプルリクエストになります（例 <code>main</code>、<code>develop</code>）。</div>
+          </div>
+          <div class="field" data-show="svn">
+            <div class="label">取り込み先のブランチ</div>
+            <div class="help">svn では使いません。修正案はワーキングコピーと同じ URL の最新のリビジョンで作り、承認した修正はワーキングコピーに当てます（コミットは人が行います）。</div>
           </div>
         </div>
       </div>
@@ -281,19 +290,19 @@ table.changes td.before { color: var(--muted); }
 
       <div class="card">
         <h3>認証情報 <span class="scope pc">この PC だけ</span></h3>
-        <p class="desc">Windows のユーザの環境変数に保存します。設定ファイルにもチャットにも書きません。</p>
+        <p class="desc">Coverity Connect にログインするための情報です。<b>ユーザ名</b>と、<b>認証キーかパスワードのどちらか 1 つ</b>を入れます（認証キーを使うときも、ユーザ名は必要です）。Windows のユーザの環境変数に保存し、設定ファイルにもチャットにも書きません。</p>
         <div class="note warn" id="cred-cannot" hidden style="margin-bottom:14px">この PC では環境変数を保存できません（Windows だけ）。環境変数を自分で設定してください。</div>
         <div class="note" id="cred-fake" hidden style="margin-bottom:14px">偽データを使う設定（接続先 fake）なので、認証情報は使いません。</div>
         <div class="row">
           <div class="field">
-            <label for="f-user">ユーザ名 <span class="pill" id="user-state"></span></label>
+            <label for="f-user">Coverity のユーザ名（ログイン名）<span class="req" data-req-cred>必須</span> <span class="pill" id="user-state"></span></label>
             <input type="text" id="f-user" autocomplete="off" spellcheck="false">
-            <div class="help">環境変数 <code id="user-env-name"></code></div>
+            <div class="help">Coverity Connect の画面にログインするときのユーザ名です。環境変数 <code id="user-env-name"></code> に保存します。</div>
           </div>
           <div class="field">
-            <label for="f-key">認証キー <span class="pill" id="key-state"></span></label>
+            <label for="f-key">認証キー（またはパスワード）<span class="req" data-req-cred>必須</span> <span class="pill" id="key-state"></span></label>
             <input type="password" id="f-key" autocomplete="new-password" spellcheck="false">
-            <div class="help">環境変数 <code id="key-env-name"></code>。設定済みなら、変えるときだけ入れます。認証キーは Coverity Connect の画面のユーザのメニューから作れます。</div>
+            <div class="help">認証キーがおすすめです。Coverity Connect の画面右上のユーザのメニュー →「Authentication Keys」で作れます。ダウンロードしたキーのファイル（JSON）の中身をそのまま貼ってもかまいません（キーの部分だけを保存します）。パスワードも使えますが、パスワードを変えたら入れ直しが要ります。設定済みなら、変えるときだけ入れます。環境変数 <code id="key-env-name"></code> に保存します。</div>
           </div>
         </div>
       </div>
@@ -331,20 +340,21 @@ table.changes td.before { color: var(--muted); }
         <div class="field">
           <div class="label">確かめ方</div>
           <div class="radio-cards">
-            <label><input type="radio" name="verify-default" value="none" data-bind="verify.default" data-kind="radio"><div><b>使わない</b><span>既定</span></div></label>
-            <label><input type="radio" name="verify-default" value="build" data-bind="verify.default" data-kind="radio"><div><b>ビルドだけ</b><span>build</span></div></label>
-            <label><input type="radio" name="verify-default" value="build+analyze" data-bind="verify.default" data-kind="radio"><div><b>ビルドと再解析</b><span>build+analyze（cov-build と cov-analyze）</span></div></label>
+            <label><input type="radio" name="verify-default" value="none" data-bind="verify.default" data-kind="radio"><div><b>使わない（既定）</b><span>修正案をビルドで確かめません。下の項目は使いません。</span></div></label>
+            <label><input type="radio" name="verify-default" value="build" data-bind="verify.default" data-kind="radio"><div><b>ビルドだけ</b><span>修正案をすべて当てたコードを 1 回ビルドし、ビルドが通るかを確かめます。</span></div></label>
+            <label><input type="radio" name="verify-default" value="build+analyze" data-bind="verify.default" data-kind="radio"><div><b>ビルドと再解析</b><span>ビルドに加えて Coverity で解析し直し、警告が消えたか、新しい警告が出ていないかも確かめます（解析は 2 回。時間がかかります）。</span></div></label>
           </div>
         </div>
+        <div class="note" data-show="no-verify">「ビルドだけ」か「ビルドと再解析」を選ぶと、ビルドのコマンドなどを入れる欄が出ます。</div>
         <div data-show="verify">
           <div class="field">
-            <label for="f-setup">ビルドの前に実行する環境設定のコマンド</label>
+            <label for="f-setup">ビルドの前に実行する環境設定のコマンド<span class="cond">任意</span></label>
             <input type="text" id="f-setup" class="mono" data-bind="verify.setup_command" placeholder='envset.bat "{root}" &lt;引数&gt;' autocomplete="off" spellcheck="false">
             <div class="help">ビルド用のフォルダを渡す引数は <code>{root}</code> と書きます。不要なら空。</div>
           </div>
           <div class="row">
             <div class="field">
-              <label for="f-bdir">ビルドするフォルダ</label>
+              <label for="f-bdir">ビルドするフォルダ<span class="cond">任意</span></label>
               <input type="text" id="f-bdir" class="mono" data-bind="verify.build_dir" placeholder="（空なら一番上）" autocomplete="off" spellcheck="false">
               <div class="help">makefile がある場所。リポジトリからの相対パス。</div>
             </div>
@@ -355,16 +365,17 @@ table.changes td.before { color: var(--muted); }
           </div>
           <div class="row" data-show="analyze">
             <div class="field">
-              <label for="f-covb">cov-build の引数</label>
+              <label for="f-covb">cov-build の引数<span class="cond">ビルドと再解析のとき</span></label>
               <input type="text" id="f-covb" class="mono" data-bind="verify.cov_build_args" autocomplete="off" spellcheck="false">
               <div class="help"><code>--dir</code> が必要です。既定 <code>--dir idir</code></div>
             </div>
             <div class="field">
-              <label for="f-cova">cov-analyze の引数</label>
+              <label for="f-cova">cov-analyze の引数<span class="cond">ビルドと再解析のとき</span></label>
               <input type="text" id="f-cova" class="mono" data-bind="verify.cov_analyze_args" autocomplete="off" spellcheck="false">
               <div class="help">既定 <code>--dir idir --all</code></div>
             </div>
           </div>
+          <div class="help" style="margin:-6px 0 14px" data-show="analyze">ビルドと再解析では、ビルドのコマンドを <code>cov-build</code> の下で動かし、そのあと <code>cov-analyze</code> を実行します。</div>
           <div class="field">
             <button class="btn" type="button" id="trialBtn">試しにビルドする</button>
             <span class="help" style="margin-left:8px">修正前の最新のコードを、この画面の値でビルドします（時間がかかることがあります）。保存の前に試すのがおすすめです。</span>
@@ -382,7 +393,7 @@ table.changes td.before { color: var(--muted); }
             <div class="field">
               <label for="f-max">1 回で調べる警告の上限</label>
               <input type="number" id="f-max" min="1" step="1" data-bind="max_items" data-kind="int">
-              <div class="help">既定 100</div>
+              <div class="help">既定 100。条件ファイルの「調べる警告の数」がこれより多くても、1 回の実行ではここまでしか調べません。</div>
             </div>
             <div class="field">
               <label for="f-par">同時に調べる数</label>
@@ -456,24 +467,26 @@ table.changes td.before { color: var(--muted); }
         <div class="card" id="feditor" style="margin:0">
           <div class="row">
             <div class="field">
-              <label for="ff-file">ファイル名<span class="req">必須</span></label>
+              <label for="ff-file">ファイル名（条件の名前）<span class="req">必須</span></label>
               <input type="text" id="ff-file" class="mono" autocomplete="off" spellcheck="false">
               <div class="help" id="ff-file-help"></div>
             </div>
             <div class="field">
-              <label for="ff-name">表示する名前</label>
+              <label for="ff-name">表示名<span class="cond">任意</span></label>
               <input type="text" id="ff-name" data-fbind="name" autocomplete="off">
+              <div class="help">一覧 <code>summary.md</code> の見出しや、実行の一覧に出る、人が読むための説明です。空ならファイル名を使います。</div>
             </div>
           </div>
           <div class="row">
             <div class="field">
-              <label for="ff-project">プロジェクト</label>
+              <label for="ff-project">Coverity のプロジェクト<span class="cond">任意</span></label>
               <input type="text" id="ff-project" data-fbind="project" data-kind="nullable" autocomplete="off">
+              <div class="help">基本設定の「最初の条件」で入れたものと同じ項目です。条件ごとに決めます。</div>
             </div>
             <div class="field">
-              <label for="ff-stream">ストリーム<span class="req">必須</span></label>
+              <label for="ff-stream">Coverity のストリーム<span class="req">必須</span></label>
               <input type="text" id="ff-stream" data-fbind="streams" data-kind="single" autocomplete="off">
-              <div class="help">1 回に 1 つです。</div>
+              <div class="help">基本設定の「最初の条件」と同じ項目です。1 つの条件に 1 つだけです。</div>
             </div>
           </div>
           <div class="field">
@@ -481,17 +494,18 @@ table.changes td.before { color: var(--muted); }
             <textarea id="ff-checkers" class="mono" rows="3" data-fbind="checkers" data-kind="lines" placeholder="MISRA C-2012 *" spellcheck="false"></textarea>
             <div class="help">1 行に 1 つ。<code>*</code> が使えます（例 <code>MISRA C-2012 *</code>）。</div>
           </div>
-          <div class="field"><div class="label">Impact</div><div class="choice" id="ff-impacts"></div></div>
-          <div class="field"><div class="label">Classification（今の分類）</div><div class="choice" id="ff-classification"></div>
-            <input type="text" data-fbind="triage.classification" data-kind="others" data-known="classification" placeholder="ほかの値（カンマ区切り）" style="margin-top:6px"></div>
-          <div class="field"><div class="label">Action（今の対応）</div><div class="choice" id="ff-action"></div>
-            <input type="text" data-fbind="triage.action" data-kind="others" data-known="action" placeholder="ほかの値（カンマ区切り）" style="margin-top:6px"></div>
-          <div class="field"><div class="label">Status（今の状態）</div><div class="choice" id="ff-status"></div>
-            <input type="text" data-fbind="triage.status" data-kind="others" data-known="status" placeholder="ほかの値（カンマ区切り）" style="margin-top:6px"></div>
-          <div class="field" style="max-width:260px">
-            <label for="ff-limit">この条件で調べる上限</label>
+          <p class="help" style="margin:0 0 10px">ここから下の項目は、どれも<b>複数選べます</b>。何も選ばなければ、その項目では絞り込みません。</p>
+          <div class="field"><div class="label">Impact<span class="cond">複数選択可</span></div><div class="choice" id="ff-impacts"></div></div>
+          <div class="field"><div class="label">Classification（今の分類）<span class="cond">複数選択可</span></div><div class="choice" id="ff-classification"></div></div>
+          <div class="field"><div class="label">Action（今の対応）<span class="cond">複数選択可</span></div><div class="choice" id="ff-action"></div>
+            <input type="text" data-fbind="triage.action" data-kind="others" data-known="action" placeholder="管理者が足した Action（カンマ区切り）" aria-label="管理者が足した Action" style="margin-top:6px">
+            <div class="help">Coverity の管理者が Action の値を足している場合は、上の欄に書きます。</div></div>
+          <div class="field"><div class="label">Status（今の状態）<span class="cond">複数選択可</span></div><div class="choice" id="ff-status"></div>
+            <div class="help">Status は Coverity が決めます：New＝分類がまだ（Unclassified）、Triaged＝Pending・Bug・Untested、Dismissed＝False Positive・Intentional などで最新のスナップショットにあるもの、Absent Dismissed＝そのうち最新のスナップショットにないもの、Fixed＝最新のスナップショットにないもの。</div></div>
+          <div class="field" style="max-width:560px">
+            <label for="ff-limit">調べる警告の数（上限）<span class="cond">任意</span></label>
             <input type="number" id="ff-limit" min="1" step="1" data-fbind="limit" data-kind="int">
-            <div class="help">空なら設定の上限（詳細設定）まで。</div>
+            <div class="help">この条件で Coverity から取り出して調べる警告の件数の上限です（グループにまとめる前の件数）。詳細設定の「1 回で調べる警告の上限」（今は <span id="ff-max"></span> 件）より多くは調べません。空なら <span id="ff-max2"></span> 件まで調べます。</div>
           </div>
           <div class="note warn" id="ff-error" hidden></div>
           <div class="editor-actions">
@@ -542,9 +556,9 @@ table.changes td.before { color: var(--muted); }
 const TOKEN = new URLSearchParams(location.search).get("t") || "";
 const KNOWN = {
   impacts: ["High", "Medium", "Low"],
-  classification: ["Unclassified", "Pending", "False Positive", "Intentional", "Bug"],
+  classification: ["Unclassified", "Pending", "False Positive", "Intentional", "Bug", "Untested", "No Test Needed", "Tested Elsewhere"],
   action: ["Undecided", "Fix Required", "Fix Submitted", "Modeling Required", "Ignore"],
-  status: ["New", "Triaged", "Dismissed", "Fixed"],
+  status: ["New", "Triaged", "Dismissed", "Absent Dismissed", "Fixed"],
 };
 const LABELS = {
   "coverity.url": "Coverity の URL", "coverity.api": "接続先", "coverity.user_env": "ユーザ名の環境変数の名前",
@@ -558,8 +572,8 @@ const LABELS = {
   "verify.default": "ビルドでの検証", "verify.setup_command": "環境設定のコマンド", "verify.build_dir": "ビルドするフォルダ",
   "verify.build_command": "ビルドのコマンド", "verify.cov_build_args": "cov-build の引数", "verify.cov_analyze_args": "cov-analyze の引数",
 };
-const FILTER_LABELS = { name: "表示する名前", project: "プロジェクト", streams: "ストリーム", checkers: "チェッカー名",
-  impacts: "Impact", "triage.classification": "Classification", "triage.action": "Action", "triage.status": "Status", limit: "上限" };
+const FILTER_LABELS = { name: "表示名", project: "プロジェクト", streams: "ストリーム", checkers: "チェッカー名",
+  impacts: "Impact", "triage.classification": "Classification", "triage.action": "Action", "triage.status": "Status", limit: "調べる警告の数（上限）" };
 const VERIFY_NAMES = { none: "使わない", build: "ビルドだけ", "build+analyze": "ビルドと再解析" };
 
 let state = null;          // as read from the server
@@ -655,6 +669,9 @@ async function load(keepView) {
     user: res.credentials.user, key: "",
     cred: res.credentials,
   };
+  // A radio group always has one choice (a value the screen does not know shows as the default).
+  if (!["none", "build", "build+analyze"].includes(S.config.verify.default)) S.config.verify.default = "none";
+  if (!["auto", "fake"].includes(S.config.coverity.api)) S.config.coverity.api = "auto";
   if (!S.filters.length) S.filters.push(firstFilterDraft());
   if (!keepView) selected = 0;
   selected = Math.min(selected, S.filters.length - 1);
@@ -692,11 +709,12 @@ function renderFirst() {
 function visibility() {
   const git = S.config.vcs.type === "git";
   const verify = S.config.verify.default !== "none";
-  const show = { git, verify, analyze: S.config.verify.default === "build+analyze", fake: S.config.coverity.api === "fake",
+  const show = { git, svn: S.config.vcs.type === "svn", verify, "no-verify": !verify, analyze: S.config.verify.default === "build+analyze", fake: S.config.coverity.api === "fake",
     first: !!firstDraft() && S.filters.filter((f) => !f.deleted).length === 1, "not-first": !(!!firstDraft() && S.filters.filter((f) => !f.deleted).length === 1) };
   for (const node of $$("[data-show]")) node.hidden = !show[node.dataset.show];
   for (const input of $$("[data-git-only]")) input.disabled = !git;
   $("#cred-fake").hidden = S.config.coverity.api !== "fake";
+  for (const mark of $$("[data-req-cred]")) mark.hidden = S.config.coverity.api === "fake";
 }
 function renderCred() {
   const c = S.cred;
@@ -756,13 +774,17 @@ function renderFilterEditor() {
   for (const [key, box] of [["impacts", "#ff-impacts"], ["classification", "#ff-classification"], ["action", "#ff-action"], ["status", "#ff-status"]]) {
     const path = key === "impacts" ? "impacts" : "triage." + key;
     const values = getPath(f.data, path) || [];
-    $(box).replaceChildren(...KNOWN[key].map((v) => el("label", {},
+    // Values not in the list (already in the file) stay as choices, so saving never drops them.
+    const extra = key === "action" ? [] : values.filter((v) => !KNOWN[key].includes(v));
+    $(box).replaceChildren(...[...KNOWN[key], ...extra].map((v) => el("label", { title: extra.includes(v) ? "一覧にない値（今のファイルに書いてある値）" : null },
       el("input", { type: "checkbox", value: v, checked: values.includes(v), disabled: f.deleted,
         onchange: (e) => { const cur = (getPath(f.data, path) || []).filter((x) => x !== v); if (e.target.checked) cur.push(v); setPath(f.data, path, cur); renderFilterList(); changed(); } }), v)));
   }
   const file = $("#ff-file");
   file.value = f.file; file.readOnly = !f.isNew; file.disabled = f.deleted;
-  $("#ff-file-help").textContent = f.isNew ? ".yaml で終わる名前にします。" : "保存済みのファイルの名前は変えられません。";
+  $("#ff-file-help").textContent = ".coverity-triage/filters/ に保存するファイルの名前です。/coverity-run で、どの条件で調べるかを選ぶときに使います（例「untriaged.yaml の条件で」）。"
+    + (f.isNew ? ".yaml で終わる名前にします。" : "保存済みのファイルの名前は変えられません。");
+  $("#ff-max").textContent = $("#ff-max2").textContent = S.config.max_items ?? "—";
   const err = $("#ff-error"); err.hidden = !f.error; err.textContent = f.error ? `今のファイルに直すところがあります:\n${f.error}` : "";
   err.style.whiteSpace = "pre-wrap";
   $("#delFilter").textContent = f.deleted ? "削除をやめる" : "この条件を削除";
@@ -895,7 +917,8 @@ function warnings(c) {
   const out = [];
   const cfg = S.config;
   if (/^http:\/\//i.test(cfg.coverity.url || "")) out.push("URL が http です。認証キーが暗号化されずに送られます。https が使えるか Coverity の管理者に確かめてください。");
-  if (cfg.coverity.api !== "fake" && S.cred.can_save && !S.cred.key_set && !S.key) out.push("認証キーがまだ設定されていません（基本設定の「認証情報」）。");
+  if (cfg.coverity.api !== "fake" && S.cred.can_save && !S.cred.user && !S.user.trim()) out.push("Coverity のユーザ名がまだ設定されていません（基本設定の「認証情報」）。認証キーを使うときも必要です。");
+  if (cfg.coverity.api !== "fake" && S.cred.can_save && !S.cred.key_set && !S.key) out.push("認証キー（またはパスワード）がまだ設定されていません（基本設定の「認証情報」）。");
   if (cfg.coverity.api === "fake") out.push("接続先が偽データ（fake）です。社内の Coverity を使うときは auto にします。");
   const v = cfg.verify;
   const verifyChanged = c.config.some((r) => /ビルド|環境設定|cov-/.test(r.what));
