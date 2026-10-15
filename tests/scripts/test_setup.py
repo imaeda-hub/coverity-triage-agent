@@ -106,3 +106,19 @@ def test_set_verify_keeps_the_header(capsys, empty_repo):
     assert text.startswith("# Coverity トリアージの設定")
     saved = yaml.safe_load(text)["verify"]
     assert saved["default"] == "build" and saved["build_command"] == "make" and saved["build_dir"] == "src"
+
+
+def test_paths_the_drive_cannot_resolve(capsys, empty_repo, monkeypatch):
+    """Some Windows drives refuse Path.resolve() (WinError 433, Errno 22); the commands still work (issue #27)."""
+    run_ct(capsys, "init-config", "--repo", empty_repo, "--url", "https://cov.example", "--project", "P",
+           "--stream", "S")
+
+    def refuse(self, strict=False):
+        raise OSError(22, "Invalid argument", str(self))
+
+    monkeypatch.setattr(Path, "resolve", refuse)
+    found = run_ct(capsys, "detect", "--repo", empty_repo)
+    assert Path(found["output_dir_resolved"]) == empty_repo.parent / "coverity-triage-out"
+    checks = {c["check"]: c for c in run_ct(capsys, "doctor", "--repo", empty_repo)["checks"]}
+    assert checks["出力先"]["status"] == "ok"
+    assert checks["出力先"]["detail"] == str(empty_repo.parent / "coverity-triage-out")

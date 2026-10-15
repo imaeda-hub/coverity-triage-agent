@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .common import CtError, display_text
+from .common import CtError, display_text, resolve_path
 from .models import Attributes, Event, Issue, TriageResult
 
 JUDGEMENT_JA = {"false_positive": "誤検知", "true_bug": "本物のバグ", "intentional": "意図的",
@@ -49,7 +49,7 @@ class ItemReport:
         """Paths inside the run folder, relative to the report (cid/<ID>.md)."""
         if self.run_dir:
             try:
-                return "../" + Path(path).resolve().relative_to(self.run_dir.resolve()).as_posix()
+                return "../" + resolve_path(path).relative_to(resolve_path(self.run_dir)).as_posix()
             except ValueError:
                 pass
         return path

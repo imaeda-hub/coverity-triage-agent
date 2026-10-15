@@ -10,7 +10,7 @@ from typing import Any
 
 import yaml
 
-from .common import PLUGIN_ROOT, CtError, out_text, run_cmd
+from .common import PLUGIN_ROOT, CtError, out_text, resolve_path, run_cmd
 from .config import (CONFIG_DIR, CONFIG_FILE, DEFAULT_FILTER, DEFAULT_OUTPUT_DIR, FILTERS_DIR, KNOWLEDGE_TEMPLATE,
                      FilterSpec, ProjectConfig, VerifyConfig, knowledge_path, load_config, output_dir)
 from .envvars import get_env
@@ -81,7 +81,7 @@ def _git_ref(repo: Path, ref: str) -> str | None:
 
 def detect(repo_root: str) -> dict[str, Any]:
     """Values decided from the repository, for the person to confirm."""
-    repo = Path(repo_root).resolve()
+    repo = resolve_path(repo_root)
     if not repo.is_dir():
         raise CtError(f"フォルダがありません: {repo}")
     vcs = detect_vcs(repo)
@@ -92,7 +92,7 @@ def detect(repo_root: str) -> dict[str, Any]:
     return {"ok": True, "repo_root": str(repo), "vcs": vcs,
             "vcs_note": None if vcs else "git / svn のリポジトリの一番上のフォルダ（.git か .svn があるフォルダ）を開いてください",
             "base_branch": base, "has_config": (repo / CONFIG_DIR / CONFIG_FILE).is_file(),
-            "output_dir": DEFAULT_OUTPUT_DIR, "output_dir_resolved": str((repo / DEFAULT_OUTPUT_DIR).resolve())}
+            "output_dir": DEFAULT_OUTPUT_DIR, "output_dir_resolved": str(resolve_path(repo / DEFAULT_OUTPUT_DIR))}
 
 
 def init_config(repo_root: str, url: str, project: str, stream: str, base_branch: str | None,
@@ -152,7 +152,7 @@ def _check(name: str, status: str, detail: str, fix: str = "") -> dict[str, str]
 def doctor(repo_root: str) -> dict[str, Any]:
     """What is still missing on this PC and in this repository. Coverity itself is checked by the MCP
     tool check_connection."""
-    repo = Path(repo_root).resolve()
+    repo = resolve_path(repo_root)
     checks = []
     vcs = detect_vcs(repo)
     checks.append(_check("リポジトリ", "ok" if vcs else "ng", f"{vcs or '不明'}（{repo}）",
@@ -191,10 +191,15 @@ def doctor(repo_root: str) -> dict[str, Any]:
         bad = [f for f in filters if "（" in f]
         checks.append(_check("条件ファイル", "ng" if bad or not filters else "ok", "、".join(filters) or "ありません",
                              "条件ファイルを直します" if bad else ("" if filters else "/coverity-setup で作ります")))
-        out = output_dir(repo, config)
-        inside = out == repo or repo in out.parents
-        checks.append(_check("出力先", "ng" if inside else "ok", str(out),
-                             "リポジトリの外にしてください（誤ってコミットしないため）" if inside else ""))
+        try:
+            out = output_dir(repo, config)
+        except CtError as exc:
+            checks.append(_check("出力先", "ng", f"{exc}（{exc.details.get('resolve_error', '')}）",
+                                 "設定 output_dir に、この PC で開けるフォルダを指定します"))
+        else:
+            inside = out == repo or repo in out.parents
+            checks.append(_check("出力先", "ng" if inside else "ok", str(out),
+                                 "リポジトリの外にしてください（誤ってコミットしないため）" if inside else ""))
         if config.coverity.api == "fake":
             checks.append(_check("Coverity", "warning", "偽データを使う設定です（coverity.api: fake）",
                                  "社内の Coverity を使うときは coverity.api を auto にします"))
@@ -229,7 +234,7 @@ def trial_build(repo_root: str, setup_command: str, build_command: str, build_di
 
     ``config`` is the settings not saved yet (the settings screen); the saved file otherwise.
     """
-    repo = Path(repo_root).resolve()
+    repo = resolve_path(repo_root)
     config = config or load_config(repo)
     settings = config.verify.model_copy(update={"setup_command": setup_command, "build_command": build_command,
                                                 "build_dir": build_dir})
@@ -246,7 +251,7 @@ def trial_build(repo_root: str, setup_command: str, build_command: str, build_di
 def set_verify(repo_root: str, default: str, setup_command: str, build_command: str, build_dir: str,
                cov_build_args: str | None, cov_analyze_args: str | None) -> dict[str, Any]:
     """Save the build verification settings the person agreed to."""
-    repo = Path(repo_root).resolve()
+    repo = resolve_path(repo_root)
     path = repo / CONFIG_DIR / CONFIG_FILE
     text = path.read_text(encoding="utf-8")
     header = "".join(line + "\n" for line in text.splitlines() if line.startswith("#"))

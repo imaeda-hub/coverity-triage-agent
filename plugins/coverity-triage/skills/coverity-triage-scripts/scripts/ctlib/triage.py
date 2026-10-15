@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from . import oplog
-from .common import CtError, file_lock, read_json, write_json, write_text
+from .common import CtError, file_lock, read_json, resolve_path, write_json, write_text
 from .config import (CONFIG_DIR, CONFIG_FILE, FilterSpec, knowledge_path, load_config, load_filter,
                      load_no_grouping, output_dir)
 from .grouping import build_work_items
@@ -24,7 +24,7 @@ VCS_LOCK_SECONDS = 1800  # creating a work copy of a large repository can take l
 
 
 def _repo(path: str) -> Path:
-    repo = Path(path).resolve()
+    repo = resolve_path(path)
     if not repo.is_dir():
         raise CtError(f"フォルダがありません: {repo}")
     if detect(repo) is None:

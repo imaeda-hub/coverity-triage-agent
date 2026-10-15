@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 import yaml
 
-from .common import PLUGIN_ROOT, CtError, out_text, read_json, run_cmd, write_json, write_text
+from .common import PLUGIN_ROOT, CtError, out_text, read_json, resolve_path, run_cmd, write_json, write_text
 from .config import CONFIG_DIR, CONFIG_FILE, load_config
 from .envvars import get_env
 from .models import IssueDetail
@@ -114,7 +114,7 @@ class Masker:
 
 class Result:
     def __init__(self, folder: str | Path):
-        self.dir = Path(folder).resolve()
+        self.dir = resolve_path(folder)
         if not (self.dir / STATE_FILE).is_file():
             raise CtError(f"動作確認の結果フォルダではありません: {self.dir}（ct.py selftest start から始めます）")
         self.state = read_json(self.dir / STATE_FILE)
@@ -161,7 +161,7 @@ def start(sections: str, repo: str | None, client: str, base: str | None) -> dic
     folder.mkdir(parents=True, exist_ok=True)
     plugin = read_json(PLUGIN_ROOT / "plugin.json")
     state = {"started": datetime.now().isoformat(timespec="seconds"), "sections": picked,
-             "repo_root": str(Path(repo).resolve()) if repo else None, "client": client,
+             "repo_root": str(resolve_path(repo)) if repo else None, "client": client,
              "environment": {"os": platform.platform(), "python": platform.python_version(),
                              "plugin": f"{plugin.get('name')} {plugin.get('version')}",
                              "uv": _version(["uv", "--version"]), "git": _version(["git", "--version"]),

@@ -28,7 +28,7 @@ import yaml
 from pydantic import BaseModel, ValidationError
 
 from . import envvars, prepare
-from .common import CtError
+from .common import CtError, resolve_path
 from .config import (CONFIG_DIR, CONFIG_FILE, FILTERS_DIR, KNOWLEDGE_TEMPLATE, NO_GROUPING_FILE, FilterSpec,
                      ProjectConfig, knowledge_path, output_dir)
 
@@ -470,7 +470,7 @@ class Handler(BaseHTTPRequestHandler):
 def serve(repo_root: str, token: str | None = None, ready_file: str | None = None,
           open_browser: bool = False) -> dict[str, Any]:
     """Serve the screen until the person closes it (or leaves the page)."""
-    repo = Path(repo_root).resolve()
+    repo = resolve_path(repo_root)
     prepare.detect(str(repo))  # stop early when the folder is missing
     server = SettingsServer(repo, token or secrets.token_urlsafe(24))
     threading.Thread(target=server.watch_idle, daemon=True).start()
@@ -500,12 +500,12 @@ def _spawn(args: list[str], env: dict[str, str], cwd: Path, log: Any) -> subproc
 
 def launch(repo_root: str, open_browser: bool = True) -> dict[str, Any]:
     """Start the screen in the background and return its address at once."""
-    repo = Path(repo_root).resolve()
+    repo = resolve_path(repo_root)
     prepare.detect(str(repo))
     token = secrets.token_urlsafe(24)
     folder = Path(tempfile.mkdtemp(prefix="coverity-triage-gui-"))
     ready, log_path = folder / "ready.json", folder / "server.log"
-    script = Path(__file__).resolve().parents[1] / "ct.py"
+    script = resolve_path(__file__).parents[1] / "ct.py"
     args = [sys.executable, str(script), "gui", "--repo", str(repo), "--serve", "--ready-file", str(ready)]
     with log_path.open("wb") as log:
         proc = _spawn(args, {**os.environ, TOKEN_ENV: token}, folder, log)
