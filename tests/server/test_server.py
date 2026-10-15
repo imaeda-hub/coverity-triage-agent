@@ -120,6 +120,27 @@ def test_search_applies_the_filter(repo, run):
     assert out["found"] == 1
 
 
+def test_search_records_what_was_left_out_after_the_search(repo, run, monkeypatch):
+    from coverity_triage.coverity import SearchPage
+
+    def search(self, spec, limit, offset, seconds):
+        return SearchPage([], 2, None, [{"cid": 3684407, "mismatched": {"status": "Fixed"}},
+                                        {"cid": 3684408, "mismatched": {"status": None}}])
+
+    monkeypatch.setattr(FakeCoverityClient, "search", search)
+    out = server.search_issues(str(repo), str(write_filter(run, limit=10)), str(run / "issues.json"))
+    assert out["found"] == 0 and out["coverity_total"] == 2 and out["excluded"] == 2
+    assert "excluded" in out["excluded_note"]
+    saved = json.loads((run / "issues.json").read_text(encoding="utf-8"))
+    assert saved["excluded_count"] == 2
+    assert saved["excluded"][0] == {"cid": 3684407, "mismatched": {"status": "Fixed"}}
+
+
+def test_search_reports_nothing_left_out(repo, run):
+    out = server.search_issues(str(repo), str(write_filter(run, limit=100)), str(run / "issues.json"))
+    assert out["excluded"] == 0 and out["excluded_note"] is None
+
+
 def test_search_needs_one_stream(repo, run):
     flt = run / "filter.json"
     flt.write_text(json.dumps({"streams": ["a", "b"]}), encoding="utf-8")

@@ -180,7 +180,7 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 | ツール | 入力 | すること | 返すもの |
 |---|---|---|---|
 | `check_connection` | `repo_root` | 設定の Coverity に、環境変数の認証情報で 1 回だけ読み取りの問い合わせをする（10 秒以内） | 認証できたか、かかった秒数、URL が http のときの注意 |
-| `search_issues` | `repo_root`、`filter_file`（`ct.py new-run` が作る `filter.json`）、`output_file`（`issues.json`） | REST で検索し、条件の `limit` 件で止めて保存する。続けて最新スナップショットの解析リビジョンを記録する。問い合わせごとの時間も残す | 見つかった件数、上限で止めたか、解析リビジョン、`done` |
+| `search_issues` | `repo_root`、`filter_file`（`ct.py new-run` が作る `filter.json`）、`output_file`（`issues.json`） | REST で検索し、条件の `limit` 件で止めて保存する。続けて最新スナップショットの解析リビジョンを記録する。問い合わせごとの時間も残す | 見つかった件数（`found`）、Coverity が返した件数（`coverity_total`）、検索のあとの条件で外した件数（`excluded`。外した警告と合わなかった項目の値は `issues.json` の `excluded`）、上限で止めたか、解析リビジョン、`done` |
 | `get_issues` | `repo_root`、`stream`、`cids`（50 件まで）、`output_dir`（`items/<ID>/`） | SOAP で警告経路とチェッカーの説明を取り、`issue-<CID>.json` に保存する。取れなかった CID は理由を `error` に書いて保存する | 保存した CID、取れなかった CID、残り、`done` |
 | `update_triage` | `repo_root`、`plan_file`（`apply-plan.json`）、`confirmation_token` | `apply-plan.json` の `triage` の各項目を REST で書き込む。確認用の文字列（ファイルの SHA-256 の先頭 12 文字）が合わなければ何も書かない。結果は `apply-plan.result.json` に残す。書き込み済みの項目（内容が同じもの）は書き直さない | 書き込んだ項目、失敗した項目と理由、残り、`done` |
 

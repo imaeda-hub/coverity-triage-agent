@@ -41,6 +41,15 @@ ISSUES = {
          "displayFunction": "f", "displayImpact": "High", "classification": "Unclassified",
          "action": "Undecided", "status": "New", "severity": "Unspecified"},
     ],
+    # The server matches keys, but the rows hold display labels that differ from them.
+    "labels": [
+        {"cid": 201, "checker": "OVERRUN", "displayFile": "/build/src/a.c", "lineNumber": "7",
+         "displayImpact": "未指定", "classification": "未分類", "action": "未確定", "status": "New",
+         "_keys": {"displayImpact": "Unspecified", "classification": "Unclassified", "action": "Undecided"}},
+        {"cid": 202, "checker": "OVERRUN", "displayFile": "/build/src/b.c", "lineNumber": "9",
+         "displayImpact": "未指定", "classification": "未分類", "action": "未確定", "status": "Fixed",
+         "_keys": {"displayImpact": "Unspecified", "classification": "Unclassified", "action": "Undecided"}},
+    ],
 }
 
 STREAM_DEFECTS = """<?xml version="1.0"?>
@@ -108,7 +117,7 @@ class FakeServer:
                     if m["key"] in UNKNOWN_KEYS:
                         return httpx.Response(500, json={"message": f"Invalid key provided: {m['key']}"})
                 keys = {m["key"] for m in f["matchers"]}
-                rows = [r for r in rows if r.get(f["columnKey"]) in keys]
+                rows = [r for r in rows if r.get("_keys", {}).get(f["columnKey"], r.get(f["columnKey"])) in keys]
             offset, count = int(request.url.params["offset"]), int(request.url.params["rowCount"])
             page = rows[offset:offset + count]
             return httpx.Response(200, json={
@@ -200,6 +209,17 @@ def test_search_leaves_out_values_the_server_does_not_have(server):
     assert sorted(i.cid for i in search_all(client, spec)) == [101, 102, 103]
     ignored = [r["value"] for r in client.requests if r["status"] == "ignored"]
     assert ignored == ["Tested Elsewhere", "No Test Needed"]
+
+
+def test_search_does_not_recheck_what_the_server_filtered(server):
+    spec = FilterSpec(streams=["labels"], checkers=["OVERRUN"], impacts=["High", "Unspecified"],
+                      triage={"classification": ["Unclassified"], "action": ["Undecided"], "status": ["New"]})
+    client = make(server)
+    page = client.search(spec, 10, 0, 60)
+    assert [i.cid for i in page.issues] == [201] and page.total == 2
+    assert page.excluded == [{"cid": 202, "mismatched": {"status": "Fixed"}}]
+    search = [r for r in server.requests if r.url.path == "/api/v2/issues/search"][0]
+    assert search.url.params["locale"] == "en_us"
 
 
 def test_search_with_only_unknown_values_finds_nothing(server):

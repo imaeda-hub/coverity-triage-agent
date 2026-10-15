@@ -126,10 +126,14 @@ def plan(run_dir: str) -> dict[str, Any]:
         state.revision_notes = notes
     groups = [{"id": i.id, "cids": i.cids} for i in items if i.id.startswith("G")]
     _log(run, "plan", issues=len(issues), items=len(items), groups=groups, latest=latest, analyzed=analyzed)
+    excluded = found.get("excluded_count") or 0
     return {"ok": True, "issues": len(issues), "limited": state.limited, "items": len(items),
             "groups": groups, "latest_revision": latest, "analyzed_revision": analyzed, "notes": notes,
-            "parallel": config.parallel,
-            "next": "ct.py next で作業を 1 つずつ取り出す" if items else "対象の警告がありません"}
+            "excluded": excluded, "parallel": config.parallel,
+            "next": "ct.py next で作業を 1 つずつ取り出す" if items else
+            "対象の警告がありません" + (f"（Coverity が返した {excluded} 件は条件に合わず外しました。"
+                                         "合わなかった項目と値は issues.json の excluded にあります）"
+                                         if excluded else "")}
 
 
 # ---- next ------------------------------------------------------------------------------------
