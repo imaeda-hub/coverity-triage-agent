@@ -66,6 +66,7 @@ class Options(_Strict):
     per_run_branch: bool = False
     knowledge_suggestions: bool = False
     metrics: bool = False
+    markdown: bool = False  # also write summary.md and cid/<ID>.md next to the HTML reports
 
 
 VerifyMode = Literal["none", "build", "build+analyze"]

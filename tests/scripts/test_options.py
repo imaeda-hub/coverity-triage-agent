@@ -1,4 +1,4 @@
-"""Options (off by default): annotation, per_run_branch, verify, knowledge_suggestions, metrics, parallel."""
+"""Options (off by default): annotation, per_run_branch, verify, knowledge_suggestions, metrics, parallel, markdown."""
 
 from __future__ import annotations
 
@@ -9,7 +9,9 @@ import pytest
 import yaml
 
 from coverity_triage import server
-from test_flow import RESULT, git, repo, run_ct, start_run, work_item  # noqa: F401 - fixtures
+from ctlib.common import CtError
+from ctlib.run import Run
+from test_flow import RESULT, approve, git, repo, run_ct, start_run, summary_rows, work_item  # noqa: F401 - fixtures
 
 
 def set_config(repo: Path, **values) -> None:
@@ -23,14 +25,10 @@ def set_config(repo: Path, **values) -> None:
     path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
 
 
-def approve_all(run_dir: str, value: str) -> None:
-    path = Path(run_dir) / "summary.md"
-    lines = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("| ") and "[詳細]" in line:
-            line = "| " + value + " |" + line.split("|", 2)[2]
-        lines.append(line)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+def approve_all(run_dir: str, decision: str | None) -> None:
+    for item in Run(run_dir).state.items:
+        if item.status == "done":
+            approve(run_dir, item.id, decision)
 
 
 def test_per_run_branch(capsys, repo):
@@ -41,7 +39,7 @@ def test_per_run_branch(capsys, repo):
         assert work_item(capsys, run_dir)["finish"]["ok"]
     assert git("branch", "--list", "coverity-fix/*", cwd=repo) == ""  # no branch per CID
     run_ct(capsys, "summary", "--run", run_dir)
-    approve_all(run_dir, "修正")
+    approve_all(run_dir, "fix")
     preview = run_ct(capsys, "preview", "--run", run_dir)
     applied = run_ct(capsys, "apply-code", "--run", run_dir, "--token", preview["confirmation_token"])
     # All three items edit the end of the same file, so only the first one fits on one branch.
@@ -73,9 +71,10 @@ def test_annotation(capsys, repo):
     assert marked != text
     source.write_text(marked, encoding="utf-8")
     run_ct(capsys, "finish", "--run", run_dir, "--item", item["item"])
-    assert "coverity[leaked_storage:FALSE]" in (Path(run_dir) / "cid" / "20001.md").read_text(encoding="utf-8")
+    report = (Path(run_dir) / "cid" / "20001.html").read_text(encoding="utf-8")
+    assert "coverity[leaked_storage:FALSE]" in report and 'href="../patches/20001-annotation.patch"' in report
     run_ct(capsys, "summary", "--run", run_dir)
-    approve_all(run_dir, "逸脱")
+    approve_all(run_dir, "deviation")
     preview = run_ct(capsys, "preview", "--run", run_dir)
     assert preview["counts"]["逸脱"] == 1
     server.update_triage(str(repo), preview["plan_file"], preview["confirmation_token"])
@@ -93,8 +92,8 @@ def test_verify_by_build(capsys, repo, command, works):
     checked = run_ct(capsys, "verify", "--run", run_dir)
     assert checked["build_ok"] is works and checked["items"] == 2
     assert checked["downgraded_to_low"] == ([] if works else ["20001", "20002"])
-    report = (Path(run_dir) / "cid" / "20001.md").read_text(encoding="utf-8")
-    assert "## 6. ビルドでの検証" in report
+    report = (Path(run_dir) / "cid" / "20001.html").read_text(encoding="utf-8")
+    assert "<h2>ビルドでの検証</h2>" in report
     assert ("問題なし" in report) is works
     summary = run_ct(capsys, "summary", "--run", run_dir)
     assert "verify-latest" not in summary["removed_work_copies"]
@@ -108,7 +107,7 @@ def test_fixes_that_overlap_are_not_downgraded(capsys, repo):
     work_item(capsys, run_dir)  # the same place as the first fix
     checked = run_ct(capsys, "verify", "--run", run_dir)
     assert checked["build_ok"] and checked["downgraded_to_low"] == []
-    assert "まとめた検証に入れられませんでした" in (Path(run_dir) / "cid" / "20002.md").read_text(encoding="utf-8")
+    assert "まとめた検証に入れられませんでした" in (Path(run_dir) / "cid" / "20002.html").read_text(encoding="utf-8")
 
 
 def test_verify_needs_settings(capsys, repo):
@@ -123,8 +122,7 @@ def test_knowledge_and_metrics(capsys, repo):
     work_item(capsys, run_dir)
     work_item(capsys, run_dir)
     run_ct(capsys, "summary", "--run", run_dir)
-    table = Path(run_dir) / "summary.md"
-    table.write_text(table.read_text(encoding="utf-8").replace("| 修正 | 20002 |", "| 逸脱 | 20002 |"), encoding="utf-8")
+    approve(run_dir, "20002", "deviation")
     preview = run_ct(capsys, "preview", "--run", run_dir)
     server.update_triage(str(repo), preview["plan_file"], preview["confirmation_token"])
     run_ct(capsys, "apply-code", "--run", run_dir, "--token", preview["confirmation_token"])
@@ -204,14 +202,42 @@ def test_shared_analyzed_copy_is_not_reset_while_in_use(capsys, repo):
     assert marker.exists()  # the first item's worker is still reading this copy
 
 
-def test_approval_typos_are_listed(capsys, repo):
-    run_dir = start_run(capsys, repo, "--limit", "1")["run_dir"]
+def test_wrong_approvals_are_refused(capsys, repo):
+    run_dir = start_run(capsys, repo, "--limit", "2")["run_dir"]
     run_ct(capsys, "plan", "--run", run_dir)
     work_item(capsys, run_dir)
+    run_ct(capsys, "next", "--run", run_dir)  # 20002 is still being worked on
     run_ct(capsys, "summary", "--run", run_dir)
-    approve_all(run_dir, "なおす")
-    refused = run_ct(capsys, "preview", "--run", run_dir, ok=False)
-    assert refused["problems"] == ["20001 の承認欄「なおす」は「修正」「逸脱」「却下」のどれかにしてください"]
-    approve_all(run_dir, "")
+    with pytest.raises(CtError, match="fix / deviation / reject"):
+        approve(run_dir, "20001", "なおす")
+    with pytest.raises(CtError, match="まだ終わっていません"):
+        approve(run_dir, "20002", "fix")
+    with pytest.raises(CtError, match="作業がありません"):
+        approve(run_dir, "99999", "fix")
+    with pytest.raises(CtError) as empty:
+        approve(run_dir, "20001", "deviation", {**RESULT["deviation"], "comment": "  "})
+    assert empty.value.details["problems"] == ["逸脱コメント が空です"]
+    approve_all(run_dir, None)
     nothing = run_ct(capsys, "preview", "--run", run_dir)
-    assert nothing["counts"] == {"修正": 0, "逸脱": 0, "却下": 0}
+    assert nothing["counts"] == {"修正": 0, "逸脱": 0, "却下": 0} and "画面" in nothing["next"]
+
+
+def test_markdown_copies(capsys, repo):
+    set_config(repo, options={"markdown": True})
+    run_dir = start_run(capsys, repo, "--limit", "2")["run_dir"]
+    run_ct(capsys, "plan", "--run", run_dir)
+    work_item(capsys, run_dir)
+    work_item(capsys, run_dir, recommendation="deviation")
+    for name in ("20001.html", "20001.md", "20002.html", "20002.md"):
+        assert (Path(run_dir) / "cid" / name).is_file(), name
+    detail = (Path(run_dir) / "cid" / "20001.md").read_text(encoding="utf-8")
+    assert "## 4. 案A: 逸脱" in detail and "```diff" in detail and "ct.py gui" in detail
+    summary = run_ct(capsys, "summary", "--run", run_dir)
+    assert summary["summary"].endswith("summary.html")
+    table = (Path(run_dir) / "summary.md").read_text(encoding="utf-8")
+    assert "| 逸脱 | 20002 | 逸脱 |" in table and "ct.py gui" in table and "[詳細](cid/20001.md)" in table
+    approve(run_dir, "20002", "reject")
+    assert "| 却下 | 20002 | 逸脱 |" in (Path(run_dir) / "summary.md").read_text(encoding="utf-8")
+    assert ("却下", "20002") in summary_rows((Path(run_dir) / "summary.html").read_text(encoding="utf-8"))
+    preview = run_ct(capsys, "preview", "--run", run_dir)
+    assert preview["counts"] == {"修正": 1, "逸脱": 0, "却下": 1}

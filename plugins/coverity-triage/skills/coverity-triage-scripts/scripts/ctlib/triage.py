@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import json
 import shutil
 import time
 from pathlib import Path
@@ -9,18 +11,19 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from . import oplog
+from . import approvals, oplog
 from .common import CtError, file_lock, read_json, resolve_path, write_json, write_text
 from .config import (CONFIG_DIR, CONFIG_FILE, FilterSpec, knowledge_path, load_config, load_filter,
                      load_no_grouping, output_dir)
 from .grouping import build_work_items
 from .models import Event, Issue, IssueDetail, TriageResult
 from .pathmap import PathMapper
-from .report import ItemReport, read_approvals, render_item, render_summary
+from .report import ItemReport, render_item, render_item_html, render_summary, render_summary_html
 from .run import ItemState, Run, create_run, finish_item, list_runs
 from .vcs import detect
 
 VCS_LOCK_SECONDS = 1800  # creating a work copy of a large repository can take long
+PROGRESS_FILE = "progress.json"  # written by the worker subagent at each step (best effort)
 
 
 def _repo(path: str) -> Path:
@@ -188,6 +191,7 @@ def next_item(run_dir: str) -> dict[str, Any]:
     folder = run.item_dir(item.id)
     folder.mkdir(parents=True, exist_ok=True)
     run.result_file(item.id).unlink(missing_ok=True)
+    (folder / PROGRESS_FILE).unlink(missing_ok=True)  # the progress of an earlier attempt
     _log(run, "next", item=item.id, slot=item.slot, attempt=item.attempts)
     return {"ok": True, "item": item.id, "cids": item.cids, "is_group": item.is_group,
             "repo_root": str(run.repo), "stream": run.state.stream, "item_dir": str(folder),
@@ -280,9 +284,16 @@ def brief(run_dir: str, item_id: str) -> dict[str, Any]:
     if config.options.annotation:
         lines.append(f"| アノテーションを入れるコード（逸脱案の注釈だけを入れる） | `{run.copy_dir('annotation', item.slot)}` |")
     lines.append(f"| 結果ファイル（書く） | `{result}` |")
+    progress = run.item_dir(item_id) / PROGRESS_FILE
+    lines.append(f"| 進み具合（書く。節目ごとに上書き） | `{progress}` |")
     if knowledge.is_file():
         lines.append(f"| プロジェクトの知識（読む） | `{knowledge}` |")
-    lines += ["", "- 下の警告のパスは、どのフォルダでもリポジトリの一番上からの相対パスです。",
+    example = json.dumps({"item": item_id, "phase": "judge", "note": "呼び出し元を確かめている"}, ensure_ascii=False)
+    lines += ["", f"- 進み具合のファイルには、節目ごとに次の形の JSON を上書きします（人が画面で見ます）: `{example}`",
+              "  phase は read（警告経路とコードを読む）→ judge（真偽を判断する）→ fix（修正を作る）→ "
+              "deviation（逸脱コメントを書く）→ result（結果ファイルを書く）の順です。note には今していることを短く書きます。"
+              "書けなくても調査は続けます。",
+              "- 下の警告のパスは、どのフォルダでもリポジトリの一番上からの相対パスです。",
               (f"- 調べるコードは、Coverity が解析したリビジョン {analyzed} です。" if analyzed else
                "- Coverity が解析したリビジョンが分からないため、調べるコードは利用者の手元のコードです。"
                "警告の行と内容が合っているか（ずれ）を確かめ、結果の revision_drift に書きます。"
@@ -418,8 +429,12 @@ def finish(run_dir: str, item_id: str) -> dict[str, Any]:
         current = state.item(item_id)
         current.warnings = warnings
         finish_item(current, "done")
-        seconds = current.seconds
-    write_text(run.report_file(item_id), render_item(_report(run, item_id, result, saved, seconds)))
+    if approvals.summary_made(run):
+        # finished after ct.py summary (a resumed run): the recommendation goes in as summary would put it,
+        # so the screen and preview agree on what will be applied
+        with contextlib.suppress(CtError):  # a broken approvals.json is reported by preview
+            approvals.ensure_defaults(run, {item_id: result})
+    write_item_files(run, item_id)
     _log(run, "finish", item=item_id, recommendation=result.recommendation, confidence=result.confidence,
          files=changed, split=split, warnings=warnings)
     return {"ok": True, "item": item_id, "recommendation": result.recommendation, "confidence": result.confidence,
@@ -437,12 +452,35 @@ def _report(run: Run, item_id: str, result: TriageResult, saved: dict[str, Any],
                       notes=notes + item.warnings, run_dir=run.dir)
 
 
-def rerender(run: Run, item_id: str, verify: dict[str, Any] | None = None) -> None:
-    """Write the detailed report again (after the build verification changed the result)."""
+def _write_item(run: Run, report: ItemReport, decision: dict[str, Any] | None, markdown: bool = True) -> None:
+    write_text(run.report_file(report.item_id), render_item_html(report, decision))
+    if markdown and run.config.options.markdown:
+        write_text(run.report_file(report.item_id, "md"), render_item(report, decision))
+
+
+def _approvals(run: Run) -> dict[str, dict[str, Any]]:
+    """Approvals for the pages; a broken approvals.json must not stop the run (preview reports it)."""
+    try:
+        return approvals.load(run)
+    except CtError:
+        return {}
+
+
+def write_item_files(run: Run, item_id: str, verify: dict[str, Any] | None = None) -> None:
+    """Write the detailed report cid/<ID>.html (and cid/<ID>.md with the option markdown).
+
+    ``verify`` is the item's build verification; by default the one kept in verify.json."""
     result = TriageResult.model_validate(read_json(run.result_file(item_id)))
     saved = read_json(run.item_dir(item_id) / "saved.json", {})
-    write_text(run.report_file(item_id),
-               render_item(_report(run, item_id, result, saved, run.state.item(item_id).seconds, verify)))
+    if verify is None:
+        verify = read_json(run.dir / "verify.json", {}).get(item_id)
+    report = _report(run, item_id, result, saved, run.state.item(item_id).seconds, verify)
+    _write_item(run, report, _approvals(run).get(item_id))
+
+
+def rerender(run: Run, item_id: str, verify: dict[str, Any] | None = None) -> None:
+    """Write the detailed report again (after the build verification changed the result)."""
+    write_item_files(run, item_id, verify)
 
 
 # ---- fail / resume / status / runs -----------------------------------------------------------
@@ -455,7 +493,7 @@ def fail(run_dir: str, item_id: str, reason: str) -> dict[str, Any]:
         if item.status != "in_progress":
             raise CtError(f"{item_id} は処理中ではありません（状態: {item.status}）")
         finish_item(item, "error", reason)
-    _log(run, "fail", item=item_id, reason=reason)
+    _log(run, "fail", level="critical", item=item_id, reason=reason)
     return {"ok": True, "item": item_id, "counts": run.state.counts(), "next": "ct.py next"}
 
 
@@ -481,7 +519,7 @@ def status(run_dir: str) -> dict[str, Any]:
     return {"ok": True, "run_dir": str(run.dir), "counts": state.counts(),
             "in_progress": [i.id for i in state.items if i.status == "in_progress"],
             "errors": [{"item": i.id, "reason": i.error} for i in state.items if i.status == "error"],
-            "summary": str(run.dir / "summary.md") if (run.dir / "summary.md").is_file() else None}
+            "summary": next((str(p) for p in (run.summary_file(), run.summary_file("md")) if p.is_file()), None)}
 
 
 def runs(repo_root: str, limit: int) -> dict[str, Any]:
@@ -497,7 +535,7 @@ def runs(repo_root: str, limit: int) -> dict[str, Any]:
         found.append({"run_dir": str(folder), "created_at": state.created_at, "filter": state.filter_name,
                       "planned": state.planned, "counts": counts,
                       "unfinished": not state.planned or counts["pending"] + counts["in_progress"] + counts["error"] > 0,
-                      "summary": (folder / "summary.md").is_file(),
+                      "summary": any((folder / f"summary.{ext}").is_file() for ext in ("html", "md")),
                       "applied": sum(1 for i in state.items if i.applied)})
     return {"ok": True, "output_dir": str(output), "runs": found}
 
@@ -505,15 +543,8 @@ def runs(repo_root: str, limit: int) -> dict[str, Any]:
 # ---- summary ---------------------------------------------------------------------------------
 
 
-def summary(run_dir: str) -> dict[str, Any]:
-    run = Run(run_dir)
-    path = run.dir / "summary.md"
-    kept: dict[str, str] = {}
-    if path.is_file():
-        try:
-            kept = read_approvals(path.read_text(encoding="utf-8"))
-        except CtError:
-            kept = {}
+def _collect(run: Run) -> tuple[list[ItemReport], list[tuple[str, str]], list[str]]:
+    """Reports of the finished items, the items that failed (with the reason) and the rest."""
     reports, errors, unprocessed = [], [], []
     verify = read_json(run.dir / "verify.json", {})
     for item in run.state.items:
@@ -525,8 +556,45 @@ def summary(run_dir: str) -> dict[str, Any]:
             errors.append((item.id, item.error))
         else:
             unprocessed.append(item.id)
-    write_text(path, render_summary(run.state.created_at.replace("T", " ")[:16], run.state.filter_name,
-                                    reports, errors, unprocessed, kept))
+    return reports, errors, unprocessed
+
+
+def _write_summary(run: Run, reports: list[ItemReport], errors: list[tuple[str, str]], unprocessed: list[str],
+                   decided: dict[str, dict[str, Any]]) -> Path:
+    title = run.state.created_at.replace("T", " ")[:16]
+    path = run.summary_file()
+    write_text(path, render_summary_html(title, run.state.filter_name, reports, errors, unprocessed, decided))
+    # An existing summary.md (a run made before 0.4, or with the option once on) is kept current too:
+    # an old table would show approvals that are no longer the ones applied.
+    if run.config.options.markdown or run.summary_file("md").is_file():
+        write_text(run.summary_file("md"), render_summary(title, run.state.filter_name, reports, errors,
+                                                          unprocessed, decided))
+    return path
+
+
+def write_summary_files(run: Run) -> Path:
+    """Write summary.html (and summary.md with the option markdown) from the current approvals.
+
+    The detailed reports it links to are written when missing (a run made before 0.4 has only
+    cid/<ID>.md, which is left as it is)."""
+    reports, errors, unprocessed = _collect(run)
+    decided = _approvals(run)
+    for report in reports:
+        if not run.report_file(report.item_id).is_file():
+            _write_item(run, report, decided.get(report.item_id), markdown=False)
+    return _write_summary(run, reports, errors, unprocessed, decided)
+
+
+def summary(run_dir: str) -> dict[str, Any]:
+    run = Run(run_dir)
+    # A run whose summary was made before 0.4: its approvals are taken over from summary.md below (or were,
+    # by finish or the screen), and its cid/<ID>.md, which the person may have edited, are kept.
+    legacy = not run.summary_file().is_file() and run.summary_file("md").is_file()
+    reports, errors, unprocessed = _collect(run)
+    decided = approvals.ensure_defaults(run, {r.item_id: r.result for r in reports})
+    path = _write_summary(run, reports, errors, unprocessed, decided)
+    for report in reports:  # the detailed reports show the approval too
+        _write_item(run, report, decided.get(report.item_id), markdown=not legacy)
     removed = []
     if not any(i.status in ("pending", "in_progress") for i in run.state.items):
         removed = cleanup(run)
@@ -536,7 +604,8 @@ def summary(run_dir: str) -> dict[str, Any]:
     _log(run, "summary", items=len(reports), errors=len(errors), unprocessed=unprocessed)
     return {"ok": True, "summary": str(path), "items": len(reports), "recommended": counts,
             "errors": len(errors), "unprocessed": unprocessed, "removed_work_copies": removed,
-            "next": "summary の場所と件数を人に伝え、承認欄を確かめてから /coverity-apply を使うよう案内する"}
+            "next": "summary の場所と件数を人に伝え、画面の「結果」で承認欄を確かめてから /coverity-apply を使うよう"
+                    f"案内する（画面: ct.py gui --repo {run.repo} --run {run.dir} --view summary）"}
 
 
 def cleanup(run: Run) -> list[str]:

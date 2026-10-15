@@ -115,7 +115,8 @@ def init_config(repo_root: str, url: str, project: str, stream: str, base_branch
         "output_dir": out_dir or DEFAULT_OUTPUT_DIR,
         "max_items": 100,
         "parallel": DEFAULT_PARALLEL,
-        "options": {"annotation": False, "per_run_branch": False, "knowledge_suggestions": False, "metrics": False},
+        "options": {"annotation": False, "per_run_branch": False, "knowledge_suggestions": False, "metrics": False,
+                    "markdown": False},
         "verify": VerifyConfig().model_dump(),
     }
     if found["vcs"] == "svn":

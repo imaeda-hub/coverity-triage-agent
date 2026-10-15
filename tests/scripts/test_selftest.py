@@ -9,7 +9,7 @@ import pytest
 
 from coverity_triage import server
 from ctlib import prepare, selftest
-from test_flow import git_identity, run_ct, work_item  # noqa: F401 - fixture
+from test_flow import approve, git_identity, run_ct, work_item  # noqa: F401 - fixture
 
 
 @pytest.fixture(autouse=True)
@@ -44,6 +44,15 @@ def test_selftest_with_the_sample(capsys, tmp_path):
     assert {k: v["status"] for k, v in checked.items()} == {
         "2-2": "pass", "2-3": "pass", "2-4": "pass", "2-5": "review", "2-6": "pass"}
     assert "20002: 推奨 fix" in checked["2-5"]["detail"]  # the test answered "fix" for every item
+    approve(run_dir, "20001", None)  # an approval left empty in the screen
+    rechecked = run_ct(capsys, "selftest", "check-run", "--dir", folder, "--run", run_dir)["checks"]
+    assert rechecked["2-3"]["status"] == "fail" and "20001: 承認" in rechecked["2-3"]["detail"]
+    (Path(run_dir) / "cid" / "20002.html").write_text("<p>壊れたレポート</p>", encoding="utf-8")
+    rechecked = run_ct(capsys, "selftest", "check-run", "--dir", folder, "--run", run_dir)["checks"]
+    assert "20002: 逸脱案か修正案の節がありません" in rechecked["2-3"]["detail"]
+    approve(run_dir, "20001", "fix")  # writes the summary again; 20002's report comes back with ct.py summary
+    run_ct(capsys, "summary", "--run", run_dir)
+    assert run_ct(capsys, "selftest", "check-run", "--dir", folder, "--run", run_dir)["checks"]["2-3"]["status"] == "pass"
 
     preview = run_ct(capsys, "preview", "--run", run_dir)
     server.update_triage(repo, preview["plan_file"], preview["confirmation_token"])

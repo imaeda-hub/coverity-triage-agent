@@ -1,6 +1,6 @@
 ---
 name: coverity-apply
-description: 一覧 summary.md の承認欄に従って反映する。逸脱は Coverity にトリアージを書き戻し、修正は git ならブランチを push してプルリクエストを作り、svn ならワーキングコピーに差分を当てる。
+description: 画面（ct.py gui）の「結果」で選んだ承認（approvals.json）に従って反映する。逸脱は Coverity にトリアージを書き戻し、修正は git ならブランチを push してプルリクエストを作り、svn ならワーキングコピーに差分を当てる。
 argument-hint: 省略可。実行フォルダ（省略時はいちばん新しい実行）
 disable-model-invocation: true
 allowed-tools: ["coverity-triage", "shell(uv run:*)"]
@@ -10,14 +10,17 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 
 最初にスキル `coverity-triage-scripts` を読み、`ct.py` の場所と使い方を確かめます。以下の `ct.py X` はそこに書かれた方法で実行します。
 
+承認（修正 / 逸脱 / 却下 / 反映しない）と逸脱コメントの手直しは、人が画面（`ct.py gui`）の「結果」で入れ、実行フォルダの `approvals.json` に保存されています。`ct.py preview` はそれを読みます。あなたは `approvals.json` も一覧のファイルも書き換えません。
+古い実行（`approvals.json` が無く、`summary.md` がある実行）は、これまでどおり `summary.md` の承認欄と、詳細レポート `cid/<ID>.md` の逸脱の節を読みます。
+
 ## 1. 反映する内容を確かめる
 
 1. 対象リポジトリの一番上のフォルダ（`repo_root`）を決める。
 2. 実行フォルダ（`run_dir`）を決める。利用者が指定しなければ、`ct.py runs --repo <repo_root>` で一覧を見て、`summary` が true のうちいちばん新しいものにする。
 3. `ct.py preview --run <run_dir>` を実行する。
-   - `problems` があれば（承認欄の書き間違いなど）、そのまま伝えて、直してからもう一度 `/coverity-apply` を使うよう案内して終わる。
-   - 件数がすべて 0 なら、「反映するものはありません（承認欄が空か、もう反映済みです）」と伝えて終わる。
-4. 件数（修正・逸脱・却下）と、作業の ID を見せて、「この内容で反映しますか？」と聞く。逸脱は Coverity の分類とコメントが書き換わること、修正は git ならブランチを push すること（svn ならワーキングコピーのファイルが変わること）を添える。
+   - `problems` があれば（逸脱の内容が読めない、古い実行の承認欄の書き間違いなど）、そのまま伝えて、画面の「結果」で直して（古い実行は `summary.md` の承認欄を直すか、画面で選び直して）から、もう一度 `/coverity-apply` を使うよう案内して終わる。
+   - 件数がすべて 0 なら、`ct.py gui --repo <repo_root> --run <run_dir> --view summary` で画面の「結果」を開き、「反映するものはありません（承認が 1 件も無いか、すべて反映済みです）。承認するときは、画面の『結果』で『修正』『逸脱』『却下』を選んでから、もう一度 `/coverity-apply` を使ってください」と伝えて終わる（`browser_opened` が false なら `url` も伝える）。
+4. 件数（修正・逸脱・却下）と、作業の ID を見せて、「この内容で反映しますか？」と聞く。逸脱は Coverity の分類とコメントが書き換わること、修正は git ならブランチを push すること（svn ならワーキングコピーのファイルが変わること）を添える。承認を変えたいと言われたら、画面の「結果」で変えてもらい、もう一度 `ct.py preview` から始める（確認用の文字列が変わるため）。
 5. 同意が得られなければ終わる。
 
 ## 2. 反映する

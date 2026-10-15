@@ -5,19 +5,21 @@ Each tool returns within about 20 seconds, because the Copilot runtime stops an 
 again with the same arguments; work already saved is not repeated.
 
 Results go to the files that the scripts of the skill ``coverity-triage-scripts`` name, so that large
-data does not pass through the conversation.
+data does not pass through the conversation. A call on the files of a run folder is also written to
+the run's ``operations.log`` (start, end or error), which the monitor of ``ct.py gui`` shows.
 """
 
 from __future__ import annotations
 
 import functools
 import hashlib
+import inspect
 import json
 import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import anyio
 from mcp.server.mcpserver import MCPServer
@@ -29,6 +31,7 @@ from pydantic import ValidationError
 
 from .connect import check_auth
 from .coverity import CoverityClient, CoverityError, make_client
+from .envvars import get_env
 from .models import TriageAttributes, TriageEntry
 from .settings import SettingsError, load_coverity_config, load_filter
 
@@ -37,6 +40,8 @@ DEFAULT_LIMIT = 100
 MAX_CIDS = 50
 MAX_EXCLUDED_SAMPLES = 50  # rows left out after the search, kept in issues.json to find the cause
 CALL_AGAIN = "続きがあります。同じ引数でもう一度呼んでください"
+RUN_FILE = "run.json"  # marks a run folder of the scripts (ct.py new-run)
+LOG_FILE = "operations.log"  # the run's log, shared with the scripts (one JSON object per line)
 
 mcp = MCPServer(
     name="coverity-triage",
@@ -48,15 +53,102 @@ mcp = MCPServer(
 )
 
 
-def tool(title: str, **hints: bool):
-    """Register a tool and turn expected errors into messages the agent can act on."""
+class Activity:
+    """Lines of one tool call in the run's operations.log, read by the monitor of ``ct.py gui``.
+
+    Only a call on the files of a run folder (a folder with run.json) is recorded. Recording is best
+    effort: a failure to write never changes what the tool does. Values of the credential environment
+    variables are masked, as the scripts do.
+    """
+
+    def __init__(self, tool: str, run_dir: Path | None, repo_root: Any, fields: dict[str, Any]):
+        self.tool = tool
+        self.run_dir = run_dir
+        self.repo_root = repo_root
+        self.fields = fields
+        self._secrets: list[str] | None = None
+
+    @classmethod
+    def of(cls, func: Callable[..., Any], locate: Callable[[dict[str, Any]], tuple[Path, dict[str, Any]]] | None,
+           args: tuple[Any, ...], kwargs: dict[str, Any]) -> Activity:
+        run_dir, fields, repo_root = None, {}, None
+        if locate is not None:
+            try:
+                arguments = inspect.signature(func).bind_partial(*args, **kwargs).arguments
+                repo_root = arguments.get("repo_root")
+                folder, fields = locate(arguments)
+                if folder.is_absolute() and (folder / RUN_FILE).is_file():
+                    run_dir = folder
+            except Exception:  # noqa: BLE001 - bad arguments are reported by the tool itself
+                run_dir = None
+        return cls(func.__name__, run_dir, repo_root, fields)
+
+    def secrets(self) -> list[str]:
+        if self._secrets is None:
+            names = ["COV_USER", "COV_AUTH_KEY"]
+            try:
+                config = load_coverity_config(self.repo_root)
+                names = [config.user_env, config.key_env]
+            except Exception:  # noqa: BLE001 - the settings may be what failed
+                pass
+            self._secrets = [v for v in (get_env(n) for n in names) if v]
+        return self._secrets
+
+    def _mask(self, value: Any) -> Any:
+        if isinstance(value, str):
+            for secret in self.secrets():
+                value = value.replace(secret, "****")
+            return value
+        if isinstance(value, dict):
+            return {k: self._mask(v) for k, v in value.items()}
+        if isinstance(value, (list, tuple)):
+            return [self._mask(v) for v in value]
+        return value
+
+    def write(self, phase: str, level: str = "info", **fields: Any) -> None:
+        if self.run_dir is None:
+            return
+        try:
+            record = {"time": _now(), "event": f"mcp:{self.tool}", "level": level, "source": "mcp",
+                      "phase": phase, **self.fields, **fields}
+            line = json.dumps(self._mask(record), ensure_ascii=False, default=str)
+            with open(self.run_dir / LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except Exception:  # noqa: BLE001 - the log never stops the tool
+            pass
+
+    def end(self, result: Any, outcome: Callable[[Any], tuple[str, dict[str, Any]]] | None) -> None:
+        if self.run_dir is None:
+            return
+        try:
+            level, fields = outcome(result) if outcome else ("info", {})
+        except Exception:  # noqa: BLE001 - the log never stops the tool
+            level, fields = "info", {}
+        self.write("end", level, **fields)
+
+
+def tool(title: str, locate: Callable[[dict[str, Any]], tuple[Path, dict[str, Any]]] | None = None,
+         outcome: Callable[[Any], tuple[str, dict[str, Any]]] | None = None, **hints: bool):
+    """Register a tool and turn expected errors into messages the agent can act on.
+
+    ``locate`` gives, from the arguments, the folder that may be a run folder and the fields of every
+    line of the call in its operations.log; ``outcome`` gives the level and fields of the end line
+    from the result (a partial failure is a warning). An error is critical."""
     def register(func):
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
+            activity = Activity.of(func, locate, args, kwargs)
+            activity.write("start")
             try:
-                return func(*args, **kwargs)
+                result = func(*args, **kwargs)
             except (SettingsError, CoverityError, ValueError, OSError) as exc:
+                activity.write("error", "critical", error=str(exc))
                 raise ToolError(str(exc)) from exc
+            except Exception as exc:
+                activity.write("error", "critical", error=f"{type(exc).__name__}: {exc}")
+                raise
+            activity.end(result, outcome)
+            return result
         annotations = ToolAnnotations(title=title, open_world_hint=False, **hints)
         return mcp.tool(title=title, annotations=annotations)(wrapper)
     return register
@@ -131,7 +223,19 @@ def check_connection(repo_root: str) -> dict[str, Any]:
     return out
 
 
-@tool("Coverity の警告の検索", read_only_hint=False, destructive_hint=False, idempotent_hint=True)
+def _search_log(args: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    return Path(args["output_file"]).parent, {}
+
+
+def _search_outcome(out: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    # Without the analyzed revision the run goes on with the local code: a partial failure.
+    return ("warning" if out["revision_error"] else "info",
+            {"done": out["done"], "found": out["found"], "limited": out["limited"], "excluded": out["excluded"],
+             "revision_error": out["revision_error"]})
+
+
+@tool("Coverity の警告の検索", locate=_search_log, outcome=_search_outcome,
+      read_only_hint=False, destructive_hint=False, idempotent_hint=True)
 def search_issues(repo_root: str, filter_file: str, output_file: str) -> dict[str, Any]:
     """条件のファイル（ct.py new-run が作る filter.json）で Coverity の警告を検索し、output_file
     （issues.json）に保存する。条件の limit 件で止める。最新スナップショットの解析リビジョンも記録する。
@@ -200,7 +304,21 @@ def search_issues(repo_root: str, filter_file: str, output_file: str) -> dict[st
             "output_file": str(out), "next": None if done else CALL_AGAIN}
 
 
-@tool("Coverity の警告経路の取得", read_only_hint=False, destructive_hint=False, idempotent_hint=True)
+def _issues_log(args: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    # output_dir is <run>/items/<ID>
+    folder = Path(args["output_dir"])
+    return folder.parent.parent, {"item": folder.name, "cids": list(args.get("cids") or [])[:MAX_CIDS]}
+
+
+def _issues_outcome(out: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    failed = [int(c) if str(c).isdigit() else c for c in out["failed"]]
+    return ("warning" if failed else "info",
+            {"done": out["done"], "saved": len(out["saved"]), "already_saved": len(out["already_saved"]),
+             "failed": failed, "remaining": len(out["remaining"])})
+
+
+@tool("Coverity の警告経路の取得", locate=_issues_log, outcome=_issues_outcome,
+      read_only_hint=False, destructive_hint=False, idempotent_hint=True)
 def get_issues(repo_root: str, stream: str, cids: list[int], output_dir: str) -> dict[str, Any]:
     """CID ごとに警告経路（イベント）とチェッカーの説明を取り、output_dir に issue-<CID>.json として
     保存する。取れなかった CID は、理由を error に書いた issue-<CID>.json を保存する。
@@ -242,7 +360,19 @@ def get_issues(repo_root: str, stream: str, cids: list[int], output_dir: str) ->
             "next": None if done else CALL_AGAIN}
 
 
-@tool("Coverity へのトリアージの書き戻し", read_only_hint=False, destructive_hint=True, idempotent_hint=True)
+def _triage_log(args: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    return Path(args["plan_file"]).parent, {}
+
+
+def _triage_outcome(out: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    failed = [f["id"] for f in out["failed"]]
+    return ("warning" if failed else "info",
+            {"done": out["done"], "written": out["written"], "written_total": out["written_total"],
+             "entries": out["entries"], "failed": failed, "remaining": len(out["remaining"])})
+
+
+@tool("Coverity へのトリアージの書き戻し", locate=_triage_log, outcome=_triage_outcome,
+      read_only_hint=False, destructive_hint=True, idempotent_hint=True)
 def update_triage(repo_root: str, plan_file: str, confirmation_token: str) -> dict[str, Any]:
     """反映の内容（ct.py preview が作る apply-plan.json）の triage の各項目を、Coverity のトリアージ
     （分類・対応・重大度・コメント）に書き込む。confirmation_token は ct.py preview が返した確認用の

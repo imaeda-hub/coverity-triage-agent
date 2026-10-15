@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,6 +19,8 @@ import yaml
 import ct
 from conftest import SAMPLE
 from coverity_triage import server
+from ctlib import approvals
+from ctlib.run import Run
 
 RESULT = {
     "verdict": {"judgement": "true_bug", "summary": "fgets が失敗したとき fp を閉じていない",
@@ -62,6 +65,17 @@ def repo(tmp_path) -> Path:
     return root
 
 
+def summary_rows(page: str) -> list[tuple[str, str]]:
+    """(approval, item id) of each row of summary.html, top to bottom."""
+    return re.findall(r'<tr><td data-label="承認"><span class="badge [^"]*">([^<]*)</span>.*?'
+                      r'<a href="cid/([^"]+)\.html">', page)
+
+
+def approve(run_dir: str, item_id: str, decision: str | None, deviation: dict | None = None) -> dict:
+    """What the screen (ct.py gui) does when the person changes an approval."""
+    return approvals.update(Run(run_dir), item_id, decision, deviation)
+
+
 def run_ct(capsys, *args: str, ok: bool = True) -> dict:
     code = ct.main([str(a) for a in args])
     out = json.loads(capsys.readouterr().out)
@@ -88,6 +102,7 @@ def work_item(capsys, run_dir: str, edit: bool = True, file: str = "src/reader.c
     text = Path(brief["brief"]).read_text(encoding="utf-8")
     fix_dir = Path(run_dir) / "work" / "fix-1"
     assert str(fix_dir) in text and brief["result_file"] in text
+    assert str(Path(item["item_dir"]) / "progress.json") in text  # the worker reports its steps there
     if edit:
         source = fix_dir / file
         source.write_bytes((source.read_bytes() if source.exists() else b"") + f"/* fix {item['item']} */\n".encode())
@@ -117,25 +132,33 @@ def test_run_and_apply(capsys, repo, tmp_path):
         assert item["finish"]["warnings"] == []
     assert done == ["20001", "20002", "20003", "G1"]
 
-    report = (Path(run_dir) / "cid" / "20001.md").read_text(encoding="utf-8")
-    assert "## 4. 案A: 逸脱" in report and "## 5. 案B: 修正" in report
-    assert "```diff" in report and "+/* fix 20001 */" in report  # the diff is in the report
+    report = (Path(run_dir) / "cid" / "20001.html").read_text(encoding="utf-8")
+    assert "案A: 逸脱" in report and "案B: 修正" in report
+    assert '<pre class="diff">' in report and '<span class="add">+/* fix 20001 */' in report  # the diff is in the report
+    assert 'href="../patches/20001-fix.patch"' in report and 'href="../fixed/20001/fix/src/reader.c"' in report
+    assert not list((Path(run_dir) / "cid").glob("*.md"))  # Markdown only with the option markdown
     assert "coverity-fix/cid-20001" in git("branch", "--list", "coverity-fix/*", cwd=repo)
 
     summary = run_ct(capsys, "summary", "--run", run_dir)
     assert summary["recommended"] == {"fix": 3, "deviation": 1}
     assert sorted(summary["removed_work_copies"]) == ["fix-1"]
-    table = Path(summary["summary"]).read_text(encoding="utf-8")
-    assert "| 承認 | ID | 推奨 | 確信度 | 見立て | 詳細 |" in table
-    rows = [line for line in table.splitlines() if line.startswith("| ") and "[詳細]" in line]
-    assert rows[0].startswith("| 逸脱 | 20002 |")  # low confidence first, approval pre-filled
-    assert any(r.startswith("| 修正 | G1（3 件） |") for r in rows)
+    assert summary["summary"] == str(Path(run_dir) / "summary.html") and "--view summary" in summary["next"]
+    assert not (Path(run_dir) / "summary.md").exists()
+    page = Path(summary["summary"]).read_text(encoding="utf-8")
+    rows = summary_rows(page)
+    assert rows[0] == ("逸脱", "20002")  # low confidence first, approval pre-filled with the recommendation
+    assert ("修正", "G1") in rows and len(rows) == 4
+    saved = json.loads((Path(run_dir) / "approvals.json").read_text(encoding="utf-8"))
+    assert {k: v["decision"] for k, v in saved["items"].items()} == {
+        "20001": "fix", "20002": "deviation", "20003": "fix", "G1": "fix"}
+    assert run_ct(capsys, "status", "--run", run_dir)["summary"] == summary["summary"]
 
-    # The person rejects 20003 and edits the deviation comment of 20002.
-    Path(summary["summary"]).write_text(table.replace("| 修正 | 20003 |", "| 却下 | 20003 |"), encoding="utf-8")
-    detail = Path(run_dir) / "cid" / "20002.md"
-    detail.write_text(detail.read_text(encoding="utf-8").replace("呼び出し元で検証済み。", "read_config で検証済み。"),
-                      encoding="utf-8")
+    # The person rejects 20003 and edits the deviation comment of 20002, in the screen.
+    assert approve(run_dir, "20003", "reject")["edited"]
+    edited = {**deviation, "comment": deviation["comment"].replace("呼び出し元で検証済み。", "read_config で検証済み。")}
+    assert approve(run_dir, "20002", "deviation", edited)["deviation"] == edited
+    assert ("却下", "20003") in summary_rows(Path(summary["summary"]).read_text(encoding="utf-8"))
+    assert "read_config で検証済み。" in (Path(run_dir) / "cid" / "20002.html").read_text(encoding="utf-8")
 
     preview = run_ct(capsys, "preview", "--run", run_dir)
     assert preview["counts"] == {"修正": 2, "逸脱": 1, "却下": 1}

@@ -1,6 +1,6 @@
 ---
 name: coverity-run
-description: Coverity のトリアージを実行する。条件に合う警告を取り出し、警告ごとにサブエージェント coverity-triage-worker に調べさせて修正案と逸脱コメント案を作り、一覧 summary.md を作る。途中で止まった実行は続きから再開する。
+description: Coverity のトリアージを実行する。条件に合う警告を取り出し、警告ごとにサブエージェント coverity-triage-worker に調べさせて修正案と逸脱コメント案を作り、一覧 summary.html を作る。実行中は画面（ct.py gui）で AI の動きを見せ、最後に画面の「結果」で承認を確かめるよう案内する。途中で止まった実行は続きから再開する。
 argument-hint: 省略可。条件ファイルの名前や追加の条件（例 misra.yaml / High だけ / 10 件だけ）
 disable-model-invocation: true
 allowed-tools: ["coverity-triage", "shell(uv run:*)"]
@@ -21,15 +21,26 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 1. 対象リポジトリの一番上のフォルダ（`repo_root`）を決める（ふつうは開いているフォルダ）。
 2. `ct.py runs --repo <repo_root>` で前回の実行を見る。
    - 設定ファイルが無いなどで失敗したら、「先に `/coverity-setup` で準備してください」と伝えて終わる。
-   - いちばん新しい実行が途中（`unfinished: true`）なら、「前回の実行（日時・条件）が途中です。続きから再開しますか？」と聞く。再開するなら `ct.py resume --run <run_dir>` を実行する。結果の `run_dir`、`repo_root`、`filter_file`、`issues_file`、`work_dir`、`verify` をこの後ずっと使い、`planned` が true なら 2 へ、false なら 3 の 3 から進める。
+   - いちばん新しい実行が途中（`unfinished: true`）なら、「前回の実行（日時・条件）が途中です。続きから再開しますか？」と聞く。再開するなら `ct.py resume --run <run_dir>` を実行する。結果の `run_dir`、`repo_root`、`filter_file`、`issues_file`、`work_dir`、`verify` をこの後ずっと使う。すぐに下の「監視の画面を開く」を行い、`planned` が true なら 2 へ、false なら 3 の 4 から進める。
 3. 新しく始めるとき：
    1. 利用者の言葉から条件を決める。条件ファイルの名前があれば `--filter`、「High だけ」などは `--impact High` のように引数で足す。件数の指定は `--limit`。ビルドでの検証の指定があれば `--verify build` など。
    2. `ct.py new-run --repo <repo_root> ...` を実行する。結果の `run_dir`、`repo_root`、`filter_file`、`issues_file`、`work_dir`、`verify` をこの後ずっと使う。
-   3. 修正用のコピーを置くフォルダ（`work_dir`）は、開いているフォルダの外にあります。利用者に次を伝える（決定 21）。
+   3. すぐに下の「監視の画面を開く」を行う。
+   4. 修正用のコピーを置くフォルダ（`work_dir`）は、開いているフォルダの外にあります。利用者に次を伝える（決定 21）。
       > 修正案は、あなたの作業中のファイルではなく、`<work_dir>` に用意するコピーの上で作ります。このフォルダの読み書きの確認が出たら、「このセッションでは許可」を選んでください（Copilot CLI では、いま `/add-dir <work_dir>` と入力しても許可できます）。
-   4. MCP の `search_issues` を `repo_root`、`filter_file`、`output_file` = `issues_file` で、`done` が true になるまで呼ぶ。
-   5. 見つかった件数（`found`）を伝える。`limited` が true なら「上限の `limit` 件で止めました」と添える。0 件なら、条件を伝えて終わる。
-   6. `ct.py plan --run <run_dir>` を実行し、作業の数とグループの数を伝える。`notes` があれば短く伝える。
+   5. MCP の `search_issues` を `repo_root`、`filter_file`、`output_file` = `issues_file` で、`done` が true になるまで呼ぶ。
+   6. 見つかった件数（`found`）を伝える。`limited` が true なら「上限の `limit` 件で止めました」と添える。0 件なら、条件を伝えて終わる。
+   7. `ct.py plan --run <run_dir>` を実行し、作業の数とグループの数を伝える。`notes` があれば短く伝える。
+
+### 監視の画面を開く
+
+`new-run` か `resume` のすぐ後に 1 回だけ行います。利用者の返事は待ちません。
+
+1. 「AI の動きを見る画面を開きます」と伝えて `ct.py gui --repo <repo_root> --run <run_dir>` を実行する。画面は裏で動くので、コマンドはすぐ戻る（`reused` が true なら、もう動いている画面を使い回して、この実行を表示している）。
+2. 次を伝える。
+   > ブラウザの画面の「監視」で、AI（全体を進める AI と、警告を調べるサブエージェント）の動きと、重大なエラーを見られます。画面を閉じても実行は止まりません。
+   - `browser_opened` が false なら、結果の `url` を添えて「このアドレスをブラウザで開くと見られます」と伝える。
+3. `ok` が false でも、実行は止めずにそのまま進める（画面は見守るためのもので、実行には要らない）。`error` を 1 行で伝える。最後の「3. 終える」で、結果の画面を開くときに、もう一度だけ試す。
 
 ## 2. 作業を進める（独立した作業は同時に）
 
@@ -59,14 +70,16 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 ## 3. 終える
 
 1. ビルドでの検証を使う実行（`verify` が none 以外）なら、「修正案をまとめてビルドで確かめます。時間がかかります」と伝えて `ct.py verify --run <run_dir>` を実行する。終わったら、ビルドできたかと、確信度を「低」に下げた作業（`downgraded_to_low`）を伝える。
-2. `ct.py summary --run <run_dir>` を実行する。
-3. 次を短く伝える。
-   - 一覧のファイル（`summary`）の場所、作業の数、修正と逸脱の推奨の数、処理できなかった作業の数
+2. `ct.py summary --run <run_dir>` を実行する。承認の欄には、AI の推奨が最初から入る（`approvals.json`）。
+3. `ct.py gui --repo <repo_root> --run <run_dir> --view summary` を実行し、画面の「結果」に、この実行の一覧を出す。`browser_opened` が false なら `url` を伝える。`ok` が false なら、`error` を伝え、一覧のファイル（`summary`）はブラウザで直接開いて読めること、承認を変えるには画面が要るので `/coverity-help` で相談できることを伝える。
+4. 次を短く伝える。
+   - 一覧のファイル（`summary`。`summary.html`）の場所、作業の数、修正と逸脱の推奨の数、処理できなかった作業の数
    - 2 で覚えておいた `warnings`
-   - 次にすること：「`summary.md` の承認欄を確かめてください。AI の推奨を入れてあるので、変えたい行だけ『修正』『逸脱』『却下』に書き換えます。逸脱コメントは各詳細レポートの『案A: 逸脱』で直せます。終わったら `/coverity-apply` で反映します」
+   - 次にすること：「画面の『結果』で承認の欄を確かめてください。AI の推奨を入れてあるので、変えたい行だけ『修正』『逸脱』『却下』『反映しない』から選び直します（選ぶとすぐ保存されます）。行を選ぶと詳細レポートが開き、逸脱コメントを直したり、差分と修正後のファイルを見たりできます。終わったら `/coverity-apply` で反映します」
 
 ## してはいけないこと
 
 - ソースを読んで判断する、直す（サブエージェントの仕事）。
-- `run_dir` の中のファイル（`run.json`、`result.json` など）を手で書き換える。
-- `ct.py preview`・`ct.py apply-code`・MCP の `update_triage` を使う（反映は、人が承認欄を書いた後に `/coverity-apply` で行う）。
+- `run_dir` の中のファイル（`run.json`、`result.json`、`approvals.json` など）を手で書き換える。承認は人が画面で選びます。
+- `ct.py preview`・`ct.py apply-code`・MCP の `update_triage` を使う（反映は、人が画面で承認を確かめた後に `/coverity-apply` で行う）。
+- 監視の画面が開くのを待つ、画面のことで人に質問する（実行は画面がなくても進める）。

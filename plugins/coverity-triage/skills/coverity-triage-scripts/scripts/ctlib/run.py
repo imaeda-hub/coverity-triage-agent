@@ -3,9 +3,10 @@
 Layout (``<output_dir>/<run id>/``)::
 
     run.json  filter.json  issues.json  config.snapshot.yaml
-    items/<ID>/   issue-<CID>.json  brief.md  result.json
+    items/<ID>/   issue-<CID>.json  brief.md  progress.json  result.json  saved.json
     work/         fix-<n>/  annotation-<n>/  analyzed/   (work copies; removed by ``summary``)
-    cid/<ID>.md  patches/  fixed/<ID>/  summary.md  apply-plan.json  operations.log
+    cid/<ID>.html  patches/  fixed/<ID>/  summary.html  approvals.json  apply-plan.json  operations.log
+    cid/<ID>.md  summary.md   (only with the option ``markdown``, and in runs made before approvals.json)
 """
 
 from __future__ import annotations
@@ -117,8 +118,11 @@ class Run:
     def result_file(self, item_id: str) -> Path:
         return self.item_dir(item_id) / "result.json"
 
-    def report_file(self, item_id: str) -> Path:
-        return self.dir / "cid" / f"{item_id}.md"
+    def report_file(self, item_id: str, ext: str = "html") -> Path:
+        return self.dir / "cid" / f"{item_id}.{ext}"
+
+    def summary_file(self, ext: str = "html") -> Path:
+        return self.dir / f"summary.{ext}"
 
     def copy_dir(self, kind: str, slot: int | None = None) -> Path:
         """Work copies: ``fix-<slot>``, ``annotation-<slot>`` and ``analyzed``."""

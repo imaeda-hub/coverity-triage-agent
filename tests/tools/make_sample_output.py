@@ -5,6 +5,8 @@ Run from the repository root:  uv run python tests/tools/make_sample_output.py
 The flow is the real one (ct.py and the MCP tools with the fake Coverity data). Only the part of the
 worker subagent is played by this script: its edits and result.json are written by hand below, so
 the sample shows the layout of the reports, not what the AI would write.
+The option ``markdown`` is on, so the sample has the HTML reports and their Markdown copies (GitHub
+shows the Markdown; the HTML files are seen after downloading them).
 """
 
 from __future__ import annotations
@@ -123,6 +125,7 @@ def main() -> None:
         config = repo / ".coverity-triage" / "config.yaml"
         data = yaml.safe_load(config.read_text(encoding="utf-8"))
         data["output_dir"] = str(tmp_path / "out")
+        data.setdefault("options", {})["markdown"] = True
         config.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
         ident = ["-c", "user.name=sample", "-c", "user.email=sample@example.com"]
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
@@ -151,12 +154,16 @@ def main() -> None:
                 if child.name != "README.md":
                     shutil.rmtree(child) if child.is_dir() else child.unlink()
         OUT.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(run_dir / "summary.md", OUT / "summary.md")
+        for name in ("summary.html", "summary.md"):
+            shutil.copyfile(run_dir / name, OUT / name)
         shutil.copytree(run_dir / "cid", OUT / "cid")
         shutil.copytree(run_dir / "patches", OUT / "patches")
-        for path in (OUT / "cid").glob("*.md"):
+        shutil.copytree(run_dir / "fixed", OUT / "fixed")  # the reports link to the fixed files
+        # The time taken differs on every run; leave it out so the sample changes only with the layout.
+        for path in [*(OUT / "cid").glob("*.md"), *(OUT / "cid").glob("*.html")]:
             text = path.read_text(encoding="utf-8")
-            text = "\n".join(line for line in text.splitlines() if not line.startswith("- 処理時間:")) + "\n"
+            text = "\n".join(line for line in text.splitlines()
+                             if not line.startswith(("- 処理時間:", "<dt>処理時間</dt>"))) + "\n"
             path.write_text(text, encoding="utf-8")
     print(f"wrote {OUT}")
 
