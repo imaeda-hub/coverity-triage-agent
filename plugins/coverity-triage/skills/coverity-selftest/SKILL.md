@@ -48,7 +48,7 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 
 見本のリポジトリ（① の 2 で作ったもの。① をしないときはここで `ct.py selftest sample` を実行）で、`/coverity-run` と同じ手順を進めます。条件ファイルは `sample` の結果の `filter`（`all.yaml`）です。
 
-1. `ct.py new-run --repo <見本のリポジトリ> --filter all.yaml` → MCP の `search_issues` → `ct.py plan` → 作業ごとに `next` → `get_issues` → `brief` → サブエージェント `coverity-triage-worker` → `finish` → 最後に `ct.py summary`。
+1. `ct.py new-run --repo <見本のリポジトリ> --filter all.yaml` → MCP の `search_issues` → `ct.py plan` → 作業ごとに `next` → `get_issues` → `brief` → サブエージェント `coverity-triage-worker` → `finish` → 最後に `ct.py summary`。`/coverity-run` と同じく、`plan` の `parallel` の数まで作業を続けて取り、サブエージェントを同時に起動する。
 2. `ct.py selftest check-run --dir <dir> --run <run_dir>`（2-2〜2-6）。
 3. 2-7：MCP の `update_triage` を、`ct.py preview --run <run_dir>` の `plan_file` と、わざと違う確認用の文字列 `000000000000` で呼ぶ。書き込みを断られれば pass、書き込んでしまったら fail。記録する。
 4. 見本のリポジトリなので、利用者に聞かずに反映まで進める：`preview` の `confirmation_token` で MCP の `update_triage` を `done` まで呼び、`ct.py apply-code --run <run_dir> --token <confirmation_token>`。プルリクエストは作らない。

@@ -127,10 +127,12 @@ def plan(run_dir: str) -> dict[str, Any]:
     groups = [{"id": i.id, "cids": i.cids} for i in items if i.id.startswith("G")]
     _log(run, "plan", issues=len(issues), items=len(items), groups=groups, latest=latest, analyzed=analyzed)
     excluded = found.get("excluded_count") or 0
+    parallel = max(1, min(config.parallel, len(items)))
     return {"ok": True, "issues": len(issues), "limited": state.limited, "items": len(items),
             "groups": groups, "latest_revision": latest, "analyzed_revision": analyzed, "notes": notes,
-            "excluded": excluded, "parallel": config.parallel,
-            "next": "ct.py next で作業を 1 つずつ取り出す" if items else
+            "excluded": excluded, "parallel": parallel, "parallel_setting": config.parallel,
+            "next": (f"ct.py next を {parallel} 回続けて呼んで作業を取り出し、それぞれのサブエージェントを同時に起動する"
+                     if parallel > 1 else "ct.py next で作業を取り出す") if items else
             "対象の警告がありません" + (f"（Coverity が返した {excluded} 件は条件に合わず外しました。"
                                          "合わなかった項目と値は issues.json の excluded にあります）"
                                          if excluded else "")}
@@ -155,6 +157,8 @@ def next_item(run_dir: str) -> dict[str, Any]:
             item.attempts += 1
             item.started = time.time()
             item.error, item.warnings, item.repo_fingerprint = "", [], fingerprint
+        # how many more items can be started now, without waiting for this one
+        more = min(len(free) - 1, sum(1 for i in state.items if i.status == "pending")) if item and free else 0
     if item is None:
         counts = run.state.counts()
         waiting = counts["in_progress"]
@@ -173,7 +177,8 @@ def next_item(run_dir: str) -> dict[str, Any]:
             vcs.reset_copy(run.copy_dir("fix", item.slot), latest)
             if config.options.annotation:
                 vcs.reset_copy(run.copy_dir("annotation", item.slot), latest)
-            if run.state.analyzed_revision:
+            # the analyzed copy is shared and read-only: reset it only while no other item is reading it
+            if run.state.analyzed_revision and (not busy or not run.copy_dir("analyzed").is_dir()):
                 vcs.reset_copy(run.copy_dir("analyzed"), run.state.analyzed_revision)
     except CtError as exc:
         with run.update() as state:
@@ -186,9 +191,10 @@ def next_item(run_dir: str) -> dict[str, Any]:
     _log(run, "next", item=item.id, slot=item.slot, attempt=item.attempts)
     return {"ok": True, "item": item.id, "cids": item.cids, "is_group": item.is_group,
             "repo_root": str(run.repo), "stream": run.state.stream, "item_dir": str(folder),
-            "counts": run.state.counts(),
+            "counts": run.state.counts(), "can_start_more": more,
             "next": "MCP の get_issues（repo_root, stream, cids, output_dir=item_dir）を done になるまで呼び、"
-                    "そのあと ct.py brief"}
+                    "そのあと ct.py brief"
+                    + (f"。この作業の終わりを待たずに、ct.py next であと {more} 件を取り出して同時に進める" if more else "")}
 
 
 # ---- brief -----------------------------------------------------------------------------------
@@ -371,7 +377,7 @@ def finish(run_dir: str, item_id: str) -> dict[str, Any]:
     if config.options.annotation and not annotated:
         raise CtError("アノテーションが入っていません", problems=[f"{annotation_dir} に注釈を入れてください"])
     if run.state.analyzed_revision and vcs.changed_files(run.copy_dir("analyzed")):
-        warnings.append("調べるコード（解析リビジョン）が変更されていました。次の作業の前に元に戻します")
+        warnings.append("調べるコード（解析リビジョン）が変更されていました。ほかに処理中の作業が無いときに、次の作業の前に元に戻します")
     if item.repo_fingerprint and vcs.fingerprint() != item.repo_fingerprint:
         warnings.append("調べている間に、利用者のリポジトリのファイルが変わりました。"
                         "サブエージェントが誤って変更していないか確かめてください")

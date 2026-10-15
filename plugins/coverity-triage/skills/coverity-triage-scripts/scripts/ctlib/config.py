@@ -82,12 +82,15 @@ class VerifyConfig(_Strict):
     cov_analyze_args: str = "--dir idir --all"
 
 
+DEFAULT_PARALLEL = 3  # independent items are investigated at the same time, each in its own work copy
+
+
 class ProjectConfig(_Strict):
     coverity: CoverityConfig
     vcs: VcsConfig
     output_dir: str = DEFAULT_OUTPUT_DIR
     max_items: int = Field(default=100, ge=1)
-    parallel: int = Field(default=1, ge=1, le=8)
+    parallel: int = Field(default=DEFAULT_PARALLEL, ge=1, le=8)
     options: Options = Field(default_factory=Options)
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
 

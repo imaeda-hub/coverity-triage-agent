@@ -20,7 +20,7 @@
 | `vcs.branch_prefix` | 修正のブランチ名の先頭（git） | 既定 `coverity-fix/` |
 | `output_dir` | 結果を置く場所 | 既定 `../coverity-triage-out`（リポジトリの隣）。**リポジトリの外**にする |
 | `max_items` | 1 回で調べる警告の上限 | 既定 100 |
-| `parallel` | 同時に調べる数 | 既定 1。速くしたいとき 2〜3 |
+| `parallel` | 同時に調べる数（作業ごとに別のサブエージェントと修正用のコピーを使う） | 既定 3（1〜8）。1 にすると 1 件ずつ順に調べる |
 | `options.annotation` | 逸脱案として、ソースに Coverity の注釈を入れる差分も作る | 既定 false |
 | `options.per_run_branch` | 修正を警告ごとではなく、1 つのブランチにまとめる（git） | 既定 false |
 | `options.knowledge_suggestions` | 反映のあと、知識の追記の候補を示す | 既定 false |

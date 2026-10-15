@@ -10,4 +10,4 @@ vcs:
   branch_prefix: coverity-fix/
 output_dir: ../coverity-triage-out
 max_items: 100
-parallel: 1
+parallel: 3
