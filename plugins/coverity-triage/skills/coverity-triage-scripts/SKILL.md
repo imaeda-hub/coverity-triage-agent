@@ -42,6 +42,7 @@ uv run --native-tls <このスキルのフォルダ>/scripts/ct.py <コマンド
 | `install-agent` | サブエージェントの定義を `~/.copilot/agents` に置く | `status`、`restart_needed` |
 | `trial-build --repo R --build-command C [--setup-command S] [--build-dir D]` | （オプション）修正前の最新のコードを試しにビルドする。時間がかかる | `build_ok`、`log`、`log_tail` |
 | `set-verify --repo R --build-command C [--setup-command S] [--build-dir D] [--default build]` | （オプション）ビルドでの検証の設定を書く | `written` |
+| `gui --repo R [--no-browser] [--foreground]` | 設定の画面をブラウザで開く（設定・条件・知識・グループ化しない CID・認証情報をまとめて設定する）。画面は裏で動き、コマンドはすぐ戻る。`--foreground` は画面を閉じるまで戻らない（人が自分のターミナルで動かすとき） | `url`、`browser_opened`、`log` |
 
 ### 実行（/coverity-run）
 

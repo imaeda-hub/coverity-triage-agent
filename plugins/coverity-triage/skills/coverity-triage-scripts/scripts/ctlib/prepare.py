@@ -223,10 +223,14 @@ def doctor(repo_root: str) -> dict[str, Any]:
 # ---- build verification settings (option) ---------------------------------------------------
 
 
-def trial_build(repo_root: str, setup_command: str, build_command: str, build_dir: str) -> dict[str, Any]:
-    """Build the latest code once with the given commands, before saving them."""
+def trial_build(repo_root: str, setup_command: str, build_command: str, build_dir: str,
+                config: ProjectConfig | None = None) -> dict[str, Any]:
+    """Build the latest code once with the given commands, before saving them.
+
+    ``config`` is the settings not saved yet (the settings screen); the saved file otherwise.
+    """
     repo = Path(repo_root).resolve()
-    config = load_config(repo)
+    config = config or load_config(repo)
     settings = config.verify.model_copy(update={"setup_command": setup_command, "build_command": build_command,
                                                 "build_dir": build_dir})
     work = output_dir(repo, config) / "_trial-build"
