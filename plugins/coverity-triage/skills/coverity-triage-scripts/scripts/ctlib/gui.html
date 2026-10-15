@@ -495,14 +495,14 @@ table.changes td.before { color: var(--muted); }
             <div class="help">1 行に 1 つ。<code>*</code> が使えます（例 <code>MISRA C-2012 *</code>）。</div>
           </div>
           <p class="help" style="margin:0 0 10px">ここから下の項目は、どれも<b>複数選べます</b>。何も選ばなければ、その項目では絞り込みません。</p>
-          <div class="field"><div class="label">Impact<span class="cond">複数選択可</span></div><div class="choice" id="ff-impacts"></div></div>
-          <div class="field"><div class="label">Classification（今の分類）<span class="cond">複数選択可</span></div><div class="choice" id="ff-classification"></div>
-            <div class="help">Untested・No Test Needed・Tested Elsewhere は、Test Advisor を使う Coverity にだけある値です。ない Coverity では検索のときにその値を外します（その値の警告はないので、結果は変わりません）。</div></div>
+          <div class="field"><div class="label">Impact<span class="cond">複数選択可</span></div><div class="choice" id="ff-impacts"></div>
+            <div class="help">Unspecified は Impact が決まっていない（未指定の）警告です。High・Medium・Low だけを選ぶと、この警告は調べません。Impact で絞り込まないなら、何も選びません。</div></div>
+          <div class="field"><div class="label">Classification（今の分類）<span class="cond">複数選択可</span></div><div class="choice" id="ff-classification"></div></div>
           <div class="field"><div class="label">Action（今の対応）<span class="cond">複数選択可</span></div><div class="choice" id="ff-action"></div>
             <input type="text" data-fbind="triage.action" data-kind="others" data-known="action" placeholder="管理者が足した Action（カンマ区切り）" aria-label="管理者が足した Action" style="margin-top:6px">
             <div class="help">Coverity の管理者が Action の値を足している場合は、上の欄に書きます。</div></div>
           <div class="field"><div class="label">Status（今の状態）<span class="cond">複数選択可</span></div><div class="choice" id="ff-status"></div>
-            <div class="help">Status は Coverity が決めます：New＝分類がまだ（Unclassified）、Triaged＝Pending・Bug・Untested、Dismissed＝False Positive・Intentional などで最新のスナップショットにあるもの、Absent Dismissed＝そのうち最新のスナップショットにないもの、Fixed＝最新のスナップショットにないもの。</div></div>
+            <div class="help">Status は Coverity が決めます：New＝分類がまだ（Unclassified）、Triaged＝Pending・Bug、Dismissed＝False Positive・Intentional などで最新のスナップショットにあるもの、Absent Dismissed＝そのうち最新のスナップショットにないもの、Fixed＝最新のスナップショットにないもの。</div></div>
           <div class="field" style="max-width:560px">
             <label for="ff-limit">調べる警告の数（上限）<span class="cond">任意</span></label>
             <input type="number" id="ff-limit" min="1" step="1" data-fbind="limit" data-kind="int">
@@ -556,8 +556,8 @@ table.changes td.before { color: var(--muted); }
 "use strict";
 const TOKEN = new URLSearchParams(location.search).get("t") || "";
 const KNOWN = {
-  impacts: ["High", "Medium", "Low"],
-  classification: ["Unclassified", "Pending", "False Positive", "Intentional", "Bug", "Untested", "No Test Needed", "Tested Elsewhere"],
+  impacts: ["High", "Medium", "Low", "Unspecified"],
+  classification: ["Unclassified", "Pending", "False Positive", "Intentional", "Bug"],
   action: ["Undecided", "Fix Required", "Fix Submitted", "Modeling Required", "Ignore"],
   status: ["New", "Triaged", "Dismissed", "Absent Dismissed", "Fixed"],
 };

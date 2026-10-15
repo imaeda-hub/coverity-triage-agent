@@ -42,8 +42,8 @@
 | `name` | 表示名（一覧 `summary.md` の見出しや実行の一覧に出る。空ならファイル名）。`/coverity-run` で条件を選ぶときは、ファイル名を使う |
 | `project` / `streams` | Coverity のプロジェクトとストリーム（ストリームは 1 つだけ）。どちらも config.yaml ではなく条件ファイルに書く |
 | `checkers` | チェッカー名（`*` が使える。例 `"MISRA C-2012 *"`） |
-| `impacts` | `High` / `Medium` / `Low` |
-| `triage.classification` / `triage.action` / `triage.status` | 今のトリアージの状態。Classification：Unclassified / Pending / False Positive / Intentional / Bug / Untested / No Test Needed / Tested Elsewhere（後ろの 3 つは Test Advisor を使う Coverity にだけある値。ない Coverity では検索のときに外す）。Action：Undecided / Fix Required / Fix Submitted / Modeling Required / Ignore（管理者が足した値も書ける）。Status：New / Triaged / Dismissed / Absent Dismissed / Fixed |
+| `impacts` | `High` / `Medium` / `Low` / `Unspecified`（Impact が未指定の警告。High・Medium・Low だけでは対象にならない） |
+| `triage.classification` / `triage.action` / `triage.status` | 今のトリアージの状態。Classification：Unclassified / Pending / False Positive / Intentional / Bug。Action：Undecided / Fix Required / Fix Submitted / Modeling Required / Ignore（管理者が足した値も書ける）。Status：New / Triaged / Dismissed / Absent Dismissed / Fixed |
 | `limit` | この条件で Coverity から取り出して調べる警告の件数の上限（グループにまとめる前の件数。`max_items` より多くはならない） |
 
 例（MISRA の未分類だけ、20 件まで）：
