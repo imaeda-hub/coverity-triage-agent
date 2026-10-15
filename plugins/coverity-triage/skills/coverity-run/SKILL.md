@@ -31,21 +31,30 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
    5. 見つかった件数（`found`）を伝える。`limited` が true なら「上限の `limit` 件で止めました」と添える。0 件なら、条件を伝えて終わる。
    6. `ct.py plan --run <run_dir>` を実行し、作業の数とグループの数を伝える。`notes` があれば短く伝える。
 
-## 2. 作業を 1 つずつ進める
+## 2. 作業を進める（独立した作業は同時に）
 
-`ct.py next` の結果の `item` が null になるまで、次を繰り返します。
+作業は 1 件ずつ順番に待つのではなく、`plan` の結果の `parallel` の数まで同時に進めます。作業ごとに別の修正用のコピー（`fix-<n>`）と別の `item_dir`・結果ファイルが用意されるので、同時に進めても混ざりません。
 
-1. `ct.py next --run <run_dir>` で次の作業を取る。`ok: false` のとき（修正用のコピーを用意できないなど）は、ほかの作業でも同じことが起きるので、`error` を利用者に伝えて止める。
+各作業は次の流れで進めます。
+
+1. `ct.py next --run <run_dir>` で作業を取る。`ok: false` のとき（修正用のコピーを用意できないなど）は、ほかの作業でも同じことが起きるので、`error` を利用者に伝えて止める（処理中のサブエージェントは終わるのを待ち、`finish` まで済ませる）。
 2. MCP の `get_issues` を `repo_root`、`stream`、`cids`、`output_dir` = `item_dir` で、`done` が true になるまで呼ぶ。
 3. `ct.py brief --run <run_dir> --item <item>` を実行する。
 4. サブエージェント `coverity-triage-worker` を起動し、結果の `prompt` をそのまま渡す。
 5. サブエージェントが終わったら `ct.py finish --run <run_dir> --item <item>` を実行する。
-   - `ok: false` で `problems` があるときは、`coverity-triage-worker` をもう一度起動し、`prompt` に続けて「結果ファイルの次の点を直してください：」と `problems` を渡す。2 回直しても通らなければ、`ct.py fail --run <run_dir> --item <item> --reason "<理由>"` を実行して次へ進む。
-   - サブエージェントが途中で止まった、エラーになったときも `ct.py fail` で記録して次へ進む。
+   - `ok: false` で `problems` があるときは、`coverity-triage-worker` をもう一度起動し、`prompt` に続けて「結果ファイルの次の点を直してください：」と `problems` を渡す。2 回直しても通らなければ、`ct.py fail --run <run_dir> --item <item> --reason "<理由>"` を実行する。
+   - サブエージェントが途中で止まった、エラーになったときも `ct.py fail` で記録する。
    - `warnings` があれば覚えておき、最後にまとめて伝える。
-6. 5 件ごとくらいに、進み具合（`counts`）を 1 行で伝える。
 
-`plan` の結果の `parallel` が 2 以上のときは、`next` をその数まで続けて呼び、サブエージェントを同時に起動してかまいません（作業ごとに別の修正用のコピーが用意されます）。
+同時に進める手順：
+
+1. 最初に、`ct.py next` を続けて呼んで、取れるだけ（`can_start_more` が 0 になるか `item` が null になるまで。最大で `plan` の `parallel` 件）作業を取る。先に取った作業の完了を待ってはいけません。
+2. 取った作業それぞれについて 2〜3 を行い、**それぞれの `coverity-triage-worker` を同時に（1 回の応答でまとめて）起動する**。
+3. どれかのサブエージェントが終わったら、その作業の 5 を行い、すぐに `ct.py next` で次の作業を取って 2〜4 を行い、空いた分のサブエージェントを起動する。
+4. `ct.py next` の `item` が null で、処理中の作業（`counts.in_progress`）も 0 になったら 3 へ進む。`item` が null でも処理中の作業が残っていれば、それらが終わるのを待って 5 を行う。
+5. 5 件ごとくらいに、進み具合（`counts`）を 1 行で伝える。
+
+`parallel` が 1 のとき（設定で 1 にしている、または作業が 1 件だけ）は、1 件ずつ同じ流れで進めます。
 
 ## 3. 終える
 

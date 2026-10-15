@@ -155,6 +155,55 @@ def test_parallel_items_get_their_own_work_copies(capsys, repo):
     assert str(Path(run_dir) / "work" / "fix-2") in Path(brief["brief"]).read_text(encoding="utf-8")
 
 
+def test_independent_items_run_at_the_same_time(capsys, repo):
+    """Two independent CIDs are both taken before either finishes, and finish in any order (#35)."""
+    run_dir = start_run(capsys, repo, "--limit", "2")["run_dir"]
+    planned = run_ct(capsys, "plan", "--run", run_dir)
+    assert planned["items"] == 2 and planned["groups"] == []
+    assert planned["parallel"] == 2 and planned["parallel_setting"] == 3  # the default, capped by the items
+    assert "2 回" in planned["next"]
+    first = run_ct(capsys, "next", "--run", run_dir)
+    assert first["can_start_more"] == 1 and "あと 1 件" in first["next"]
+    second = run_ct(capsys, "next", "--run", run_dir)
+    assert second["can_start_more"] == 0 and second["counts"]["in_progress"] == 2
+    assert run_ct(capsys, "next", "--run", run_dir)["item"] is None
+
+    briefs = {}
+    for item in (first, second):
+        server.get_issues(item["repo_root"], item["stream"], item["cids"], item["item_dir"])
+        briefs[item["item"]] = run_ct(capsys, "brief", "--run", run_dir, "--item", item["item"])
+    for slot, item in ((1, first), (2, second)):
+        fix_dir = Path(run_dir) / "work" / f"fix-{slot}"
+        assert str(fix_dir) in Path(briefs[item["item"]]["brief"]).read_text(encoding="utf-8")
+        source = fix_dir / "src" / "reader.c"
+        source.write_bytes(source.read_bytes() + f"/* fix {item['item']} */\n".encode())
+        Path(briefs[item["item"]]["result_file"]).write_text(
+            json.dumps({**RESULT, "item": item["item"]}, ensure_ascii=False), encoding="utf-8")
+
+    done_second = run_ct(capsys, "finish", "--run", run_dir, "--item", second["item"])
+    assert done_second["counts"] == {"pending": 0, "in_progress": 1, "done": 1, "error": 0}
+    done_first = run_ct(capsys, "finish", "--run", run_dir, "--item", first["item"])
+    assert done_first["counts"] == {"pending": 0, "in_progress": 0, "done": 2, "error": 0}
+    for item, other in ((first, second), (second, first)):
+        patch = (Path(run_dir) / "patches" / f"{item['item']}-fix.patch").read_text(encoding="utf-8")
+        assert f"fix {item['item']}" in patch and f"fix {other['item']}" not in patch
+    assert run_ct(capsys, "summary", "--run", run_dir)["ok"]
+
+
+def test_shared_analyzed_copy_is_not_reset_while_in_use(capsys, repo):
+    run_dir = start_run(capsys, repo, "--limit", "3")["run_dir"]
+    run_ct(capsys, "plan", "--run", run_dir)
+    state_file = Path(run_dir) / "run.json"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    state["analyzed_revision"] = git("rev-parse", "HEAD", cwd=repo).strip()
+    state_file.write_text(json.dumps(state), encoding="utf-8")
+    run_ct(capsys, "next", "--run", run_dir)
+    marker = Path(run_dir) / "work" / "analyzed" / "being-read.txt"
+    marker.write_text("x", encoding="utf-8")
+    run_ct(capsys, "next", "--run", run_dir)
+    assert marker.exists()  # the first item's worker is still reading this copy
+
+
 def test_approval_typos_are_listed(capsys, repo):
     run_dir = start_run(capsys, repo, "--limit", "1")["run_dir"]
     run_ct(capsys, "plan", "--run", run_dir)

@@ -115,7 +115,7 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 | 3 | エージェント・人 | 修正用のコピーを置くフォルダへのアクセスを 1 回許可してもらう（決定 21） |
 | 4 | MCP `search_issues` | Coverity で警告を検索し、`issues.json` に保存する（上限件数で止める） |
 | 5 | `ct.py plan` | パスの対応づけ、グループ化（1 グループ 10 件まで）、解析リビジョンと取り込み先の最新リビジョンの特定をして、作業の一覧を作る |
-| 6 | 繰り返し | 下の 6-1〜6-5 を、作業が無くなるまで（設定 `parallel` が 2 以上なら、その数まで同時に） |
+| 6 | 繰り返し | 下の 6-1〜6-5 を、作業が無くなるまで。設定 `parallel`（既定 3）の数まで同時に進める：`next` を続けて呼んで作業を取り（`can_start_more` が 0 になるまで）、サブエージェントを同時に起動し、1 つ終わるごとに `finish` して次を取る |
 | 6-1 | `ct.py next` | 次の作業（警告 1 件か 1 グループ）を取り、修正用のコピーを用意して最新のリビジョンにそろえる（初回はコピーを作る）。利用者のリポジトリの状態も記録する |
 | 6-2 | MCP `get_issues` | 警告経路を Coverity から取り、`items/<ID>/` に保存する |
 | 6-3 | `ct.py brief` | パスの対応づけ・ずれの確認をして、サブエージェントへの指示 `brief.md` を作る |
@@ -269,7 +269,7 @@ vcs:
   branch_prefix: coverity-fix/
 output_dir: ../coverity-triage-out
 max_items: 100
-parallel: 1
+parallel: 3
 options:                    # 既定はすべて false
   annotation: false
   per_run_branch: false

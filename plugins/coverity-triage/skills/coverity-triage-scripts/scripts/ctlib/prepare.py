@@ -11,8 +11,8 @@ from typing import Any
 import yaml
 
 from .common import PLUGIN_ROOT, CtError, out_text, resolve_path, run_cmd
-from .config import (CONFIG_DIR, CONFIG_FILE, DEFAULT_FILTER, DEFAULT_OUTPUT_DIR, FILTERS_DIR, KNOWLEDGE_TEMPLATE,
-                     FilterSpec, ProjectConfig, VerifyConfig, knowledge_path, load_config, output_dir)
+from .config import (CONFIG_DIR, CONFIG_FILE, DEFAULT_FILTER, DEFAULT_OUTPUT_DIR, DEFAULT_PARALLEL, FILTERS_DIR,
+                     KNOWLEDGE_TEMPLATE, FilterSpec, ProjectConfig, VerifyConfig, knowledge_path, load_config, output_dir)
 from .envvars import get_env
 from .vcs import detect as detect_vcs
 from .vcs import make_vcs
@@ -114,7 +114,7 @@ def init_config(repo_root: str, url: str, project: str, stream: str, base_branch
                 "branch_prefix": "coverity-fix/"},
         "output_dir": out_dir or DEFAULT_OUTPUT_DIR,
         "max_items": 100,
-        "parallel": 1,
+        "parallel": DEFAULT_PARALLEL,
         "options": {"annotation": False, "per_run_branch": False, "knowledge_suggestions": False, "metrics": False},
         "verify": VerifyConfig().model_dump(),
     }
