@@ -10,7 +10,7 @@
 |---|---|---|
 | `coverity.url` | Coverity Connect の URL | ブラウザで開く Coverity のアドレス |
 | `coverity.api` | `auto`：Coverity Connect につなぐ／`fake`：偽データ（動作確認用） | 既定 `auto` |
-| `coverity.user_env` / `coverity.key_env` | ユーザ名・認証キーを入れる環境変数の名前 | 既定 `COV_USER` / `COV_AUTH_KEY` |
+| `coverity.user_env` / `coverity.key_env` | ユーザ名・認証キーを入れる環境変数の名前。ユーザ名はいつも必要。認証キーの代わりにパスワードも使える（パスワードを変えたら入れ直しが要る） | 既定 `COV_USER` / `COV_AUTH_KEY` |
 | `coverity.triage_store` | 逸脱を書き戻すトリアージストアの名前 | 既定 `Default Triage Store` |
 | `coverity.revision_field` | スナップショットで解析リビジョンを記録している項目 | 既定 `sourceVersion`。記録が無ければ、手元のコードで調べてずれを確かめる |
 | `coverity.path_strip_prefixes` | Coverity のファイルパスから取り除く先頭部分 | 警告のパスが `C:/build/product/src/a.c` なら `["C:/build/product/"]`。空でも、リポジトリにある末尾の部分で自動で対応づける |
@@ -39,12 +39,12 @@
 
 | 項目 | 意味 |
 |---|---|
-| `name` | 表示する名前 |
-| `project` / `streams` | Coverity のプロジェクトとストリーム（ストリームは 1 つだけ） |
+| `name` | 表示名（一覧 `summary.md` の見出しや実行の一覧に出る。空ならファイル名）。`/coverity-run` で条件を選ぶときは、ファイル名を使う |
+| `project` / `streams` | Coverity のプロジェクトとストリーム（ストリームは 1 つだけ）。どちらも config.yaml ではなく条件ファイルに書く |
 | `checkers` | チェッカー名（`*` が使える。例 `"MISRA C-2012 *"`） |
 | `impacts` | `High` / `Medium` / `Low` |
-| `triage.classification` / `triage.action` / `triage.status` | 今のトリアージの状態 |
-| `limit` | この条件で調べる上限（`max_items` より多くはならない） |
+| `triage.classification` / `triage.action` / `triage.status` | 今のトリアージの状態。Classification：Unclassified / Pending / False Positive / Intentional / Bug / Untested / No Test Needed / Tested Elsewhere。Action：Undecided / Fix Required / Fix Submitted / Modeling Required / Ignore（管理者が足した値も書ける）。Status：New / Triaged / Dismissed / Absent Dismissed / Fixed |
+| `limit` | この条件で Coverity から取り出して調べる警告の件数の上限（グループにまとめる前の件数。`max_items` より多くはならない） |
 
 例（MISRA の未分類だけ、20 件まで）：
 

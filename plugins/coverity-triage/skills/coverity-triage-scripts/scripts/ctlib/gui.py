@@ -204,6 +204,21 @@ def _filter_yaml(spec: FilterSpec) -> dict[str, Any]:
     return {k: v for k, v in data.items() if v not in (None, "", [], {})}
 
 
+def auth_key_value(value: str) -> tuple[str, str | None]:
+    """The key itself when the contents of an authentication key file (JSON) were pasted."""
+    text = value.strip()
+    if not text.startswith("{"):
+        return value, None
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return value, "認証キーのファイルの中身（JSON）として読めません。キーの部分だけを貼ってください"
+    key = data.get("key") if isinstance(data, dict) else None
+    if not isinstance(key, str) or not key.strip():
+        return value, "認証キーのファイルの中身に key の値がありません。キーの部分だけを貼ってください"
+    return key.strip(), None
+
+
 def _dump(data: Any) -> str:
     return yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
 
@@ -268,7 +283,10 @@ def save(repo: Path, payload: dict[str, Any]) -> dict[str, Any]:
 
     for entry in payload.get("credentials") or []:
         name, value = str(entry.get("env") or ""), str(entry.get("value") or "")
-        if not ENV_NAME.match(name):
+        value, key_problem = auth_key_value(value)
+        if key_problem:
+            problems.append(f"環境変数 {name}: {key_problem}")
+        elif not ENV_NAME.match(name):
             problems.append(f"環境変数の名前「{name}」は使えません（英字・数字・_ だけ）")
         elif not value.strip() or "\n" in value or "\r" in value:
             problems.append(f"環境変数 {name}: 1 行の値を入れてください")

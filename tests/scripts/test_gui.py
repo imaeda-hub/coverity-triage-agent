@@ -299,3 +299,17 @@ def test_launch_runs_in_the_background(capsys, product):
 def test_launch_reports_a_missing_folder(capsys, tmp_path):
     result = run_ct(capsys, "gui", "--repo", tmp_path / "nothing", "--no-browser", ok=False)
     assert "フォルダがありません" in result["error"]
+
+
+def test_a_pasted_key_file_saves_only_the_key(product, saved_env):
+    payload = new_settings(gui.load_state(product))
+    pasted = json.dumps({"comment": "made in Coverity Connect", "username": "taro", "key": KEY})
+    payload["credentials"] = [{"env": "COV_AUTH_KEY", "value": "  " + pasted + "\n"}]
+    assert gui.save(product, payload)["ok"]
+    assert saved_env == {"COV_AUTH_KEY": KEY}
+
+    for broken in ('{"key": ', '{"username": "taro"}'):
+        payload["credentials"] = [{"env": "COV_AUTH_KEY", "value": broken}]
+        result = gui.save(product, payload)
+        assert not result["ok"] and "キーの部分だけ" in "\n".join(result["problems"]), broken
+    assert gui.auth_key_value("plain-key") == ("plain-key", None)
