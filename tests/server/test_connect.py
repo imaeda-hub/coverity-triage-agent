@@ -83,6 +83,8 @@ FAULT = """<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/"><S:Bo
 <faultcode>S:Server</faultcode><faultstring>No stream found with name xyz</faultstring>
 </S:Fault></S:Body></S:Envelope>"""
 
+UNKNOWN_KEYS = {"Tested Elsewhere", "No Test Needed"}  # a server without Test Advisor
+
 
 class FakeServer:
     def __init__(self):
@@ -102,6 +104,9 @@ class FakeServer:
             stream = body["filters"][0]["matchers"][0]["name"]
             rows = ISSUES.get(stream, [])
             for f in body["filters"][1:]:
+                for m in f["matchers"]:
+                    if m["key"] in UNKNOWN_KEYS:
+                        return httpx.Response(500, json={"message": f"Invalid key provided: {m['key']}"})
                 keys = {m["key"] for m in f["matchers"]}
                 rows = [r for r in rows if r.get(f["columnKey"]) in keys]
             offset, count = int(request.url.params["offset"]), int(request.url.params["rowCount"])
@@ -186,6 +191,21 @@ def test_search_stops_before_running_out_of_time(server, monkeypatch):
     monkeypatch.setattr(connect, "MAX_PAGE", 1)
     page = make(server).search(FilterSpec(streams=["main"]), 10, 0, 0)
     assert len(page.issues) == 1 and page.next_offset == 1  # one page, then no time left
+
+
+def test_search_leaves_out_values_the_server_does_not_have(server):
+    spec = FilterSpec(streams=["main"], triage={"classification": ["Unclassified", "Tested Elsewhere",
+                                                                   "No Test Needed"]})
+    client = make(server)
+    assert sorted(i.cid for i in search_all(client, spec)) == [101, 102, 103]
+    ignored = [r["value"] for r in client.requests if r["status"] == "ignored"]
+    assert ignored == ["Tested Elsewhere", "No Test Needed"]
+
+
+def test_search_with_only_unknown_values_finds_nothing(server):
+    spec = FilterSpec(streams=["main"], triage={"classification": ["Tested Elsewhere"]})
+    page = make(server).search(spec, 10, 0, 60)
+    assert page.issues == [] and page.next_offset is None
 
 
 def test_columns_are_asked_once_per_server(server):

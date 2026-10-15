@@ -8,6 +8,7 @@ REST API v2: issue search (``POST /api/v2/issues/search``, the request shape use
 
 from __future__ import annotations
 
+import re
 import ssl
 import time
 import xml.etree.ElementTree as ET
@@ -42,6 +43,10 @@ REQUIRED_FIELDS = ("cid", "checker", "file")
 # status are filtered after the search, because a public example of their server-side form is missing.
 FILTER_COLUMNS = {"checkers": "Checker", "impacts": "Impact",
                   "classification": "Classification", "action": "Action"}
+
+# A value the server does not have (for example the Test Advisor classifications on a server
+# without Test Advisor) is rejected with HTTP 500 and this message.
+INVALID_KEY = re.compile(r"Invalid key provided:\s*(.+?)\s*$")
 
 _columns_cache: dict[str, dict[str, str]] = {}
 
@@ -243,9 +248,16 @@ class ConnectClient(CoverityClient):
         total: int | None = None
         while True:
             page_started = time.monotonic()
-            data = self._rest("POST", "/api/v2/issues/search", {
-                "includeColumnLabels": "true", "offset": offset, "queryType": "bySnapshot",
-                "rowCount": page_size, "sortOrder": "asc"}, body) or {}
+            try:
+                data = self._rest("POST", "/api/v2/issues/search", {
+                    "includeColumnLabels": "true", "offset": offset, "queryType": "bySnapshot",
+                    "rowCount": page_size, "sortOrder": "asc"}, body) or {}
+            except CoverityError as exc:
+                if not self._drop_unknown_value(body["filters"], exc):
+                    raise
+                if any(not f["matchers"] for f in body["filters"]):
+                    return SearchPage(issues, 0, None)  # every wanted value is unknown: nothing matches
+                continue
             rows = data.get("rows") or []
             total = _int(data.get("totalRows")) if total is None else total
             for row in rows:
@@ -258,6 +270,22 @@ class ConnectClient(CoverityClient):
             now = time.monotonic()
             if len(issues) >= limit or (now - started) + (now - page_started) > seconds:
                 return SearchPage(issues, total, offset)
+
+    def _drop_unknown_value(self, filters: list[dict], exc: CoverityError) -> bool:
+        """Leave out a filter value the server does not know. No issue can hold it, so the
+        oneOrMoreMatch result is the same without it."""
+        found = INVALID_KEY.search(str(exc))
+        if not found:
+            return False
+        value = found.group(1)
+        dropped = False
+        for f in filters[1:]:
+            kept = [m for m in f["matchers"] if m.get("key") != value]
+            if len(kept) != len(f["matchers"]):
+                f["matchers"], dropped = kept, True
+                self.requests.append({"request": f"{f['columnKey']} の条件から外した値（サーバーにない）",
+                                      "status": "ignored", "value": value, "seconds": 0})
+        return dropped
 
     @staticmethod
     def _issue(row: dict[str, Any], stream: str) -> Issue | None:
