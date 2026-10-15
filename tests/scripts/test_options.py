@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from coverity_triage import server
-from test_flow import RESULT, git, repo, run_ct, start_run, work_item  # noqa: F401 - fixtures
+from test_flow import RESULT, git, git_identity, repo, run_ct, start_run, work_item  # noqa: F401 - fixtures
 
 
 def set_config(repo: Path, **values) -> None:
