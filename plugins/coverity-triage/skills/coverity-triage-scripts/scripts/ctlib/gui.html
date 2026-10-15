@@ -496,7 +496,8 @@ table.changes td.before { color: var(--muted); }
           </div>
           <p class="help" style="margin:0 0 10px">ここから下の項目は、どれも<b>複数選べます</b>。何も選ばなければ、その項目では絞り込みません。</p>
           <div class="field"><div class="label">Impact<span class="cond">複数選択可</span></div><div class="choice" id="ff-impacts"></div></div>
-          <div class="field"><div class="label">Classification（今の分類）<span class="cond">複数選択可</span></div><div class="choice" id="ff-classification"></div></div>
+          <div class="field"><div class="label">Classification（今の分類）<span class="cond">複数選択可</span></div><div class="choice" id="ff-classification"></div>
+            <div class="help">Untested・No Test Needed・Tested Elsewhere は、Test Advisor を使う Coverity にだけある値です。ない Coverity では検索のときにその値を外します（その値の警告はないので、結果は変わりません）。</div></div>
           <div class="field"><div class="label">Action（今の対応）<span class="cond">複数選択可</span></div><div class="choice" id="ff-action"></div>
             <input type="text" data-fbind="triage.action" data-kind="others" data-known="action" placeholder="管理者が足した Action（カンマ区切り）" aria-label="管理者が足した Action" style="margin-top:6px">
             <div class="help">Coverity の管理者が Action の値を足している場合は、上の欄に書きます。</div></div>
