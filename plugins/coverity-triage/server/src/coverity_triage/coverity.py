@@ -31,28 +31,42 @@ class CoverityError(Exception):
         self.fatal = fatal
 
 
-def filter_matches(issue: Issue, spec: FilterSpec, project: str | None = None) -> bool:
-    """Values inside one key are OR-ed, keys are AND-ed."""
+def filter_mismatches(issue: Issue, spec: FilterSpec, project: str | None = None,
+                      skip: frozenset[str] = frozenset()) -> list[str]:
+    """Filter keys the issue does not match. Values inside one key are OR-ed, keys are AND-ed.
+    Keys in ``skip`` (already applied by the server) are not checked."""
     def any_of(value: str | None, allowed: list[str]) -> bool:
         return not allowed or (value is not None and value in allowed)
 
-    if spec.project and project is not None and project != spec.project:
-        return False
-    if spec.checkers and not any(fnmatch.fnmatchcase(issue.checker, p) for p in spec.checkers):
-        return False
-    return (any_of(issue.stream, spec.streams) and any_of(issue.impact, spec.impacts)
-            and any_of(issue.status, spec.triage.status)
-            and any_of(issue.classification, spec.triage.classification)
-            and any_of(issue.action, spec.triage.action))
+    checks = {
+        "project": not spec.project or project is None or project == spec.project,
+        "checkers": not spec.checkers or any(fnmatch.fnmatchcase(issue.checker, p) for p in spec.checkers),
+        "streams": any_of(issue.stream, spec.streams),
+        "impacts": any_of(issue.impact, spec.impacts),
+        "status": any_of(issue.status, spec.triage.status),
+        "classification": any_of(issue.classification, spec.triage.classification),
+        "action": any_of(issue.action, spec.triage.action),
+    }
+    return [key for key, ok in checks.items() if not ok and key not in skip]
+
+
+def filter_matches(issue: Issue, spec: FilterSpec, project: str | None = None) -> bool:
+    return not filter_mismatches(issue, spec, project)
 
 
 class SearchPage:
-    """Issues found so far, the total the server reported, and where to continue."""
+    """Issues found so far, the total the server reported, and where to continue.
 
-    def __init__(self, issues: list[Issue], total: int | None, next_offset: int | None):
+    ``excluded`` lists the rows the server returned that the filter checked after the search left
+    out: ``{"cid", "mismatched": {filter key: the issue's value}}``.
+    """
+
+    def __init__(self, issues: list[Issue], total: int | None, next_offset: int | None,
+                 excluded: list[dict[str, Any]] | None = None):
         self.issues = issues
         self.total = total
         self.next_offset = next_offset  # None when the search is complete
+        self.excluded = excluded or []
 
 
 class CoverityClient(ABC):

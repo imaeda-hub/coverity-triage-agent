@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from .coverity import CoverityClient, CoverityError, SearchPage, filter_matches
+from .coverity import CoverityClient, CoverityError, SearchPage, filter_mismatches
 from .envvars import get_env
 from .models import Event, Issue, IssueDetail, TriageAttributes
 from .settings import CoverityConfig, FilterSpec
@@ -41,6 +41,8 @@ COLUMN_KEYS = {
 REQUIRED_FIELDS = ("cid", "checker", "file")
 # Filter keys and the column names they filter on server side. Wildcard checker names and the
 # status are filtered after the search, because a public example of their server-side form is missing.
+# Keys the server filtered are not checked again after the search: the row holds the display value,
+# which can differ from the key the server matched (for example a localized label).
 FILTER_COLUMNS = {"checkers": "Checker", "impacts": "Impact",
                   "classification": "Classification", "action": "Action"}
 
@@ -83,6 +85,11 @@ def _int(value: Any) -> int | None:
         return int(str(value).strip())
     except (TypeError, ValueError):
         return None
+
+
+def _issue_value(issue: Issue, key: str) -> Any:
+    field = {"checkers": "checker", "impacts": "impact", "streams": "stream"}.get(key, key)
+    return getattr(issue, field, None)
 
 
 def _credentials(config: CoverityConfig) -> tuple[str | None, str | None]:
@@ -217,12 +224,14 @@ class ConnectClient(CoverityClient):
                                    if isinstance(c, dict) and c.get("name") and c.get("columnKey")}
         return _columns_cache[key]
 
-    def _filters(self, spec: FilterSpec, stream: str) -> list[dict]:
+    def _filters(self, spec: FilterSpec, stream: str) -> tuple[list[dict], frozenset[str]]:
+        """Server-side filters, and the filter keys they cover."""
         filters = [{"columnKey": "streams", "matchMode": "oneOrMoreMatch",
                     "matchers": [{"class": "Stream", "name": stream, "type": "nameMatcher"}]}]
         names = {n.lower(): k for n, k in self.columns().items()}
         values = {"checkers": spec.checkers, "impacts": spec.impacts,
                   "classification": spec.triage.classification, "action": spec.triage.action}
+        covered = {"streams"}
         for field, column in FILTER_COLUMNS.items():
             wanted = values[field]
             key = names.get(column.lower())
@@ -230,7 +239,8 @@ class ConnectClient(CoverityClient):
                 continue
             filters.append({"columnKey": key, "matchMode": "oneOrMoreMatch",
                             "matchers": [{"type": "keyMatcher", "key": v} for v in wanted]})
-        return filters
+            covered.add(field)
+        return filters, frozenset(covered)
 
     def search(self, spec: FilterSpec, limit: int, offset: int, seconds: float) -> SearchPage:
         started = time.monotonic()
@@ -241,35 +251,43 @@ class ConnectClient(CoverityClient):
                                 "（/coverity-selftest の結果を管理者に共有してください）")
         keys = [k for k in COLUMN_KEYS.values() if k in available]
         stream = spec.streams[0]
-        body = {"filters": self._filters(spec, stream), "columns": keys,
+        filters, on_server = self._filters(spec, stream)
+        body = {"filters": filters, "columns": keys,
                 "snapshotScope": {"show": {"scope": "last()", "includeOutdatedSnapshots": False}}}
         page_size = min(MAX_PAGE, max(limit, MIN_PAGE))
         issues: list[Issue] = []
+        excluded: list[dict[str, Any]] = []
         total: int | None = None
         while True:
             page_started = time.monotonic()
             try:
                 data = self._rest("POST", "/api/v2/issues/search", {
-                    "includeColumnLabels": "true", "offset": offset, "queryType": "bySnapshot",
-                    "rowCount": page_size, "sortOrder": "asc"}, body) or {}
+                    "includeColumnLabels": "true", "locale": "en_us", "offset": offset,
+                    "queryType": "bySnapshot", "rowCount": page_size, "sortOrder": "asc"}, body) or {}
             except CoverityError as exc:
                 if not self._drop_unknown_value(body["filters"], exc):
                     raise
                 if any(not f["matchers"] for f in body["filters"]):
-                    return SearchPage(issues, 0, None)  # every wanted value is unknown: nothing matches
+                    return SearchPage(issues, 0, None, excluded)  # every wanted value is unknown: nothing matches
                 continue
             rows = data.get("rows") or []
             total = _int(data.get("totalRows")) if total is None else total
             for row in rows:
                 issue = self._issue({c.get("key"): c.get("value") for c in row}, stream)
-                if issue and filter_matches(issue, spec):
+                if issue is None:
+                    continue
+                mismatched = filter_mismatches(issue, spec, skip=on_server)
+                if mismatched:
+                    excluded.append({"cid": issue.cid,
+                                     "mismatched": {k: _issue_value(issue, k) for k in mismatched}})
+                else:
                     issues.append(issue)
             offset += len(rows)
             if not rows or offset >= (total or 0):
-                return SearchPage(issues, total, None)
+                return SearchPage(issues, total, None, excluded)
             now = time.monotonic()
             if len(issues) >= limit or (now - started) + (now - page_started) > seconds:
-                return SearchPage(issues, total, offset)
+                return SearchPage(issues, total, offset, excluded)
 
     def _drop_unknown_value(self, filters: list[dict], exc: CoverityError) -> bool:
         """Leave out a filter value the server does not know. No issue can hold it, so the

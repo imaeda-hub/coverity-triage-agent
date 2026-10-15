@@ -35,6 +35,7 @@ from .settings import SettingsError, load_coverity_config, load_filter
 BUDGET = 20.0  # seconds one tool call may use
 DEFAULT_LIMIT = 100
 MAX_CIDS = 50
+MAX_EXCLUDED_SAMPLES = 50  # rows left out after the search, kept in issues.json to find the cause
 CALL_AGAIN = "続きがあります。同じ引数でもう一度呼んでください"
 
 mcp = MCPServer(
@@ -134,7 +135,11 @@ def check_connection(repo_root: str) -> dict[str, Any]:
 def search_issues(repo_root: str, filter_file: str, output_file: str) -> dict[str, Any]:
     """条件のファイル（ct.py new-run が作る filter.json）で Coverity の警告を検索し、output_file
     （issues.json）に保存する。条件の limit 件で止める。最新スナップショットの解析リビジョンも記録する。
-    done が false なら、同じ引数でもう一度呼ぶ（保存済みの続きから検索する）。"""
+    done が false なら、同じ引数でもう一度呼ぶ（保存済みの続きから検索する）。
+    coverity_total は Coverity が検索で返した件数（ストリーム・チェッカー・Impact・Classification・
+    Action で絞った数）。found はそのうち Status とワイルドカードのチェッカーの条件にも合った件数。
+    条件に合わずに外した件数は excluded で、外した警告と合わなかった項目の値は output_file の
+    excluded に残る。"""
     deadline = Deadline()
     config = load_coverity_config(_folder(repo_root, "repo_root"))
     filter_path = _path(filter_file, "filter_file")
@@ -148,7 +153,8 @@ def search_issues(repo_root: str, filter_file: str, output_file: str) -> dict[st
                  "started_at": _now(), "finished_at": None, "coverity_total": None, "next_offset": 0,
                  "limited": False, "revision_field": config.revision_field or None,
                  "revision_checked": not config.revision_field, "analyzed_revision": None,
-                 "revision_error": None, "issues": [], "requests": []}
+                 "revision_error": None, "issues": [], "excluded_count": 0, "excluded": [],
+                 "requests": []}
     limit = state["limit"]
     client = make_client(config)
     try:
@@ -158,6 +164,10 @@ def search_issues(repo_root: str, filter_file: str, output_file: str) -> dict[st
             # A new snapshot between calls can shift the pages; never keep a CID twice.
             found = [i.model_dump(exclude_none=True) for i in page.issues if i.cid not in known]
             state["issues"] += found
+            seen = {e["cid"] for e in state.setdefault("excluded", [])}
+            new = [e for e in page.excluded if e["cid"] not in seen]
+            state["excluded_count"] = state.get("excluded_count", 0) + len(new)
+            state["excluded"] += new[:max(0, MAX_EXCLUDED_SAMPLES - len(state["excluded"]))]
             state["coverity_total"] = page.total
             if len(state["issues"]) >= limit:
                 state["limited"] = len(state["issues"]) > limit or page.next_offset is not None
@@ -180,8 +190,12 @@ def search_issues(repo_root: str, filter_file: str, output_file: str) -> dict[st
         if done and not state["finished_at"]:
             state["finished_at"] = _now()
         _write_json(out, state)
+    excluded = state.get("excluded_count", 0)
     return {"done": done, "found": len(state["issues"]), "limit": limit, "limited": state["limited"],
-            "coverity_total": state["coverity_total"], "analyzed_revision": state["analyzed_revision"],
+            "coverity_total": state["coverity_total"], "excluded": excluded,
+            "excluded_note": (f"Coverity が返した警告のうち {excluded} 件が、検索のあとの条件（Status など）に"
+                              f"合わず外れました。合わなかった項目と値は {out} の excluded にあります")
+            if excluded else None, "analyzed_revision": state["analyzed_revision"],
             "revision_error": state["revision_error"], "seconds": round(deadline.elapsed(), 1),
             "output_file": str(out), "next": None if done else CALL_AGAIN}
 
