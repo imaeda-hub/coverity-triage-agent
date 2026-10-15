@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Any
 
-from ctlib import apply, knowledge, metrics, prepare, selftest, triage
+from ctlib import apply, gui, knowledge, metrics, prepare, selftest, triage
 from ctlib.common import CtError
 from ctlib.config import load_config, output_dir
 
@@ -70,6 +71,11 @@ def parser() -> argparse.ArgumentParser:
             ("--build-dir", {"default": ""}),
             ("--default", {"default": "build", "choices": ["none", "build", "build+analyze"]}),
             ("--cov-build-args", {}), ("--cov-analyze-args", {}))
+    command("gui", "設定の画面をブラウザで開く（裏で動かし、すぐ戻る）", repo,
+            ("--foreground", {"action": "store_true", "help": "画面を閉じるまで、このコマンドで動かす"}),
+            ("--no-browser", {"action": "store_true", "help": "ブラウザを開かずにアドレスだけ返す"}),
+            ("--serve", {"action": "store_true", "help": argparse.SUPPRESS}),
+            ("--ready-file", {"help": argparse.SUPPRESS}))
 
     # run
     command("runs", "実行の一覧（新しい順）", repo, ("--limit", {"type": int, "default": 10}))
@@ -122,6 +128,12 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
     if c == "set-verify":
         return prepare.set_verify(args.repo, args.default, args.setup_command, args.build_command, args.build_dir,
                                   args.cov_build_args, args.cov_analyze_args)
+    if c == "gui":
+        if args.serve:
+            return gui.serve(args.repo, os.environ.get(gui.TOKEN_ENV), args.ready_file)
+        if args.foreground:
+            return gui.serve(args.repo, open_browser=not args.no_browser)
+        return gui.launch(args.repo, open_browser=not args.no_browser)
     if c == "runs":
         return triage.runs(args.repo, args.limit)
     if c == "new-run":
