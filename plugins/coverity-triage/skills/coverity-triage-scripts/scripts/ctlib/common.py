@@ -12,8 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-PLUGIN_ROOT = Path(__file__).resolve().parents[4]
-
 
 class CtError(Exception):
     """A problem the agent (and the person) can act on. ct.py prints it as ``{"ok": false, ...}``."""
@@ -21,6 +19,25 @@ class CtError(Exception):
     def __init__(self, message: str, **details: Any):
         super().__init__(message)
         self.details = details
+
+
+def resolve_path(path: str | Path) -> Path:
+    """An absolute path for a folder or file the person named.
+
+    On Windows ``Path.resolve()`` asks the drive for the final path and some drives (RAM disks,
+    virtual or network drives) refuse with WinError 433 or Errno 22 although the folder is usable.
+    Such a path is then made absolute without following links."""
+    path = Path(path)
+    try:
+        return path.resolve()
+    except OSError as exc:
+        try:
+            return Path(os.path.abspath(path))
+        except (OSError, ValueError) as inner:
+            raise CtError(f"パスを絶対パスにできません: {path}: {inner}", resolve_error=str(exc)) from inner
+
+
+PLUGIN_ROOT = resolve_path(__file__).parents[4]
 
 
 def now() -> str:

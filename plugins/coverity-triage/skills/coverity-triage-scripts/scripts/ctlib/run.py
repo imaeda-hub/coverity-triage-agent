@@ -18,7 +18,7 @@ from typing import Any, Iterator, Literal
 
 from pydantic import BaseModel, Field
 
-from .common import CtError, file_lock, read_json, write_json
+from .common import CtError, file_lock, read_json, resolve_path, write_json
 from .config import ProjectConfig, load_config
 from .models import Issue
 from .vcs import Vcs, make_vcs
@@ -77,7 +77,7 @@ class RunState(BaseModel):
 
 class Run:
     def __init__(self, folder: str | Path):
-        self.dir = Path(folder).resolve()
+        self.dir = resolve_path(folder)
         if not (self.dir / RUN_FILE).is_file():
             raise CtError(f"実行フォルダではありません: {self.dir}（ct.py runs で一覧を見られます）")
         self.state = self.load()

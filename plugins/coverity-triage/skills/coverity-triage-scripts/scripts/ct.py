@@ -18,7 +18,7 @@ import sys
 from typing import Any
 
 from ctlib import apply, gui, knowledge, metrics, prepare, selftest, triage
-from ctlib.common import CtError
+from ctlib.common import CtError, resolve_path
 from ctlib.config import load_config, output_dir
 
 
@@ -34,8 +34,7 @@ def _overrides(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _stats(repo_root: str) -> dict[str, Any]:
-    from pathlib import Path
-    repo = Path(repo_root).resolve()
+    repo = resolve_path(repo_root)
     return {"ok": True, **metrics.aggregate(output_dir(repo, load_config(repo)))}
 
 

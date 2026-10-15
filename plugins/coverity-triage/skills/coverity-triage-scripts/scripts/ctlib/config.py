@@ -8,7 +8,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .common import CtError
+from .common import CtError, resolve_path
 
 CONFIG_DIR = ".coverity-triage"
 CONFIG_FILE = "config.yaml"
@@ -142,7 +142,7 @@ def load_config(repo: Path) -> ProjectConfig:
 
 def output_dir(repo: Path, config: ProjectConfig) -> Path:
     path = Path(config.output_dir)
-    return (path if path.is_absolute() else repo / path).resolve()
+    return resolve_path(path if path.is_absolute() else repo / path)
 
 
 def filter_path(repo: Path, name: str) -> Path:
