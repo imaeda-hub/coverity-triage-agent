@@ -47,6 +47,16 @@ uv（このプラグインが使う Python の道具）は、無ければ準備�
 途中で止まっても、もう一度 `/coverity-run` と入力すると続きから再開できます。
 承認して反映するまで、あなたの作業中のファイルも Coverity も変わりません。
 
+## オプション：Copilot CLI の dynamic workflow
+
+Copilot CLI 1.0.79 以降では、`/coverity-run` と同じトリアージを dynamic workflow `coverity-triage-run`（Copilot CLI の実験的な機能）でも動かせます。VS Code では使えません。
+警告 1 件ごとに、調査役・修正役・逸脱役・確認役の 4 つの AI が受け渡しながら調べます（流れの図：[docs/dynamic-workflow.md](docs/dynamic-workflow.md)）。
+
+1. Copilot CLI を `copilot --experimental` で起動します。プラグインを入れてあれば、ほかの準備は要りません。
+2. チャットで頼みます。例：`coverity-triage-run の dynamic workflow を、このリポジトリで High だけ 10 件で動かして`
+3. 進み具合は `/workflows` で見られます。一時停止と再開もできます。
+4. 終わったら、いつもと同じく `summary.md` の承認欄を見て、`/coverity-apply` で反映します。
+
 ## 困ったとき
 
 - `/coverity-help` に聞いてください。例：`/coverity-help このエラーは何？`、`/coverity-help MISRA だけ調べたい`

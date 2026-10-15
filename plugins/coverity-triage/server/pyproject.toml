@@ -14,6 +14,7 @@ dependencies = [
 
 [project.scripts]
 coverity-triage-mcp = "coverity_triage.server:main"
+coverity-triage-call = "coverity_triage.cli:main"
 
 [build-system]
 requires = ["hatchling"]
