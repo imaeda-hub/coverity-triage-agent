@@ -340,3 +340,18 @@ def test_already_fixed_on_latest_is_not_applied_by_default(capsys, repo):
     approve(run_dir, item_id, "fix")  # the person chooses "fix" anyway: nothing to do, still no error
     preview = run_ct(capsys, "preview", "--run", run_dir)
     assert preview["already_fixed_on_latest"] == [item_id] and preview["counts"]["修正"] == 0
+
+
+def test_a_long_deviation_comment_is_sent_back(capsys, repo):
+    run_dir = start_run(capsys, repo, "--limit", "1")["run_dir"]
+    run_ct(capsys, "plan", "--run", run_dir)
+    long = {**RESULT["deviation"], "comment": "誤検知。" + "あ" * 200}
+    item = run_ct(capsys, "next", "--run", run_dir)
+    server.get_issues(item["repo_root"], item["stream"], item["cids"], item["item_dir"])
+    brief = run_ct(capsys, "brief", "--run", run_dir, "--item", item["item"])
+    source = Path(run_dir) / "work" / "fix-1" / "src" / "reader.c"
+    source.write_bytes(source.read_bytes() + b"/* fix */\n")
+    Path(brief["result_file"]).write_text(json.dumps({**RESULT, "item": item["item"], "deviation": long},
+                                                     ensure_ascii=False), encoding="utf-8")
+    sent_back = run_ct(capsys, "finish", "--run", run_dir, "--item", item["item"], ok=False)
+    assert any("200 字以内" in p for p in sent_back["problems"])
