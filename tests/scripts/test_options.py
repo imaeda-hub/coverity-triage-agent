@@ -11,7 +11,7 @@ import yaml
 from coverity_triage import server
 from ctlib.common import CtError
 from ctlib.run import Run
-from test_flow import RESULT, approve, git, repo, run_ct, start_run, summary_rows, work_item  # noqa: F401 - fixtures
+from test_flow import RESULT, approve, git, git_identity, repo, run_ct, start_run, summary_rows, work_item  # noqa: F401 - fixtures
 
 
 def set_config(repo: Path, **values) -> None:

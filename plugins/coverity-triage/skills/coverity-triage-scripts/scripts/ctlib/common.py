@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -59,19 +60,32 @@ def read_json(path: Path, default: Any = None) -> Any:
         raise CtError(f"ファイルを読めません: {path}: {exc}") from exc
 
 
+def _replace(tmp: Path, path: Path) -> None:
+    """os.replace, waited for a little on Windows: a file another process is reading cannot be replaced
+    there (Python opens files without FILE_SHARE_DELETE), and the screen reads the run's files often."""
+    for attempt in range(40):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if sys.platform != "win32" or attempt == 39:
+                raise
+            time.sleep(0.05)
+
+
 def write_json(path: Path, data: Any) -> None:
     """Write via a temporary file so an interrupted command never leaves half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")  # two processes may write the same file
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    _replace(tmp, path)
 
 
 def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    _replace(tmp, path)
 
 
 @contextlib.contextmanager
@@ -127,3 +141,47 @@ def display_text(data: bytes) -> str:
         except UnicodeDecodeError:
             continue
     return data.decode("utf-8", "replace")
+
+
+def spawn_detached(args: list[str], env: dict[str, str], cwd: Path, log: Any) -> subprocess.Popen[bytes]:
+    """Start a process that keeps running after this command (and its terminal) returns."""
+    common: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": subprocess.STDOUT,
+                              "cwd": str(cwd), "env": env, "close_fds": True}
+    if sys.platform != "win32":
+        return subprocess.Popen(args, start_new_session=True, **common)
+    # CREATE_NO_WINDOW, not DETACHED_PROCESS: uv runs the script through a launcher that starts the real
+    # python.exe as a console program; a detached launcher would make Windows open a new, visible console
+    # for it. With a console of its own that has no window, nothing it starts (cmd, the build) shows one.
+    flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+    try:  # leave the terminal's job, so closing the terminal does not stop the process
+        return subprocess.Popen(args, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **common)
+    except OSError:
+        return subprocess.Popen(args, creationflags=flags, **common)
+
+
+def pid_alive(pid: int | None) -> bool:
+    """Whether a process of this PC is still running (False for None)."""
+    if not pid:
+        return False
+    if sys.platform == "win32":
+        proc = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, check=False,
+                              creationflags=subprocess.CREATE_NO_WINDOW)
+        return str(pid).encode() in proc.stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def build_env(extra: dict[str, str] | None = None, drop: tuple[str, ...] = ()) -> dict[str, str]:
+    """The environment for the person's build commands: without the Python environment uv made for
+    the scripts (a ``python`` in the build would otherwise be that one), and without ``drop``."""
+    env = {k: v for k, v in os.environ.items() if k not in ("VIRTUAL_ENV", "UV", "PYTHONHOME", *drop)}
+    scripts = str(Path(sys.prefix) / ("Scripts" if sys.platform == "win32" else "bin"))
+    if sys.prefix != sys.base_prefix and env.get("PATH"):
+        env["PATH"] = os.pathsep.join(p for p in env["PATH"].split(os.pathsep)
+                                      if os.path.normcase(p.rstrip("\\/")) != os.path.normcase(scripts))
+    return {**env, **(extra or {})}

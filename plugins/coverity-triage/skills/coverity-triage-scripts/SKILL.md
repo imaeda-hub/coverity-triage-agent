@@ -39,24 +39,26 @@ uv run --native-tls <このスキルのフォルダ>/scripts/ct.py <コマンド
 | `doctor --repo R` | 準備の状況を調べる。Coverity への接続は調べない（MCP の `check_connection` で調べる） | `ready`、`checks`（`status` が ng のものを直す） |
 | `detect --repo R` | git / svn、取り込み先のブランチ、出力先の候補を調べる | `vcs`、`base_branch`、`has_config`、`output_dir` |
 | `init-config --repo R --url U --project P --stream S [--base-branch B] [--output-dir D] [--strip-prefix X]...` | 設定 `config.yaml`、最初の条件 `filters/untriaged.yaml`、知識 `knowledge.md` を作る。人に値を見せて同意を得てから実行する | `written` |
-| `install-agent` | サブエージェントの定義を `~/.copilot/agents` に置く | `status`、`restart_needed` |
+| `install-agent` | サブエージェント（取得・作業・統合・検証）の定義を `~/.copilot/agents`（環境変数 `COPILOT_HOME` があればその `agents`）に置く | `agents`（エージェントごとの `status`）、`restart_needed` |
 | `trial-build --repo R --build-command C [--setup-command S] [--build-dir D]` | （オプション）修正前の最新のコードを試しにビルドする。時間がかかる | `build_ok`、`log`、`log_tail` |
-| `set-verify --repo R --build-command C [--setup-command S] [--build-dir D] [--default build]` | （オプション）ビルドでの検証の設定を書く | `written` |
+| `set-verify --repo R --build-command C [--setup-command S] [--build-dir D] [--default build] [--initial \| --no-initial] [--cov-commit-args A] [--timeout-minutes N]` | （オプション）ビルドでの検証と初回解析の設定を書く | `written` |
 
 ### 実行（/coverity-run）
 
 | コマンド | すること | 主な結果 |
 |---|---|---|
 | `runs --repo R` | 実行の一覧（新しい順） | `runs`（`unfinished` が true なら途中） |
-| `resume --run D` | 止まった実行を続けられるようにする（処理中・エラーの作業を未処理に戻す） | `counts`、`next` |
-| `new-run --repo R [--filter F] [--impact X]... [--checker X]... [--status X]... [--classification X]... [--action X]... [--limit N] [--verify none\|build\|build+analyze]` | 実行フォルダを作り、条件を決める。チャットで言われた条件は引数で足す（同じ項目は置き換え） | `run_dir`、`repo_root`、`filter_file`、`issues_file`、`work_dir`、`limit` |
-| `plan --run D` | 検索結果（`issues.json`）から、パスの対応づけとグループ化をして作業の一覧を作る | `items`、`groups`、`analyzed_revision`、`notes` |
-| `next --run D` | 次の作業を取り出し、修正用のコピーを用意する（初回は時間がかかる） | `item`（無ければ null）、`cids`、`stream`、`item_dir` |
-| `brief --run D --item I` | サブエージェントへの指示ファイル `brief.md` を作る | `prompt`（サブエージェントにそのまま渡す）、`result_file` |
-| `finish --run D --item I` | 結果ファイルを確かめ、差分・ブランチ・詳細レポート `cid/<ID>.html` を作る（一覧をもう作った実行では、その作業の承認に AI の推奨も入れる） | `recommendation`、`confidence`、`warnings`、`split_into` |
-| `fail --run D --item I --reason "理由"` | 作業を処理できなかったと記録する（再開でやり直せる） | `counts` |
+| `resume --run D` | 止まった実行を続けられるようにする（処理中・エラーの作業を未処理に戻す。失敗した初回解析はやり直す） | `counts`、`next` |
+| `new-run --repo R [--filter F] [--impact X]... [--checker X]... [--status X]... [--classification X]... [--action X]... [--limit N] [--verify none\|build\|build+analyze] [--initial \| --no-initial]` | 実行フォルダを作り、条件を決める。チャットで言われた条件は引数で足す（同じ項目は置き換え）。`--initial` で最初に解析してサーバに登録する（省略時は設定 `verify.initial`） | `run_dir`、`repo_root`、`work_dir`、`limit`、`initial`、`integration`、`review` |
+| `tick --run D [--finished T] [--failed T --reason "理由"]` | **次にすることを返す。** /coverity-run のオーケストレーション役は、これに従って動く。サブエージェントが終わったら、その `task`（`collector:search`、`collector:paths`、`worker:<ID>`、`integrator`、`reviewer:<ID>`）を `--finished` で知らせる。途中で止まった・起動できなかったときは `--failed`。初回解析の間は、少し（最長 `--wait` 秒）待ってから返る | `stage`、`actions`（`launch` / `command` / `mcp`）、`wait`、`done`、`stop`、`say`、`running_items`、`running_roles` |
+| `initial-status --run D` | 初回解析の状況（none / running / done / failed、いまの段、経過秒数、失敗したときはログの最後） | `status`、`step_label`、`elapsed_seconds`、`log_tail` |
+| `plan --run D` | 検索結果（`issues.json`）から、パスの対応づけとグループ化をして作業の一覧を作る（`tick` が呼ぶ） | `items`、`groups`、`analyzed_revision`、`notes` |
+| `next --run D` | 次の作業を取り出し、修正用のコピーを用意する（`tick` が呼ぶ。初回は時間がかかる） | `item`（無ければ null）、`cids`、`stream`、`item_dir`、`missing_issue_files` |
+| `brief --run D --item I` | 作業エージェントへの指示ファイル `brief.md` を作る（`tick` が呼ぶ） | `prompt`、`result_file` |
+| `finish --run D --item I` | 結果ファイルを確かめ、差分・ブランチ・詳細レポート `cid/<ID>.html` を作る（`tick` が呼ぶ。一覧をもう作った実行では、その作業の承認に AI の推奨も入れる） | `recommendation`、`confidence`、`warnings`、`split_into` |
+| `fail --run D --item I --reason "理由"` | 作業を処理できなかったと記録する（`tick` が呼ぶ。再開でやり直せる） | `counts` |
 | `status --run D` | 進み具合 | `counts`、`errors` |
-| `verify --run D` | （オプション）全部の修正案をまとめてビルドで確かめる。時間がかかる | `build_ok`、`downgraded_to_low` |
+| `verify --run D` | （オプション）全部の修正案をまとめてビルドで確かめる。時間がかかる。問題が出た修正の推奨は、一覧とレポートで確信度を「低」として見せる（結果ファイルは変えない） | `build_ok`、`downgraded_to_low` |
 | `summary --run D` | 一覧 `summary.html`（設定 `options.markdown` が true なら `summary.md` も）を作り、まだ承認の無い作業に AI の推奨を入れて `approvals.json` に保存し、修正用のコピーを片付ける | `summary`（`summary.html` の場所）、`recommended`、`errors` |
 
 ### 反映（/coverity-apply）
@@ -91,7 +93,7 @@ Coverity との通信は MCP サーバ `coverity-triage` のツールが行い�
 |---|---|
 | `check_connection` | `repo_root` |
 | `search_issues` | `repo_root`、`filter_file`、`output_file` = `issues_file`（`new-run` の結果） |
-| `get_issues` | `repo_root`、`stream`、`cids`、`output_dir` = `item_dir`（`next` の結果） |
+| `get_issues` | `repo_root`、`stream`、`cids`、`output_dir` = `item_dir`（`next` の結果、または取得エージェントへの指示ファイル） |
 | `update_triage` | `repo_root`、`plan_file`、`confirmation_token`（`preview` の結果） |
 
-MCP のツールが `done: false` を返したら、`done: true` になるまで同じ引数で呼び直します。
+MCP のツールが `done: false` を返したら、`done: true` になるまで同じ引数で呼び直します。/coverity-run では、`search_issues` と `get_issues` は取得エージェントが呼びます（取得エージェントが使えないときは、`tick` が返す `mcp` の actions で、オーケストレーション役が代わりに呼びます）。

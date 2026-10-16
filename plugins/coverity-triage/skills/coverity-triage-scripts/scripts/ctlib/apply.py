@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import approvals, metrics, oplog
+from . import approvals, assess, metrics, oplog
 from .common import CtError, now, read_json, sha, write_json
 from .config import add_no_grouping
 from .models import TriageResult
@@ -88,7 +88,11 @@ def preview(run_dir: str) -> dict[str, Any]:
 
 
 def _pr_text(run: Run, entry: dict[str, Any]) -> tuple[str, str]:
+    from .triage import review_of  # late import: triage is the larger module
+
     result = TriageResult.model_validate(read_json(run.result_file(entry["id"])))
+    verify = read_json(run.dir / "verify.json", {}).get(entry["id"]) if (run.dir / "verify.json").is_file() else None
+    result = assess.effective(result, review_of(run, run.state.item(entry["id"])), verify)  # as the reports show it
     cids = entry["cids"]
     title = f"Coverity CID {', '.join(map(str, cids[:5]))}{' ほか' if len(cids) > 5 else ''}: {result.fix.summary}"
     if entry["kind"] == "annotation":

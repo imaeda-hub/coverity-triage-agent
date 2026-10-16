@@ -65,13 +65,27 @@ def test_init_config_refuses_output_inside_the_repository(capsys, empty_repo):
     assert "リポジトリの外" in refused["error"]
 
 
-def test_install_agent(capsys, home):
+def test_install_agent(capsys, home, monkeypatch):
+    monkeypatch.setattr(prepare, "RETIRED_AGENTS", ("coverity-triage-old",))
     first = run_ct(capsys, "install-agent")
-    assert first["status"] == "installed" and first["restart_needed"]
-    assert Path(first["path"]).read_bytes() == prepare.WORKER_AGENT.read_bytes()
-    assert run_ct(capsys, "install-agent")["status"] == "unchanged"
-    Path(first["path"]).write_text("old", encoding="utf-8")
-    assert run_ct(capsys, "install-agent")["status"] == "updated"
+    assert set(first["agents"]) == set(prepare.AGENT_ROLES) and first["restart_needed"]
+    for name, agent in first["agents"].items():
+        assert agent["status"] == "installed"
+        assert Path(agent["path"]).read_bytes() == prepare.plugin_agents()[name].read_bytes()
+    again = run_ct(capsys, "install-agent")
+    assert {a["status"] for a in again["agents"].values()} == {"unchanged"} and not again["restart_needed"]
+    worker = Path(first["agents"]["coverity-triage-worker"]["path"])
+    worker.write_text("old", encoding="utf-8")
+    gone = worker.with_name("coverity-triage-old.agent.md")  # an agent the plugin no longer has
+    gone.write_text("old", encoding="utf-8")
+    mine = worker.with_name("my-agent.agent.md")  # the person's own agents are not touched,
+    mine.write_text("mine", encoding="utf-8")
+    copy = worker.with_name("coverity-triage-worker-local.agent.md")  # even with the plugin's prefix
+    copy.write_text("mine", encoding="utf-8")
+    updated = run_ct(capsys, "install-agent")
+    assert updated["agents"]["coverity-triage-worker"]["status"] == "updated" and updated["restart_needed"]
+    assert updated["agents"]["coverity-triage-old"]["status"] == "removed" and not gone.exists()
+    assert mine.exists() and copy.exists() and "coverity-triage-worker-local" not in updated["agents"]
 
 
 def test_doctor_lists_what_is_missing(capsys, empty_repo, monkeypatch):

@@ -17,7 +17,7 @@ import os
 import sys
 from typing import Any
 
-from ctlib import apply, gui, knowledge, metrics, prepare, selftest, triage
+from ctlib import apply, flow, gui, initial, knowledge, metrics, prepare, selftest, triage
 from ctlib.common import CtError, resolve_path
 from ctlib.config import load_config, output_dir
 
@@ -61,15 +61,20 @@ def parser() -> argparse.ArgumentParser:
             ("--base-branch", {}), ("--output-dir", {}),
             ("--strip-prefix", {"action": "append", "default": [], "dest": "strip_prefixes"}),
             ("--overwrite", {"action": "store_true"}))
-    command("install-agent", "サブエージェントの定義を ~/.copilot/agents に置く")
+    command("install-agent", "サブエージェント（取得・作業・統合・検証）の定義を ~/.copilot/agents"
+                             "（環境変数 COPILOT_HOME があればその agents）に置き、無くなった古い定義を消す")
     command("trial-build", "（オプション）修正前の最新のコードを試しにビルドする", repo,
             ("--build-command", {"required": True}), ("--setup-command", {"default": ""}),
             ("--build-dir", {"default": ""}))
-    command("set-verify", "（オプション）ビルドでの検証の設定を書く", repo,
+    command("set-verify", "（オプション）ビルドでの検証と初回解析の設定を書く", repo,
             ("--build-command", {"required": True}), ("--setup-command", {"default": ""}),
             ("--build-dir", {"default": ""}),
             ("--default", {"default": "build", "choices": ["none", "build", "build+analyze"]}),
-            ("--cov-build-args", {}), ("--cov-analyze-args", {}))
+            ("--cov-build-args", {}), ("--cov-analyze-args", {}),
+            ("--initial", {"action": argparse.BooleanOptionalAction, "default": None,
+                           "help": "/coverity-run の最初に解析してサーバに登録する（--no-initial でしない。省略時は今の設定のまま）"}),
+            ("--cov-commit-args", {"help": "初回解析の cov-commit-defects に足す引数（省略時は今の設定のまま）"}),
+            ("--timeout-minutes", {"type": int, "help": "初回解析を止めるまでの分（省略時は今の設定のまま）"}))
     command("gui", "設定・結果・監視の画面をブラウザで開く（裏で動かし、すぐ戻る。動いていれば再利用する）", repo,
             ("--run", {"help": "開く実行フォルダ（new-run が返す run_dir）"}),
             ("--view", {"choices": list(gui.VIEWS), "help": "最初に出す画面（既定: --run があれば monitor）"}),
@@ -87,7 +92,16 @@ def parser() -> argparse.ArgumentParser:
             ("--impact", {"action": "append", "dest": "impacts"}),
             ("--status", {"action": "append"}), ("--classification", {"action": "append"}),
             ("--action", {"action": "append"}), ("--limit", {"type": int}),
-            ("--verify", {"choices": ["none", "build", "build+analyze"]}))
+            ("--verify", {"choices": ["none", "build", "build+analyze"]}),
+            ("--initial", {"action": argparse.BooleanOptionalAction, "default": None,
+                           "help": "最初に解析してサーバに登録する（--no-initial でしない。省略時は設定 verify.initial）"}))
+    command("tick", "次にすることを返す（エージェントが終わったら --finished で知らせる）", run,
+            ("--finished", {"help": "終わったエージェントの task（worker:<ID>、collector:search など）"}),
+            ("--failed", {"help": "途中で止まった・起動できなかったエージェントの task"}),
+            ("--reason", {"default": "", "help": "--failed の理由"}),
+            ("--wait", {"type": int, "default": flow.WAIT_SECONDS, "help": "初回解析を待つ最長の秒数"}))
+    command("initial-status", "初回解析の状況", run)
+    command("initial-run", "（内部用）初回解析の本体。ct.py tick が裏で動かす", run)
     command("plan", "検索結果から作業の一覧を作る", run)
     command("next", "次の作業を取り出し、修正用のコピーを用意する", run)
     command("brief", "サブエージェントへの指示ファイルを作る", run, item)
@@ -129,7 +143,8 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
         return prepare.trial_build(args.repo, args.setup_command, args.build_command, args.build_dir)
     if c == "set-verify":
         return prepare.set_verify(args.repo, args.default, args.setup_command, args.build_command, args.build_dir,
-                                  args.cov_build_args, args.cov_analyze_args)
+                                  args.cov_build_args, args.cov_analyze_args, args.initial, args.cov_commit_args,
+                                  args.timeout_minutes)
     if c == "gui":
         if args.serve:  # the token is not passed on to the commands the screen runs (trial build)
             return gui.serve(args.repo, os.environ.pop(gui.TOKEN_ENV, None), args.ready_file)
@@ -139,7 +154,15 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
     if c == "runs":
         return triage.runs(args.repo, args.limit)
     if c == "new-run":
-        return triage.new_run(args.repo, args.filter, _overrides(args), args.limit, args.verify)
+        return triage.new_run(args.repo, args.filter, _overrides(args), args.limit, args.verify, args.initial)
+    if c == "tick":
+        return flow.tick(args.run, args.finished, args.failed, args.reason, args.wait)
+    if c == "initial-status":
+        from ctlib.run import Run
+
+        return {"ok": True, **initial.status(Run(args.run))}
+    if c == "initial-run":
+        return {"ok": True, **initial.execute(args.run)}
     if c == "plan":
         return triage.plan(args.run)
     if c == "next":

@@ -30,6 +30,11 @@ def _mask(value: Any, secrets: list[str]) -> Any:
     return value
 
 
+def mask(value: Any, secrets: list[str]) -> Any:
+    """``value`` with every secret replaced by ****."""
+    return _mask(value, secrets)
+
+
 def secrets_of(config: Any) -> list[str]:
     """Values of the credential environment variables named in the settings."""
     try:

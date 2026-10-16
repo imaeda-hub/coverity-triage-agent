@@ -72,12 +72,27 @@ class Vcs(ABC):
     def remove_copy(self, dest: Path) -> None: ...
 
     @abstractmethod
+    def apply_to_copy(self, dest: Path, patch: Path) -> str | None:
+        """Apply a saved patch to a work copy (an earlier fix). Returns the problem, or None."""
+
+    def delete_branch(self, branch: str) -> None:
+        """Remove a branch this run made (the fix of an item was made again). svn has none."""
+
+    @abstractmethod
     def export(self, revision: str, dest: Path) -> None:
         """Plain files of ``revision`` (for builds), without version control data."""
 
     @abstractmethod
     def fingerprint(self) -> str:
         """A value that changes when files of the person's working copy change."""
+
+    @abstractmethod
+    def current_revision(self) -> str:
+        """The revision the person's working copy is at (the initial analysis records it in Coverity)."""
+
+    @abstractmethod
+    def has_local_changes(self) -> bool:
+        """Whether tracked files of the person's working copy differ from its revision."""
 
 
 # ==== git ===================================================================================
@@ -163,6 +178,14 @@ class GitVcs(Vcs):
             candidate = f"{name}-{n}"
         return candidate
 
+    def apply_to_copy(self, dest: Path, patch: Path) -> str | None:
+        proc = self.git("apply", "--whitespace=nowarn", str(patch), cwd=dest, check=False)
+        return None if proc.returncode == 0 else (proc.stderr.decode("utf-8", "replace").strip() or "git apply に失敗しました")
+
+    def delete_branch(self, branch: str) -> None:
+        if self.has_revision(f"refs/heads/{branch}"):
+            self.git("branch", "-D", branch, check=False)
+
     def remove_copy(self, dest: Path) -> None:
         if (dest / ".git").is_file():
             self.git("worktree", "remove", "--force", str(dest), check=False)
@@ -175,6 +198,12 @@ class GitVcs(Vcs):
         dest.mkdir(parents=True, exist_ok=True)
         with tarfile.open(fileobj=io.BytesIO(data)) as tar:
             tar.extractall(dest, filter="data")
+
+    def current_revision(self) -> str:
+        return out_text(self.git("rev-parse", "HEAD"))
+
+    def has_local_changes(self) -> bool:
+        return bool(out_text(self.git("status", "--porcelain", "--untracked-files=no")))
 
     def fingerprint(self) -> str:
         status = self.git("status", "--porcelain=v1", "-z", "--untracked-files=all").stdout
@@ -297,9 +326,28 @@ class SvnVcs(Vcs):
     def remove_copy(self, dest: Path) -> None:
         shutil.rmtree(dest, ignore_errors=True)
 
+    def apply_to_copy(self, dest: Path, patch: Path) -> str | None:
+        proc = self.svn("patch", str(patch), ".", cwd=dest, check=False)
+        output = out_text(proc)
+        if proc.returncode != 0 or re.search(r"^(C|>\s+rejected)", output, re.MULTILINE):
+            return output or "svn patch に失敗しました"
+        return None
+
     def export(self, revision: str, dest: Path) -> None:
         dest.parent.mkdir(parents=True, exist_ok=True)
         self.svn("export", "--quiet", "--force", "-r", revision, self.url(), str(dest))
+
+    def current_revision(self) -> str:
+        return out_text(self.svn("info", "--show-item", "revision", str(self.repo)))
+
+    def has_local_changes(self) -> bool:
+        """Changed files, or a working copy of mixed revisions (usual after a commit): its top revision is
+        then not the code that is there. ``svnversion`` writes 100:101, 100M or 100S for those."""
+        if out_text(self.svn("status", "-q")):
+            return True
+        proc = run_cmd(["svnversion", str(self.repo)], check=False)
+        version = out_text(proc)
+        return proc.returncode != 0 or not version.isdigit()
 
     def fingerprint(self) -> str:
         status = self.svn("status").stdout

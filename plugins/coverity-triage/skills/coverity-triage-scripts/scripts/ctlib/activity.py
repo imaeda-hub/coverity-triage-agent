@@ -2,9 +2,13 @@
 
 Read only from the files of the run folder; nothing here changes a file:
 
-- ``run.json`` (state of every item) and ``operations.log`` (steps of ct.py and calls of the MCP server)
+- ``run.json`` (state of every item, and the collector / integrator / reviewer agents at work in
+  ``roles``) and ``operations.log`` (steps of ct.py and calls of the MCP server)
 - ``items/<ID>/progress.json``: milestones the worker subagent writes (best effort; it has no clock,
   so the time is the file's mtime). Without it a worker is shown from the log alone.
+  ``agents/integrator/progress.json`` and ``agents/reviewer/progress.json`` are the same for the
+  integrator and the reviewer; the collector writes none (its MCP calls are in the log).
+- ``analysis/status.json`` and ``analysis/initial.log``: the initial analysis (option verify.initial)
 - problems kept in other files: ``items/*/issue-*.json`` (warning paths Coverity did not return),
   ``verify.json`` (build verification) and ``apply-plan.result.json`` (write-back to Coverity).
 
@@ -22,11 +26,12 @@ from typing import Any
 
 import yaml
 
-from . import oplog
+from . import initial, oplog
 from .config import DEFAULT_PARALLEL
 from .run import ItemState, Run
 
-STALL_SECONDS = 600  # an item with no sign of work for this long may have stopped
+STALL_SECONDS = 600  # an item (or an agent) with no sign of work for this long may have stopped
+INITIAL_STALL_SECONDS = 1800  # the build may print nothing for 10 minutes: the log of the initial analysis gets 30
 RECENT = 40
 MAX_ALERTS = 100
 TEXT_CHARS = 160  # one line of the screen
@@ -35,14 +40,28 @@ PROGRESS_FILE = "progress.json"
 LEVELS = ("info", "warning", "critical")
 
 STAGES = {
+    "initial": "初回解析（ビルド・解析・サーバへの登録）",
     "search": "Coverity で警告を検索中",
     "plan": "作業の一覧を作っている",
+    "paths": "警告経路を取っている",
     "items": "警告を調べている",
+    "integrate": "同じ原因の警告をまとめている",
+    "review": "結果を検証している",
     "verify": "ビルドで確かめている",
     "summary": "一覧を作っている",
     "apply": "反映の途中",
     "done": "終わりました",
 }
+INITIAL_FAILED = "初回解析に失敗しました（止まっています）"
+INITIAL_JA = {"none": "待ち", "running": "実行中", "done": "登録まで終わった", "failed": "失敗した"}
+ROLES = {"collector": "取得", "integrator": "統合", "reviewer": "検証"}  # the agents besides the workers, in order
+ROLE_PHASES = {
+    "integrator": {"read": "結果と差分を読む", "compare": "同じ原因かを比べる", "write": "計画を書く"},
+    "reviewer": {"read": "警告経路と結果を読む", "check": "コードで確かめる", "write": "検証の結果を書く"},
+}
+ROLE_STATES = {"waiting": "待ち", "running": "動いている", "fallback": "メインの AI が代わりにしている",
+               "done": "終わった", "failed": "うまくいかなかった"}
+REVIEW_JA = {"pass": "合格", "flag": "要確認", "rework": "差し戻し", "unverified": "検証できなかった"}
 WORKER_STAGES = {
     "idle": "空き",
     "copy": "修正用のコピーを用意中",
@@ -135,6 +154,33 @@ def _count(value: Any) -> int:
     if isinstance(value, int):
         return value
     return len(value) if isinstance(value, (list, tuple, dict)) else 0
+
+
+def _num(value: Any) -> float | None:
+    """A time or a number kept in a JSON file (anything else is None)."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _duration(seconds: Any) -> str:
+    value = _num(seconds)
+    if value is None:
+        return ""
+    return f"{round(value)} 秒" if value < 60 else f"{round(value / 60)} 分"
+
+
+def _task_label(role: Any, task: Any, item: str | None) -> str:
+    """What one start of the collector, integrator or reviewer is for."""
+    if role == "collector":
+        return {"search": "警告の検索", "paths": "警告経路の取得"}.get(str(task), str(task or "取得"))
+    if role == "integrator":
+        return "同じ原因の警告をまとめる"
+    if role == "reviewer":
+        return f"{item} の検証" if item else "結果の検証"
+    return str(task or "")
+
+
+def _role_name(role: Any) -> str:
+    return f"{ROLES[role]}エージェント" if role in ROLES else f"{role or ''} エージェント"
 
 
 def _last(records: list[dict[str, Any]], *events: str, command: str | None = None) -> int:
@@ -252,6 +298,49 @@ def _describe(record: dict[str, Any]) -> str:
         return "反映した" + (f"（うまくいかなかったもの {errors} 件）" if errors else "")
     if event == "add-knowledge":
         return f"知識を {_count(record.get('entries'))} 件書き足した"
+    if event == "launch":
+        role, rounds = record.get("role"), record.get("round")
+        return (f"{_role_name(role)}を起動した（{_task_label(role, record.get('task'), item)}"
+                + (f"、{rounds} 回目" if isinstance(rounds, int) and rounds > 1 else "") + "）")
+    if event == "role-end":
+        role, outcome = record.get("role"), record.get("outcome")
+        task = _task_label(role, str(record.get("task") or "").removeprefix("reviewer:"), item)
+        if outcome == "failed":
+            reason = _short(record.get("reason"), 100)
+            return f"{_role_name(role)}がうまくいかなかった（{task}）" + (f": {reason}" if reason else "")
+        if role == "reviewer":
+            return f"{_role_name(role)}が {item or '-'} を確かめた（{REVIEW_JA.get(str(outcome), outcome or '-')}）"
+        if role == "integrator":
+            merges = _count(record.get("merges"))
+            return f"{_role_name(role)}が終わった（" + (f"{merges} つにまとめた" if merges else "まとめるものはなかった") + "）"
+        return f"{_role_name(role)}が終わった（{task}）"
+    if event == "initial-start":
+        return "初回解析を始めた（ビルド → 解析 → サーバへの登録）"
+    if event == "initial":
+        if record.get("status") == "done":
+            took = _duration(record.get("seconds"))
+            return "初回解析が終わった（サーバへの登録まで" + (f"、{took}" if took else "") + "）"
+        step = initial.STEPS.get(str(record.get("step")), record.get("step") or "-")
+        return f"初回解析に失敗した（{step}）: {record.get('error', '')}"
+    if event == "integrate":
+        if not record.get("merges") and "candidates" in record:
+            return "同じ原因でまとめる候補はなかった（統合しない）"
+        notes = [f"{_count(record.get('merges'))} つにまとめた"]
+        if record.get("conflicts"):
+            notes.append(f"同じ箇所を変える別の原因 {_count(record.get('conflicts'))} 組")
+        return f"同じ原因の作業をまとめた（{'、'.join(notes)}）"
+    if event == "integrate-undo":
+        members = record.get("members") if isinstance(record.get("members"), list) else []
+        return (f"統合した {item or '-'} を処理できず、元の作業 {', '.join(map(str, members)) or '-'} に戻した"
+                + (f": {_short(record.get('reason'), 100)}" if record.get("reason") else ""))
+    if event == "integrate-build":
+        return f"統合した {item or '-'} の修正を差分から作れなかった（作業エージェントが作り直す）"
+    if event == "verify-failed":
+        return "ビルドでの検証ができなかった（確かめずに一覧を作る）" + (
+            f": {_short(record.get('reason'), 100)}" if record.get("reason") else "")
+    if event == "paths-missing":
+        items = record.get("items") if isinstance(record.get("items"), list) else []
+        return f"警告経路を取れなかった作業がある（{', '.join(map(str, items)) or '-'}。経路なしで調べる）"
     if event == "error":
         command = record.get("command") or "-"
         if _level(record) == "warning" and command == "finish":
@@ -300,15 +389,58 @@ def done_label(run: Run) -> str:
     return "反映まで終わりました" if applied else "一覧ができました（承認を待っています）"
 
 
-def _stage(run: Run, records: list[dict[str, Any]], now: float) -> tuple[str, str]:
+def _missing_paths(run: Run) -> list[str]:
+    """Items still to be worked on whose warning path files are not all there yet (as ``ct.py tick`` sees)."""
+    missing = []
+    for item in run.state.items:
+        if item.status != "pending":
+            continue
+        folder = run.item_dir(item.id)
+        if any(not (folder / f"issue-{cid}.json").is_file() for cid in item.cids):
+            missing.append(item.id)
+    return missing
+
+
+def _fetching_paths(run: Run) -> bool:
+    """The collector agent (or the main agent in its place) fetches the warning paths of every item."""
+    state = run.state
+    lease = state.roles.get("collector") or {}
+    if lease.get("active") and lease.get("task") == "paths":
+        return True
+    started = any(i.status != "pending" for i in state.items)
+    return bool(state.fetch_rounds) and not started and bool(_missing_paths(run))
+
+
+def _initial_stage(run: Run, first: dict[str, Any]) -> bool:
+    """The run waits for the initial analysis (or stopped because it failed), as in ``ct.py tick``."""
+    status = first["status"]
+    return status in ("running", "failed") or (status == "none" and not (run.dir / "issues.json").is_file())
+
+
+def _stage(run: Run, records: list[dict[str, Any]], now: float,
+           first: dict[str, Any] | None = None) -> tuple[str, str]:
     state = run.state
     counts = state.counts()
+    if state.initial and not state.planned:
+        first = first or _initial(run, now)
+        if first and _initial_stage(run, first):
+            return "initial", INITIAL_FAILED if first["status"] == "failed" else STAGES["initial"]
     if not state.planned:
         found = _json(run.dir / "issues.json")
         stage = "plan" if isinstance(found, dict) and found.get("finished_at") else "search"
+    elif _fetching_paths(run):
+        stage = "paths"
     elif counts["pending"] or counts["in_progress"]:
         stage = "items"
-    elif _last(records, "verify-start") > _last(records, "verify", command="verify"):
+    elif state.integration and not state.integrated:
+        stage = "integrate"
+    elif state.review and ((state.roles.get("reviewer") or {}).get("active")
+                           or any(i.status == "done" and i.review is None for i in state.items)):
+        stage = "review"
+    elif _last(records, "verify-start") > _last(records, "verify", command="verify") or (
+            state.verify_mode != "none" and not state.verified and not _summary_exists(run)
+            and (state.integration or state.review or state.initial or bool(state.roles))):
+        # the second rule is for runs that ct.py tick leads (they keep whether the verification is done)
         stage = "verify"
     elif not _summary_exists(run):
         stage = "summary"
@@ -325,9 +457,19 @@ def run_stage(run: Run, now: float | None = None) -> tuple[str, str]:
 
 
 def _main(stage: str, counts: dict[str, int], free: int, records: list[dict[str, Any]],
-          now: float) -> dict[str, Any]:
+          now: float, roles: list[dict[str, Any]] | None = None,
+          first: dict[str, Any] | None = None) -> dict[str, Any]:
     """The main agent (Copilot): what it is doing, and its last step."""
-    if stage == "items":
+    working = {r["role"]: r for r in roles or [] if r["state"] in ("running", "fallback")}
+    waiting = {"collector": "取得エージェントの終わりを待っている", "integrator": "統合エージェントの終わりを待っている",
+               "reviewer": "検証エージェントの終わりを待っている"}
+    by_stage = {"search": "collector", "paths": "collector", "integrate": "integrator", "review": "reviewer"}
+    role = working.get(by_stage.get(stage, ""))
+    if stage == "initial":
+        label = "止まっている（初回解析に失敗）" if first and first["status"] == "failed" else "初回解析の終わりを待っている"
+    elif role is not None and role["state"] == "running":
+        label = waiting[role["role"]]
+    elif stage == "items":
         if counts["pending"] and free:
             label = "作業を配っている"
         elif counts["pending"]:
@@ -392,7 +534,7 @@ def _newest_file(folder: Path) -> float | None:
 
 
 def _idle_worker(slot: int) -> dict[str, Any]:
-    return {"slot": slot, "item": None, "cids": [], "is_group": False, "attempts": 0, "stage": "idle",
+    return {"slot": slot, "item": None, "cids": [], "is_group": False, "attempts": 0, "rework": False, "stage": "idle",
             "stage_label": WORKER_STAGES["idle"], "phase": None, "phase_label": "", "phase_index": 0,
             "phase_total": len(PHASES), "note": "", "elapsed_seconds": None, "idle_seconds": None,
             "stalled": False}
@@ -434,7 +576,8 @@ def _worker(run: Run, item: ItemState, slot: int, records: list[dict[str, Any]],
                         *(_epoch(r.get("time")) for r in mine)) if t is not None]
     idle = max(0, int(now - max(seen))) if seen else None
     return {"slot": slot, "item": item.id, "cids": list(item.cids), "is_group": item.is_group,
-            "attempts": item.attempts, "stage": stage, "stage_label": WORKER_STAGES[stage], "phase": phase,
+            "attempts": item.attempts, "rework": item.review == "rework",  # sent back by the review
+            "stage": stage, "stage_label": WORKER_STAGES[stage], "phase": phase,
             "phase_label": PHASES.get(phase or "", ""), "phase_index": list(PHASES).index(phase) + 1 if phase else 0,
             "phase_total": len(PHASES), "note": _short(progress.get("note"), 200),
             "elapsed_seconds": max(0, int(now - item.started)) if item.started else None,
@@ -462,12 +605,165 @@ def _workers(run: Run, parallel: int, records: list[dict[str, Any]], now: float)
     return out
 
 
+# ---- the initial analysis and the other agents ---------------------------------------------------
+
+
+def _initial(run: Run, now: float) -> dict[str, Any] | None:
+    """The initial analysis (option verify.initial): its step, its time and whether its log still grows.
+
+    The build may print nothing for a long time, so a stop is suspected after 30 minutes, not 10."""
+    try:
+        status = initial.status(run)
+    except Exception:  # noqa: BLE001 - a broken status file must not stop the monitor
+        status = {"status": "none"}
+    st = status.get("status") if status.get("status") in INITIAL_JA else "none"
+    if not run.state.initial and st == "none":
+        return None
+    steps = list(initial.STEPS)
+    step = str(status.get("step") or "setup")
+    started, finished = _num(status.get("started")), _num(status.get("finished"))
+    log = initial.folder(run) / initial.LOG_FILE
+    log_time = _mtime(log)
+    seen = [t for t in (started, log_time) if t is not None]
+    idle = max(0, int(now - max(seen))) if seen and st == "running" else None
+    # a process that is gone wrote no end: its time ends with the last line of its log
+    end = (finished or log_time or started or now) if st == "failed" else (finished or now)
+    out = {"status": st, "status_label": INITIAL_JA[st], "step": None, "step_label": "", "step_index": 0,
+           "step_total": len(steps), "elapsed_seconds": None, "idle_seconds": idle,
+           "stalled": idle is not None and idle >= INITIAL_STALL_SECONDS, "error": "", "log": None,
+           "last_seen": _iso(max(seen)) if seen else None, "log_tail": "", "started_at": _iso(started),
+           "ended_at": _iso(end) if st == "failed" else ""}
+    if st == "none":
+        return out
+    out.update({"step": step, "step_label": initial.STEPS.get(step, step),
+                "step_index": len(steps) if st == "done" else steps.index(step) + 1 if step in steps else 0,
+                "elapsed_seconds": max(0, int(end - started)) if started is not None else None,
+                "log": str(log) if log_time is not None else None})
+    if st == "failed":
+        out.update({"error": str(status.get("error") or ""), "log_tail": str(status.get("log_tail") or "")})
+    return out
+
+
+def _role_progress(run: Run, role: str, lease: dict[str, Any], item: str | None) -> tuple[dict[str, Any], float | None]:
+    """The milestone the integrator or the reviewer wrote for its current task (not one of an earlier task)."""
+    path = run.dir / "agents" / role / PROGRESS_FILE
+    mtime = _mtime(path)
+    started = _num(lease.get("started"))
+    if role not in ROLE_PHASES or mtime is None or (started and mtime < started - 2):
+        return {}, None
+    data = _json(path)
+    if not isinstance(data, dict):
+        return {}, None
+    if role == "reviewer" and item and data.get("item") not in (None, "") and str(data.get("item")) != item:
+        return {}, None
+    return data, mtime
+
+
+def _role(run: Run, role: str, records: list[dict[str, Any]], now: float, stage: str) -> dict[str, Any]:
+    """One of the agents that work one at a time: the collector, the integrator or the reviewer."""
+    state = run.state
+    lease = state.roles.get(role) or {}
+    active = bool(lease.get("active"))
+    task = str(lease.get("task") or "")
+    item = str(lease["item"]) if role == "reviewer" and lease.get("item") else None
+    started, ended = _num(lease.get("started")), _num(lease.get("ended"))
+    since = _iso(started) if started else ""
+    mine = [r for r in records if str(r.get("time", "")) >= since and (
+        r.get("role") == role or (role == "collector" and r["event"] in ("mcp:search_issues", "mcp:get_issues")))]
+    ends = [r for r in records if r["event"] == "role-end" and r.get("role") == role]
+    outcome = ends[-1].get("outcome") if ends and not active else None
+
+    if active:
+        st = "running"
+    elif role == "collector":  # when it could not be used, the main agent calls the MCP tools itself
+        st = ("fallback" if lease.get("fallback") and stage in ("search", "paths")
+              else "waiting" if stage in ("initial", "search", "plan", "paths") else "done")
+    elif role == "integrator":
+        st = ("failed" if outcome == "failed" else "done") if state.integrated else "waiting"
+    else:
+        st = "done" if state.planned and stage in ("verify", "summary", "apply", "done") else "waiting"
+
+    done = total = None
+    target, detail = "", ""
+    if role == "collector" and task == "paths":
+        listed = [i for i in state.items if i.status != "merged"]
+        total = len(listed)
+        done = total - len(_missing_paths(run))
+        target, detail = f"経路 {done}/{total}", f"警告経路 {done}/{total} 件"
+    elif role == "collector":
+        found = next((r for r in reversed(mine) if r["event"] == "mcp:search_issues" and r.get("phase") == "end"), None)
+        target = f"検索 {_count(found.get('found'))}件" if found else "警告の検索"
+        detail = (f"見つけた警告 {_count(found.get('found'))} 件" + ("" if found.get("done") else "（続きあり）")
+                  if found else "")
+    elif role == "integrator" and st in ("done", "failed"):
+        made = next((r for r in reversed(records) if r["event"] == "integrate"), None)
+        merges = _count(made.get("merges")) if made else 0
+        if st == "failed":
+            target, detail = "統合できず", _short(ends[-1].get("reason"), 200) if ends else ""
+        else:
+            target = f"統合 {merges} 件" if merges else "統合なし"
+            detail = f"{merges} つにまとめた" if merges else "まとめるものはなかった"
+    elif role == "integrator":
+        found = _json(run.dir / "integration" / "candidates.json")
+        if isinstance(found, list) and active:
+            target, detail = f"候補 {len(found)} 組", f"まとめる候補 {len(found)} 組"
+    else:
+        work = [i for i in state.items if i.status in ("pending", "in_progress", "done")]
+        done, total = sum(1 for i in work if i.status == "done" and i.review in ("pass", "flag", "unverified")), len(work)
+        current = next((i for i in state.items if i.id == item), None) if active else None
+        target = (f"{current.id} ({len(current.cids)}件)" if current.is_group else f"CID {current.id}") if current \
+            else f"済 {done}/{total}" if total else ""
+        detail = f"検証 {done}/{total} 件" if total else ""
+
+    progress, progress_time = _role_progress(run, role, lease, item) if active else ({}, None)
+    phases = ROLE_PHASES.get(role, {})
+    phase = progress.get("phase") if progress.get("phase") in phases else None
+    index = list(phases).index(phase) + 1 if phase else 0
+    if st == "done":
+        bar = 1.0
+    elif role == "integrator":
+        bar = index / len(phases)
+    else:
+        bar = done / total if total else 0.0
+
+    working = st in ("running", "fallback")
+    signs = [t for t in (started, ended if st == "fallback" else None, progress_time) if t is not None]
+    output = (_mtime(run.dir / "integration" / "plan.json") if role == "integrator"
+              else _mtime(run.item_dir(item) / "review.json") if role == "reviewer" and item else None)
+    if output is not None and started and output >= started - 2:
+        signs.append(output)
+    signs += [t for t in (_epoch(r.get("time")) for r in mine) if t is not None]
+    idle = max(0, int(now - max(signs))) if working and signs else None
+    begin = ended if st == "fallback" else started
+    return {"role": role, "label": ROLES[role], "active": active, "state": st, "state_label": ROLE_STATES[st],
+            "task": task or None, "task_label": _task_label(role, task, item) if task else "", "item": item,
+            "target": target, "detail": detail, "phase": phase, "phase_label": phases.get(phase or "", ""),
+            "phase_index": index, "phase_total": len(phases), "bar": round(min(1.0, max(0.0, bar)), 3),
+            "done": done, "total": total, "note": _short(progress.get("note"), 200),
+            "rounds": lease.get("rounds") if isinstance(lease.get("rounds"), int) else 0,
+            "fallback": bool(lease.get("fallback")), "outcome": outcome,
+            "elapsed_seconds": max(0, int(now - begin)) if working and begin else None,
+            "idle_seconds": idle, "stalled": idle is not None and idle >= STALL_SECONDS,
+            "last_seen": _iso(max(signs)) if signs else None}
+
+
+def _roles(run: Run, records: list[dict[str, Any]], now: float, stage: str) -> list[dict[str, Any]]:
+    """The collector (once it was started), and the integrator and the reviewer when their option is on."""
+    state = run.state
+    used = {"collector": "collector" in state.roles,
+            "integrator": state.integration or "integrator" in state.roles,
+            "reviewer": state.review or "reviewer" in state.roles}
+    return [_role(run, role, records, now, stage) for role in ROLES if used[role]]
+
+
 # ---- alerts ----------------------------------------------------------------------------------
 
 
-def _alert(time_text: Any, level: str, source: str, item: str | None, title: str, detail: str) -> dict[str, Any]:
+def _alert(time_text: Any, level: str, source: str, item: str | None, title: str, detail: str,
+           role: str | None = None) -> dict[str, Any]:
+    """``role`` tells apart the stops of the agents and of the initial analysis (a stall has no fixed time)."""
     return {"time": str(time_text or ""), "level": level, "source": source, "item": item,
-            "title": _short(title), "detail": detail}
+            "title": _short(title), "detail": detail, "role": role}
 
 
 def _log_alert(record: dict[str, Any]) -> dict[str, Any]:
@@ -496,9 +792,9 @@ def _log_alert(record: dict[str, Any]) -> dict[str, Any]:
     return _alert(record.get("time"), level, _source(record), item, title, detail)
 
 
-def _issue_alerts(run: Run) -> tuple[list[dict[str, Any]], set[str]]:
-    """Warning paths that Coverity did not return (the item goes on with what it has)."""
-    alerts, cids = [], set()
+def _issue_alerts(run: Run) -> tuple[list[dict[str, Any]], set[str], set[str]]:
+    """Warning paths that Coverity did not return (the item goes on with what it has), with their CIDs and items."""
+    alerts, cids, items = [], set(), set()
     for path in sorted(run.dir.glob("items/*/issue-*.json")):
         try:
             raw = path.read_bytes()
@@ -514,10 +810,11 @@ def _issue_alerts(run: Run) -> tuple[list[dict[str, Any]], set[str]]:
             continue
         cid = str(data.get("cid") or path.stem.removeprefix("issue-"))
         cids.add(cid)
+        items.add(path.parent.name)
         alerts.append(_alert(data.get("fetched_at") or _iso(_mtime(path)), "warning", "mcp", path.parent.name,
                              f"CID {cid} の警告経路を Coverity から取れませんでした（{path.parent.name}）",
                              _detail(data.get("error"))))
-    return alerts, cids
+    return alerts, cids, items
 
 
 def _apply_alerts(run: Run) -> tuple[list[dict[str, Any]], set[str]]:
@@ -548,6 +845,68 @@ def _verify_alerts(run: Run) -> list[dict[str, Any]]:
             for item_id, entry in data.items() if isinstance(entry, dict) and entry.get("build_ok") is False]
 
 
+def _initial_alerts(first: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """The initial analysis failed: the run stopped before the triage (the log says the same once)."""
+    if not first or first["status"] != "failed":
+        return []
+    tail = first["log_tail"].strip()
+    return [_alert(first["ended_at"], "critical", "initial", None,
+                   f"初回解析に失敗しました（{first['step_label'] or '-'}）。トリアージは始めずに止めています",
+                   _detail(first["error"], f"ログ: {first['log']}" if first["log"] else "",
+                           "設定を直してから /coverity-run で再開すると、初回解析からやり直します。",
+                           f"ログの末尾:\n{tail}" if tail else ""))]
+
+
+def _review_alerts(run: Run, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Results the reviewer could not check: they are shown with the worker's confidence."""
+    ends = {}
+    for record in records:
+        if record["event"] == "role-end" and record.get("role") == "reviewer" and record.get("outcome") == "failed":
+            ends[str(record.get("item") or str(record.get("task") or "").removeprefix("reviewer:"))] = record
+    alerts = []
+    for item in run.state.items:
+        if item.review != "unverified" or item.status == "merged":
+            continue
+        record = ends.get(item.id) or {}
+        alerts.append(_alert(record.get("time") or run.state.created_at, "warning", "review", item.id,
+                             f"{item.id} は検証できませんでした（作業エージェントの結果のまま出しています）",
+                             _detail(record.get("reason"), "確信度は検証の前のままです。人が確かめてください。")))
+    return alerts
+
+
+def _note_alerts(run: Run, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Notes of the run, such as an integration that could not be done (the items went on unmerged)."""
+    ended = next((r for r in reversed(records) if r["event"] == "role-end" and r.get("role") == "integrator"
+                  and r.get("outcome") == "failed"), {})
+    alerts = []
+    for note in run.state.notes:
+        merged = "統合" in note
+        alerts.append(_alert((ended.get("time") if merged else None) or run.state.created_at, "warning",
+                             "integrate" if merged else "ct", None, note, note if len(note) > TEXT_CHARS else ""))
+    return alerts
+
+
+def _role_stall_alert(role: dict[str, Any], now: float) -> dict[str, Any]:
+    minutes = (role["idle_seconds"] or 0) // 60
+    who = (f"{role['label']}エージェント" if role["state"] == "running"
+           else f"{role['label']}の代わりをしているメインの AI")
+    where = "、".join(p for p in (role["task_label"], role["phase_label"]) if p)
+    return _alert(_iso(now), "warning", "stall", role["item"],
+                  f"{who}が {minutes} 分動いていません（止まっているかもしれません）",
+                  _detail(where, role["detail"], role["note"], f"最後に動きがあった時刻: {role['last_seen'] or '-'}"),
+                  role["role"])
+
+
+def _initial_stall_alert(first: dict[str, Any], now: float) -> dict[str, Any]:
+    minutes = (first["idle_seconds"] or 0) // 60
+    return _alert(_iso(now), "warning", "stall", None,
+                  f"初回解析のログが {minutes} 分増えていません（止まっているかもしれません）",
+                  _detail(f"いまの段: {first['step_label'] or '-'}",
+                          "ビルドは 10 分ほど何も出さないことがあります。30 分を超えて増えないときは、ログを確かめてください。",
+                          f"ログ: {first['log']}" if first["log"] else "",
+                          f"最後にログが増えた時刻: {first['last_seen'] or '-'}"), "initial")
+
+
 def _stall_alert(worker: dict[str, Any], now: float) -> dict[str, Any]:
     minutes = (worker["idle_seconds"] or 0) // 60
     where = "、".join(p for p in (worker["stage_label"], worker["phase_label"]) if p)
@@ -557,9 +916,11 @@ def _stall_alert(worker: dict[str, Any], now: float) -> dict[str, Any]:
                           f"最後に動きがあった時刻: {worker['last_seen'] or '-'}"))
 
 
-def _alerts(run: Run, records: list[dict[str, Any]], workers: list[dict[str, Any]], now: float) -> list[dict[str, Any]]:
-    issue_alerts, issue_cids = _issue_alerts(run)
+def _alerts(run: Run, records: list[dict[str, Any]], workers: list[dict[str, Any]], now: float,
+            roles: list[dict[str, Any]] | None = None, first: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    issue_alerts, issue_cids, issue_items = _issue_alerts(run)
     apply_alerts, apply_ids = _apply_alerts(run)
+    initial_alerts = _initial_alerts(first)
     found: list[dict[str, Any]] = []
     messages: dict[str, tuple[int, dict[str, Any]]] = {}
     for record in records:
@@ -570,6 +931,11 @@ def _alerts(run: Run, records: list[dict[str, Any]], workers: list[dict[str, Any
                 (record["event"] == "mcp:get_issues" and {str(c) for c in failed} <= issue_cids)
                 or (record["event"] == "mcp:update_triage" and {str(c) for c in failed} <= apply_ids)):
             continue  # the files below say the same per CID / item
+        items = record.get("items")
+        if record["event"] == "paths-missing" and isinstance(items, list) and {str(i) for i in items} <= issue_items:
+            continue  # one alert per CID whose warning path could not be fetched
+        if record["event"] == "initial" and initial_alerts and str(record.get("time", "")) >= first["started_at"]:
+            continue  # the failure of the initial analysis now, with the end of its log
         message = record.get("reason") or record.get("error")
         if isinstance(message, str) and message:
             messages[message] = (len(found), record)
@@ -585,8 +951,12 @@ def _alerts(run: Run, records: list[dict[str, Any]], workers: list[dict[str, Any
         ended = item.started + item.seconds if item.started and item.seconds is not None else None
         found.append(_alert(_iso(ended), "critical", "ct", item.id, f"{item.id} を処理できませんでした",
                             _detail(item.error)))
-    found += issue_alerts + apply_alerts + _verify_alerts(run)
+    found += issue_alerts + apply_alerts + _verify_alerts(run) + initial_alerts
+    found += _review_alerts(run, records) + _note_alerts(run, records)
     found += [_stall_alert(w, now) for w in workers if w["stalled"]]
+    found += [_role_stall_alert(r, now) for r in roles or [] if r["stalled"]]
+    if first and first["stalled"]:
+        found.append(_initial_stall_alert(first, now))
     found.reverse()  # among equal times, the later one first
     found.sort(key=lambda a: a["time"], reverse=True)
     return found[:MAX_ALERTS]
@@ -596,24 +966,32 @@ def _alerts(run: Run, records: list[dict[str, Any]], workers: list[dict[str, Any
 
 
 def board(run: Run, now: float | None = None) -> dict[str, Any]:
-    """State of the run for the monitor: the main agent, one slot per worker, recent steps, alerts."""
+    """State of the run for the monitor: the main agent, the initial analysis, one slot per worker, the
+    collector / integrator / reviewer that the run uses, recent steps and alerts."""
     now = time.time() if now is None else now
     records = oplog.read(run.dir)
     state = run.state
     counts = state.counts()
     parallel = _parallel(run)
-    stage, stage_label = _stage(run, records, now)
+    first = _initial(run, now)
+    stage, stage_label = _stage(run, records, now, first)
     workers = _workers(run, parallel, records, now)
+    roles = _roles(run, records, now, stage)
     free = sum(1 for w in workers[:parallel] if w["item"] is None)
     recent = [{"time": r.get("time"), "level": _level(r), "source": _source(r), "event": r["event"],
                "item": _item(r), "text": _text(r)} for r in reversed(records[-RECENT:])]
-    alerts = _alerts(run, records, workers, now)
-    for worker in workers:
-        worker.pop("last_seen", None)
+    alerts = _alerts(run, records, workers, now, roles, first)
+    for box in [*workers, *roles, *([first] if first else [])]:
+        box.pop("last_seen", None)
+    if first:
+        for key in ("log_tail", "started_at", "ended_at"):
+            first.pop(key, None)
     return {"run_id": state.run_id, "created_at": state.created_at, "filter_name": state.filter_name,
-            "stage": stage, "stage_label": stage_label, "main": _main(stage, counts, free, records, now),
-            "counts": counts, "total": len(state.items), "parallel": parallel, "workers": workers,
-            "recent": recent, "alerts": alerts}
+            "stage": stage, "stage_label": stage_label,
+            "main": _main(stage, counts, free, records, now, roles, first),
+            # an item the integration took into another one is not counted (it is shown inside that one)
+            "counts": counts, "total": len(state.items) - counts.get("merged", 0), "parallel": parallel,
+            "workers": workers, "initial": first, "roles": roles, "recent": recent, "alerts": alerts}
 
 
 def alerts(run: Run, now: float | None = None) -> list[dict[str, Any]]:

@@ -124,3 +124,75 @@ class TriageResult(_Result):
     group_excluded_cids: list[int] = Field(default_factory=list)
 
     _reason = field_validator("confidence_reason")(_text)
+
+
+# ---- review.json (written by the reviewer agent; skill triage-review) -----------------------
+
+ReviewOutcome = Literal["pass", "flag", "rework"]
+
+
+class ReviewFinding(_Result):
+    check: str
+    ok: bool
+    detail: str
+    file: str | None = None
+    line: int | None = None
+
+    _detail = field_validator("check", "detail")(_text)
+
+
+class ReviewResult(_Result):
+    """The reviewer's independent check of one item. It never changes result.json: the scripts take
+    the lower of the worker's confidence and ``confidence_cap`` as the confidence shown to the person."""
+
+    item: str
+    outcome: ReviewOutcome
+    findings: list[ReviewFinding] = Field(default_factory=list)
+    confidence_cap: Confidence | None = None
+    rework: list[str] = Field(default_factory=list)  # what the worker is to change (outcome rework)
+    note: str  # one or two sentences for the person
+
+    _note = field_validator("note")(_text)
+
+
+# ---- integration/plan.json (written by the integrator agent; skill triage-integration) ------
+
+
+class MergedResult(_Result):
+    """The result of a merged item, as in result.json (the scripts add ``item``)."""
+
+    verdict: Verdict
+    recommendation: Plan
+    confidence: Confidence
+    confidence_reason: str
+    deviation: DeviationPlan
+    fix: FixPlan
+    revision_drift: RevisionDrift
+    # written in result.json too (skill triage-report); the scripts set them for the merged item
+    item: str | None = None
+    group_excluded_cids: list[int] = Field(default_factory=list)
+
+    _reason = field_validator("confidence_reason")(_text)
+
+
+class Merge(_Result):
+    members: list[str]  # ids of the finished items that have one cause
+    reason: str
+    # "item:<ID>": the fix of that member covers every warning; "combine": the scripts join the
+    # members' fixes; "rework": a worker writes one new fix from the members' results
+    fix_source: str
+    result: MergedResult
+
+    _reason = field_validator("reason")(_text)
+
+
+class Conflict(_Result):
+    items: list[str]  # items whose fixes change the same lines although their causes differ
+    note: str
+
+    _note = field_validator("note")(_text)
+
+
+class IntegrationPlan(_Result):
+    merges: list[Merge] = Field(default_factory=list)
+    conflicts: list[Conflict] = Field(default_factory=list)

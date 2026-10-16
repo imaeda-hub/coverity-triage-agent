@@ -3,7 +3,10 @@
 Layout (``<output_dir>/<run id>/``)::
 
     run.json  filter.json  issues.json  config.snapshot.yaml
-    items/<ID>/   issue-<CID>.json  brief.md  progress.json  result.json  saved.json
+    items/<ID>/   issue-<CID>.json  brief.md  progress.json  result.json  saved.json  review.json
+    agents/       brief and progress of the collector, integrator and reviewer agents
+    analysis/     initial analysis (status.json, initial.log)
+    integration/  candidates.json  plan.json  (option agents.integration)
     work/         fix-<n>/  annotation-<n>/  analyzed/   (work copies; removed by ``summary``)
     cid/<ID>.html  patches/  fixed/<ID>/  summary.html  approvals.json  apply-plan.json  operations.log
     cid/<ID>.md  summary.md   (only with the option ``markdown``, and in runs made before approvals.json)
@@ -25,7 +28,7 @@ from .models import Issue
 from .vcs import Vcs, make_vcs
 
 RUN_FILE = "run.json"
-Status = Literal["pending", "in_progress", "done", "error"]
+Status = Literal["pending", "in_progress", "done", "error", "merged"]  # merged: taken into another item
 
 
 class ItemState(BaseModel):
@@ -41,6 +44,13 @@ class ItemState(BaseModel):
     repo_fingerprint: str | None = None
     warnings: list[str] = Field(default_factory=list)
     applied: dict[str, Any] = Field(default_factory=dict)
+    cluster: int | None = None  # items cut from one cluster of the grouping share the number
+    fix_rounds: int = 0  # times the worker was asked to fix its result file in this attempt
+    merged_from: list[str] = Field(default_factory=list)  # an item the integration made
+    merged_into: str | None = None
+    review: str | None = None  # pass / flag / rework / unverified (option agents.review)
+    review_rounds: int = 0  # times the review sent the item back to the worker
+    rework: list[str] = Field(default_factory=list)  # what the worker is to change in the next attempt
 
     @property
     def is_group(self) -> bool:
@@ -62,6 +72,17 @@ class RunState(BaseModel):
     analyzed_revision: str | None = None
     revision_notes: list[str] = Field(default_factory=list)
     items: list[ItemState] = Field(default_factory=list)
+    # set at new-run from the settings (and its options), so a resumed run keeps its steps
+    initial: bool = False
+    integration: bool = False
+    review: bool = False
+    max_rework: int = 1
+    # progress of the steps around the work items
+    fetch_rounds: int = 0  # times the collector was started to fetch the warning paths
+    integrated: bool = False
+    verified: bool = False
+    roles: dict[str, dict[str, Any]] = Field(default_factory=dict)  # the collector/integrator/reviewer at work
+    notes: list[str] = Field(default_factory=list)
 
     def item(self, item_id: str) -> ItemState:
         for item in self.items:
@@ -72,7 +93,7 @@ class RunState(BaseModel):
     def counts(self) -> dict[str, int]:
         counts = {"pending": 0, "in_progress": 0, "done": 0, "error": 0}
         for item in self.items:
-            counts[item.status] += 1
+            counts[item.status] = counts.get(item.status, 0) + 1  # "merged" only when the integration made one
         return counts
 
 
@@ -139,7 +160,7 @@ class Run:
 
 
 def create_run(output: Path, *, repo: Path, filter_name: str, stream: str, limit: int,
-               verify_mode: str) -> Run:
+               verify_mode: str, **steps: Any) -> Run:
     output.mkdir(parents=True, exist_ok=True)
     base = datetime.now().strftime("%Y%m%d-%H%M%S")
     run_id, n = base, 1
@@ -147,10 +168,10 @@ def create_run(output: Path, *, repo: Path, filter_name: str, stream: str, limit
         n += 1
         run_id = f"{base}-{n}"
     folder = output / run_id
-    for sub in ("items", "cid", "patches", "fixed", "work"):
+    for sub in ("items", "cid", "patches", "fixed", "work", "agents"):
         (folder / sub).mkdir(parents=True)
     state = RunState(run_id=run_id, repo_root=str(repo), created_at=datetime.now().isoformat(timespec="seconds"),
-                     filter_name=filter_name, stream=stream, limit=limit, verify_mode=verify_mode)
+                     filter_name=filter_name, stream=stream, limit=limit, verify_mode=verify_mode, **steps)
     write_json(folder / RUN_FILE, state.model_dump())
     return Run(folder)
 
@@ -160,6 +181,21 @@ def finish_item(item: ItemState, status: Status, error: str = "") -> None:
     item.error = error
     item.seconds = round(time.time() - item.started, 1) if item.started else None
     item.slot = None
+
+
+def unfinished(state: RunState, folder: Path | None = None) -> bool:
+    """Whether /coverity-run still has something to do in the run (it can be resumed).
+
+    With the run folder, a run whose summary was not made yet is unfinished too."""
+    counts = state.counts()
+    if not state.planned or counts["pending"] + counts["in_progress"] + counts["error"]:
+        return True
+    if state.integration and not state.integrated:
+        return True
+    if state.review and any(i.status == "done" and i.review is None for i in state.items):
+        return True
+    return folder is not None and bool(state.items) and \
+        not any((folder / f"summary.{ext}").is_file() for ext in ("html", "md"))
 
 
 def list_runs(output: Path) -> list[Path]:

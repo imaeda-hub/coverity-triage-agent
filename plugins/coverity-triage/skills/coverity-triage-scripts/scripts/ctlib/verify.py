@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .common import CtError
+from .common import CtError, build_env, display_text
 from .config import VerifyConfig
 from .models import Issue
 
@@ -59,16 +59,17 @@ class BatchResult:
     error: str = ""
 
 
-def _run_shell(command: str, cwd: Path, log: Path) -> bool:
+def _run_shell(command: str, cwd: Path, log: Path, drop: tuple[str, ...] = ()) -> bool:
     with open(log, "ab") as f:
         f.write(f"$ {command}\n".encode("utf-8"))
         f.flush()
-        proc = subprocess.run(command, cwd=cwd, shell=True, stdout=f, stderr=subprocess.STDOUT)
+        proc = subprocess.run(command, cwd=cwd, shell=True, stdout=f, stderr=subprocess.STDOUT, env=build_env(drop=drop))
     return proc.returncode == 0
 
 
 def _tail(log: Path) -> str:
-    return log.read_bytes()[-LOG_TAIL:].decode("utf-8", "replace") if log.is_file() else ""
+    """The end of the log (the build tools of a Japanese Windows write cp932)."""
+    return display_text(log.read_bytes()[-LOG_TAIL:]) if log.is_file() else ""
 
 
 def intermediate_dir(cov_analyze_args: str) -> str:
@@ -147,10 +148,23 @@ def apply_patch(root: Path, patch: str, strip: int) -> str | None:
 
 
 class Verifier:
-    def __init__(self, config: VerifyConfig, run_dir: str | Path):
+    def __init__(self, config: VerifyConfig, run_dir: str | Path, secret_envs: tuple[str, ...] = ()):
         self.config = config
+        # environment variables the build never gets (its tools may print their environment into the log)
+        self.drop = (*secret_envs, "COVERITY_PASSPHRASE")
         self.dir = Path(run_dir) / "work" / "verify"
         self.log_dir = Path(run_dir) / "verify"
+
+    def _own_dirs(self, name: str) -> VerifyConfig:
+        """Settings whose absolute --dir is made one per copy (before and after must not share it)."""
+        config = self.config
+        idir = intermediate_dir(config.cov_analyze_args)
+        if not Path(idir).is_absolute():
+            return config  # relative: inside each copy already
+        own = f"{idir.rstrip('/').rstrip(chr(92))}-{name}"
+        swap = (lambda args: args.replace(f'"{idir}"', f'"{own}"').replace(idir, own))
+        return config.model_copy(update={"cov_build_args": swap(config.cov_build_args),
+                                         "cov_analyze_args": swap(config.cov_analyze_args)})
 
     def _copy(self, source: Path, name: str) -> Path:
         dest = self.dir / name
@@ -179,7 +193,8 @@ class Verifier:
         after = self._copy(latest_root, "after")
         applied = self._apply_all(after, items, result)
         after_json = self.dir / "after.json"
-        result.build_ok = _run_shell(build_command_line(self.config, after, mode, after_json), after, log)
+        result.build_ok = _run_shell(build_command_line(self._own_dirs("after"), after, mode, after_json), after, log,
+                                     self.drop)
         result.seconds = time.time() - started
 
         if not result.build_ok:
@@ -199,14 +214,16 @@ class Verifier:
         before_log = self.log_dir / "before.log"
         before_log.unlink(missing_ok=True)
         before_json = self.dir / "before.json"
-        if _run_shell(build_command_line(self.config, before, result.mode, before_json), before, before_log):
+        if _run_shell(build_command_line(self._own_dirs("before"), before, result.mode, before_json), before, before_log,
+                      self.drop):
             return load_analysis(before_json)
+        # Not a problem of any fix: the unmodified code itself could not be built or analyzed.
         result.error = "修正前のコードのビルド・解析に失敗しました（設定のコマンドを確認してください）"
         result.log = str(before_log)
         for item in items:
-            result.items[item.item_id] = {"mode": result.mode, "batch": True, "build_ok": False,
-                                          "problems": [result.error], "log": str(before_log),
-                                          "log_tail": _tail(before_log)}
+            result.items[item.item_id] = {"mode": result.mode, "batch": True, "build_ok": None, "problems": [],
+                                          "note": result.error + "。修正案は確かめられませんでした",
+                                          "log": str(before_log), "log_tail": _tail(before_log)}
         return []
 
     @staticmethod
@@ -254,6 +271,9 @@ def _assign_analysis(result: BatchResult, applied: list[BatchItem], baseline: li
     assigned: set[int] = set()
     for item in applied:
         remaining = [i.cid for i in item.issues if any(matches(i, r) for r in records)]
+        # a warning the unmodified code did not show either cannot be said to be gone
+        unconfirmed = [i.cid for i in item.issues
+                       if i.cid not in remaining and not any(matches(i, r) for r in baseline)]
         own = [n for n, r in enumerate(new) if _touches(r["file"], item.files)]
         assigned |= set(own)
         problems = []
@@ -263,17 +283,17 @@ def _assign_analysis(result: BatchResult, applied: list[BatchItem], baseline: li
             problems.append(f"この修正案が変更したファイルで新しい警告が {len(own)} 件出ています")
         result.items[item.item_id] = {
             "mode": result.mode, "batch": True, "applied": True, "build_ok": True,
-            "resolved_cids": [i.cid for i in item.issues if i.cid not in remaining],
-            "remaining_cids": remaining, "new_issues": [new[n] for n in own][:20],
+            "resolved_cids": [i.cid for i in item.issues if i.cid not in remaining and i.cid not in unconfirmed],
+            "remaining_cids": remaining, "unconfirmed_cids": unconfirmed, "new_issues": [new[n] for n in own][:20],
             "new_issue_count": len(own), "problems": problems, "log": str(log)}
     result.unassigned_new_issues = [r for n, r in enumerate(new) if n not in assigned][:50]
 
 
-def trial_build(config: VerifyConfig, root: Path, log: Path) -> dict[str, Any]:
+def trial_build(config: VerifyConfig, root: Path, log: Path, secret_envs: tuple[str, ...] = ()) -> dict[str, Any]:
     """Build unmodified code once to confirm the settings work."""
     log.parent.mkdir(parents=True, exist_ok=True)
     log.unlink(missing_ok=True)
     started = time.time()
-    ok = _run_shell(build_command_line(config, root, "build"), root, log)
+    ok = _run_shell(build_command_line(config, root, "build"), root, log, (*secret_envs, "COVERITY_PASSPHRASE"))
     return {"build_ok": ok, "seconds": round(time.time() - started, 1), "log": str(log),
             "log_tail": "" if ok else _tail(log)}
