@@ -23,6 +23,7 @@ from .run import ItemState, Run, create_run, finish_item, list_runs
 from .vcs import detect
 
 VCS_LOCK_SECONDS = 1800  # creating a work copy of a large repository can take long
+DEVIATION_COMMENT_MAX = 200  # characters: a deviation comment says only why the warning is no problem
 PROGRESS_FILE = "progress.json"  # written by the worker subagent at each step (best effort)
 
 
@@ -175,9 +176,13 @@ def next_item(run_dir: str) -> dict[str, Any]:
                         "処理中の作業を ct.py finish か ct.py fail で終えてから呼んでください"}
 
     latest = run.state.latest_revision or ""
+    fix_dir = run.copy_dir("fix", item.slot)
+    # Creating a new copy of a large repository can take minutes: show it on the monitor meanwhile.
+    _log(run, "copy", item=item.id, slot=item.slot,
+         create=not ((fix_dir / ".git").exists() or (fix_dir / ".svn").exists()))
     try:
         with file_lock(run.dir / "work" / "vcs", timeout=VCS_LOCK_SECONDS):
-            vcs.reset_copy(run.copy_dir("fix", item.slot), latest)
+            vcs.reset_copy(fix_dir, latest)
             if config.options.annotation:
                 vcs.reset_copy(run.copy_dir("annotation", item.slot), latest)
             # the analyzed copy is shared and read-only: reset it only while no other item is reading it
@@ -348,6 +353,10 @@ def _read_result(run: Run, item: ItemState) -> TriageResult:
     problems = []
     if result.item != item.id:
         problems.append(f"item は {item.id} にしてください（今は {result.item}）")
+    if len(result.deviation.comment.strip()) > DEVIATION_COMMENT_MAX:
+        problems.append(f"deviation.comment は {DEVIATION_COMMENT_MAX} 字以内にしてください（今は "
+                        f"{len(result.deviation.comment.strip())} 字）。問題にならない理由と根拠の場所だけを書き、"
+                        "調べた過程や但し書きは verdict.rationale に移します（スキル deviation-comment）")
     excluded = set(result.group_excluded_cids)
     if excluded and not item.is_group:
         problems.append("group_excluded_cids はグループのときだけ書きます")
