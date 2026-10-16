@@ -16,6 +16,7 @@ from .models import Issue
 class WorkItem:
     id: str  # "12345" for a single CID, "G1" for a group
     cids: list[int] = field(default_factory=list)
+    cluster: int = 0  # items cut from one cluster (more than MAX_GROUP CIDs) share the number
 
 
 def _keys(issue: Issue) -> list[tuple]:
@@ -36,14 +37,14 @@ def build_work_items(issues: list[Issue], no_grouping: set[int] | None = None) -
     """Return work items in the order of the given issues (first CID of each item)."""
     items: list[WorkItem] = []
     group_no = 0
-    for cluster in _clusters(issues, no_grouping or set()):
+    for number, cluster in enumerate(_clusters(issues, no_grouping or set()), 1):
         for start in range(0, len(cluster), MAX_GROUP):
             cids = cluster[start:start + MAX_GROUP]
             if len(cids) == 1:
-                items.append(WorkItem(str(cids[0]), cids))
+                items.append(WorkItem(str(cids[0]), cids, number))
             else:
                 group_no += 1
-                items.append(WorkItem(f"G{group_no}", cids))
+                items.append(WorkItem(f"G{group_no}", cids, number))
     return items
 
 

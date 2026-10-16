@@ -17,7 +17,7 @@ import os
 import sys
 from typing import Any
 
-from ctlib import apply, gui, knowledge, metrics, prepare, selftest, triage
+from ctlib import apply, flow, gui, initial, knowledge, metrics, prepare, selftest, triage
 from ctlib.common import CtError, resolve_path
 from ctlib.config import load_config, output_dir
 
@@ -87,7 +87,16 @@ def parser() -> argparse.ArgumentParser:
             ("--impact", {"action": "append", "dest": "impacts"}),
             ("--status", {"action": "append"}), ("--classification", {"action": "append"}),
             ("--action", {"action": "append"}), ("--limit", {"type": int}),
-            ("--verify", {"choices": ["none", "build", "build+analyze"]}))
+            ("--verify", {"choices": ["none", "build", "build+analyze"]}),
+            ("--initial", {"action": argparse.BooleanOptionalAction, "default": None,
+                           "help": "最初に解析してサーバに登録する（--no-initial でしない。省略時は設定 verify.initial）"}))
+    command("tick", "次にすることを返す（エージェントが終わったら --finished で知らせる）", run,
+            ("--finished", {"help": "終わったエージェントの task（worker:<ID>、collector:search など）"}),
+            ("--failed", {"help": "途中で止まった・起動できなかったエージェントの task"}),
+            ("--reason", {"default": "", "help": "--failed の理由"}),
+            ("--wait", {"type": int, "default": flow.WAIT_SECONDS, "help": "初回解析を待つ最長の秒数"}))
+    command("initial-status", "初回解析の状況", run)
+    command("initial-run", argparse.SUPPRESS, run)
     command("plan", "検索結果から作業の一覧を作る", run)
     command("next", "次の作業を取り出し、修正用のコピーを用意する", run)
     command("brief", "サブエージェントへの指示ファイルを作る", run, item)
@@ -139,7 +148,15 @@ def dispatch(args: argparse.Namespace) -> dict[str, Any]:
     if c == "runs":
         return triage.runs(args.repo, args.limit)
     if c == "new-run":
-        return triage.new_run(args.repo, args.filter, _overrides(args), args.limit, args.verify)
+        return triage.new_run(args.repo, args.filter, _overrides(args), args.limit, args.verify, args.initial)
+    if c == "tick":
+        return flow.tick(args.run, args.finished, args.failed, args.reason, args.wait)
+    if c == "initial-status":
+        from ctlib.run import Run
+
+        return {"ok": True, **initial.status(Run(args.run))}
+    if c == "initial-run":
+        return {"ok": True, **initial.execute(args.run)}
     if c == "plan":
         return triage.plan(args.run)
     if c == "next":

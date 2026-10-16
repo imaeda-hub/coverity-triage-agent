@@ -51,6 +51,8 @@ class ItemReport:
     seconds: float | None = None
     notes: list[str] = field(default_factory=list)
     run_dir: Path | None = None
+    review: dict[str, Any] = field(default_factory=dict)  # review.json, or {"outcome": "unverified"}
+    merged_from: list[str] = field(default_factory=list)  # the items the integration took into this one
 
     def rel(self, path: str) -> str:
         """Paths inside the run folder, relative to the report (cid/<ID>.html and cid/<ID>.md)."""
@@ -163,18 +165,62 @@ def render_item(r: ItemReport, decision: dict[str, Any] | None = None) -> str:
     out += ["", "修正した場合の Classification / Action / Severity（参考。「修正」で反映しても Coverity には書き込みません）:",
             "", *_attrs(fix), ""]
 
-    # 6. verification (option); the processing section takes its number when it is absent
+    # 6. verification and review (options); the processing section takes the next number
+    number = 6
     if r.verify:
-        out += ["## 6. ビルドでの検証", "", *_verify_lines(r.verify), ""]
+        out += [f"## {number}. ビルドでの検証", "", *_verify_lines(r.verify), ""]
+        number += 1
+    if r.review:
+        out += [f"## {number}. 独立した検証", "", *_review_lines(r.review), ""]
+        number += 1
 
-    out += [f"## {7 if r.verify else 6}. 処理情報", "",
+    out += [f"## {number}. 処理情報", "",
             f"- 調べたコード: {('解析リビジョン ' + _short(r.analyzed_revision)) if r.analyzed_revision else '手元のコード'}",
             f"- 修正の元にしたリビジョン: {_short(r.latest_revision) if r.latest_revision else '-'}"]
     if r.seconds is not None:
         out.append(f"- 処理時間: {r.seconds:.0f} 秒")
     if res.group_excluded_cids:
         out.append(f"- グループから外して個別の作業に戻した CID: {res.group_excluded_cids}")
+    if r.merged_from:
+        out.append(f"- 統合した作業: {', '.join(r.merged_from)}")
     return "\n".join(out) + "\n"
+
+
+REVIEW_JA = {"pass": "合格", "flag": "要確認", "rework": "差し戻し", "unverified": "未検証"}
+
+
+def _review_lines(review: dict[str, Any]) -> list[str]:
+    outcome = review.get("outcome", "unverified")
+    lines = [f"- 結果: {REVIEW_JA.get(outcome, outcome)}"]
+    if review.get("note"):
+        lines.append(f"- 見解: {review['note']}")
+    if review.get("confidence_cap"):
+        lines.append(f"- 確信度の上限: {CONFIDENCE_JA.get(review['confidence_cap'], review['confidence_cap'])}")
+    for f in review.get("findings") or []:
+        where = f" `{f['file']}`:{f.get('line') or '-'}" if f.get("file") else ""
+        lines.append(f"- {'○' if f.get('ok') else '×'} {f.get('check', '')}{where} — {f.get('detail', '')}")
+    if review.get("reason"):
+        lines.append(f"- 補足: {review['reason']}")
+    return lines
+
+
+def _review_html(review: dict[str, Any]) -> str:
+    outcome = review.get("outcome", "unverified")
+    rows = [("結果", _badge(REVIEW_JA.get(outcome, outcome), "review-" + outcome))]
+    if review.get("note"):
+        rows.append(("見解", _e(review["note"])))
+    if review.get("confidence_cap"):
+        rows.append(("確信度の上限", _e(CONFIDENCE_JA.get(review["confidence_cap"], review["confidence_cap"]))))
+    if review.get("reason"):
+        rows.append(("補足", _e(review["reason"])))
+    out = _kv(rows)
+    findings = review.get("findings") or []
+    if findings:
+        out += '\n<ul class="evidence">' + "".join(
+            f'<li><span class="loc">{"○" if f.get("ok") else "×"} {_e(f.get("check", ""))}'
+            + (f' {_e(f["file"])}:{_e(f.get("line") or "-")}' if f.get("file") else "")
+            + f'</span>{_e(f.get("detail", ""))}</li>' for f in findings) + "</ul>"
+    return out
 
 
 def _short(revision: str) -> str:
@@ -192,6 +238,8 @@ def _verify_lines(verify: dict[str, Any]) -> list[str]:
     if "resolved_cids" in verify:
         lines += [f"- 消えた警告: {verify['resolved_cids'] or 'なし'}",
                   f"- 残った警告: {verify['remaining_cids'] or 'なし'}",
+                  *([f"- 確かめられない警告（修正前の解析にも出ていない）: {verify['unconfirmed_cids']}"]
+                    if verify.get("unconfirmed_cids") else []),
                   f"- 変更したファイルで増えた警告: {verify.get('new_issue_count', 0)} 件"]
     if verify.get("log"):
         lines.append(f"- ログ: `{verify['log']}`")
@@ -365,6 +413,9 @@ p { margin: 6px 0; }
 .badge.conf-high { background: var(--green-bg); color: var(--green); }
 .badge.conf-medium { background: var(--amber-bg); color: var(--amber); }
 .badge.conf-low { background: var(--red-bg); color: var(--red); }
+.badge.review-pass { background: var(--green-bg); color: var(--green); }
+.badge.review-flag, .badge.review-rework { background: var(--amber-bg); color: var(--amber); }
+.badge.review-unverified { background: var(--gray-bg); color: var(--gray); }
 .badge.impact-high { background: var(--red-bg); color: var(--red); }
 .badge.impact-medium { background: var(--amber-bg); color: var(--amber); }
 .badge.ok { background: var(--green-bg); color: var(--green); }
@@ -647,9 +698,11 @@ def render_item_html(r: ItemReport, decision: dict[str, Any] | None = None) -> s
         body += ['<div class="diffs">', *diffs, "</div>"]
     body.append("</section>")
 
-    # build verification (option)
+    # build verification and the independent review (options)
     if r.verify:
         body += ['<section class="block verify">', "<h2>ビルドでの検証</h2>", _verify_html(r.verify), "</section>"]
+    if r.review:
+        body += ['<section class="block review">', "<h2>独立した検証</h2>", _review_html(r.review), "</section>"]
 
     info = [("調べたコード", _e(("解析リビジョン " + _short(r.analyzed_revision)) if r.analyzed_revision else "手元のコード")),
             ("修正の元にしたリビジョン", _e(_short(r.latest_revision) if r.latest_revision else "-"))]
@@ -657,6 +710,8 @@ def render_item_html(r: ItemReport, decision: dict[str, Any] | None = None) -> s
         info.append(("処理時間", f"{r.seconds:.0f} 秒"))
     if res.group_excluded_cids:
         info.append(("グループから外して個別の作業に戻した CID", _e("、".join(map(str, res.group_excluded_cids)))))
+    if r.merged_from:
+        info.append(("統合した作業", _e("、".join(r.merged_from))))
     body += ['<section class="block info">', "<h2>処理情報</h2>", _kv(info), "</section>",
              f'<footer class="foot">このレポートは表示専用です。{_e(GUI_NOTE)}</footer>']
     return _page(f"{title} {main.checker} — Coverity トリアージ", "\n".join(b for b in body if b))
@@ -673,6 +728,8 @@ def _verify_html(verify: dict[str, Any]) -> str:
         rows.append(("補足", _e(verify["note"])))
     if "resolved_cids" in verify:
         rows += [("消えた警告", _e(verify["resolved_cids"] or "なし")), ("残った警告", _e(verify["remaining_cids"] or "なし")),
+                 *([("確かめられない警告", _e(verify["unconfirmed_cids"]) + "（修正前の解析にも出ていない）")]
+                   if verify.get("unconfirmed_cids") else []),
                  ("変更したファイルで増えた警告", f"{_e(verify.get('new_issue_count', 0))} 件")]
     if verify.get("log"):
         rows.append(("ログ", f"<code>{_e(verify['log'])}</code>"))

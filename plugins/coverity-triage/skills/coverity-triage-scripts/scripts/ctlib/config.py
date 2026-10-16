@@ -74,6 +74,9 @@ VerifyMode = Literal["none", "build", "build+analyze"]
 
 class VerifyConfig(_Strict):
     default: VerifyMode = "none"
+    # Initial analysis: at the start of /coverity-run, build and analyze the open folder and commit the
+    # result to Coverity Connect (what the person did by hand before), then search the warnings.
+    initial: bool = False
     # Run before the build in the same shell; "{root}" becomes the folder being built.
     setup_command: str = ""
     # Folder (relative to the repository) to move into after setup_command.
@@ -81,6 +84,18 @@ class VerifyConfig(_Strict):
     build_command: str = ""
     cov_build_args: str = "--dir idir"
     cov_analyze_args: str = "--dir idir --all"
+    # Added to cov-commit-defects; --dir, --url, --stream, --user and --version are added by the script.
+    cov_commit_args: str = ""
+    # The initial analysis is stopped when it takes longer (a build that hangs while nobody watches).
+    timeout_minutes: int = Field(default=180, ge=1)
+
+
+class AgentsConfig(_Strict):
+    """Optional steps after the worker agents (both off by default, decision 16)."""
+
+    integration: bool = False  # after the work: merge items whose warnings have one cause
+    review: bool = False  # after the integration: an independent check of every result
+    max_rework: int = Field(default=1, ge=0, le=2)  # times the review may send an item back
 
 
 DEFAULT_PARALLEL = 3  # independent items are investigated at the same time, each in its own work copy
@@ -94,6 +109,7 @@ class ProjectConfig(_Strict):
     parallel: int = Field(default=DEFAULT_PARALLEL, ge=1, le=8)
     options: Options = Field(default_factory=Options)
     verify: VerifyConfig = Field(default_factory=VerifyConfig)
+    agents: AgentsConfig = Field(default_factory=AgentsConfig)
 
 
 class TriageFilter(_Strict):

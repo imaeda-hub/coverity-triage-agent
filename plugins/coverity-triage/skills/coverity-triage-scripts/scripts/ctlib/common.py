@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -127,3 +128,32 @@ def display_text(data: bytes) -> str:
         except UnicodeDecodeError:
             continue
     return data.decode("utf-8", "replace")
+
+
+def spawn_detached(args: list[str], env: dict[str, str], cwd: Path, log: Any) -> subprocess.Popen[bytes]:
+    """Start a process that keeps running after this command (and its terminal) returns."""
+    common: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": subprocess.STDOUT,
+                              "cwd": str(cwd), "env": env, "close_fds": True}
+    if sys.platform != "win32":
+        return subprocess.Popen(args, start_new_session=True, **common)
+    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    try:  # leave the terminal's job, so closing the terminal does not stop the process
+        return subprocess.Popen(args, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **common)
+    except OSError:
+        return subprocess.Popen(args, creationflags=flags, **common)
+
+
+def pid_alive(pid: int | None) -> bool:
+    """Whether a process of this PC is still running (False for None)."""
+    if not pid:
+        return False
+    if sys.platform == "win32":
+        proc = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, check=False)
+        return str(pid).encode() in proc.stdout
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

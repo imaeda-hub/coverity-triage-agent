@@ -152,6 +152,17 @@ class Verifier:
         self.dir = Path(run_dir) / "work" / "verify"
         self.log_dir = Path(run_dir) / "verify"
 
+    def _own_dirs(self, name: str) -> VerifyConfig:
+        """Settings whose absolute --dir is made one per copy (before and after must not share it)."""
+        config = self.config
+        idir = intermediate_dir(config.cov_analyze_args)
+        if not Path(idir).is_absolute():
+            return config  # relative: inside each copy already
+        own = f"{idir.rstrip('/').rstrip(chr(92))}-{name}"
+        swap = (lambda args: args.replace(f'"{idir}"', f'"{own}"').replace(idir, own))
+        return config.model_copy(update={"cov_build_args": swap(config.cov_build_args),
+                                         "cov_analyze_args": swap(config.cov_analyze_args)})
+
     def _copy(self, source: Path, name: str) -> Path:
         dest = self.dir / name
         if dest.exists():
@@ -179,7 +190,7 @@ class Verifier:
         after = self._copy(latest_root, "after")
         applied = self._apply_all(after, items, result)
         after_json = self.dir / "after.json"
-        result.build_ok = _run_shell(build_command_line(self.config, after, mode, after_json), after, log)
+        result.build_ok = _run_shell(build_command_line(self._own_dirs("after"), after, mode, after_json), after, log)
         result.seconds = time.time() - started
 
         if not result.build_ok:
@@ -199,14 +210,15 @@ class Verifier:
         before_log = self.log_dir / "before.log"
         before_log.unlink(missing_ok=True)
         before_json = self.dir / "before.json"
-        if _run_shell(build_command_line(self.config, before, result.mode, before_json), before, before_log):
+        if _run_shell(build_command_line(self._own_dirs("before"), before, result.mode, before_json), before, before_log):
             return load_analysis(before_json)
+        # Not a problem of any fix: the unmodified code itself could not be built or analyzed.
         result.error = "修正前のコードのビルド・解析に失敗しました（設定のコマンドを確認してください）"
         result.log = str(before_log)
         for item in items:
-            result.items[item.item_id] = {"mode": result.mode, "batch": True, "build_ok": False,
-                                          "problems": [result.error], "log": str(before_log),
-                                          "log_tail": _tail(before_log)}
+            result.items[item.item_id] = {"mode": result.mode, "batch": True, "build_ok": None, "problems": [],
+                                          "note": result.error + "。修正案は確かめられませんでした",
+                                          "log": str(before_log), "log_tail": _tail(before_log)}
         return []
 
     @staticmethod
@@ -254,6 +266,9 @@ def _assign_analysis(result: BatchResult, applied: list[BatchItem], baseline: li
     assigned: set[int] = set()
     for item in applied:
         remaining = [i.cid for i in item.issues if any(matches(i, r) for r in records)]
+        # a warning the unmodified code did not show either cannot be said to be gone
+        unconfirmed = [i.cid for i in item.issues
+                       if i.cid not in remaining and not any(matches(i, r) for r in baseline)]
         own = [n for n, r in enumerate(new) if _touches(r["file"], item.files)]
         assigned |= set(own)
         problems = []
@@ -263,8 +278,8 @@ def _assign_analysis(result: BatchResult, applied: list[BatchItem], baseline: li
             problems.append(f"この修正案が変更したファイルで新しい警告が {len(own)} 件出ています")
         result.items[item.item_id] = {
             "mode": result.mode, "batch": True, "applied": True, "build_ok": True,
-            "resolved_cids": [i.cid for i in item.issues if i.cid not in remaining],
-            "remaining_cids": remaining, "new_issues": [new[n] for n in own][:20],
+            "resolved_cids": [i.cid for i in item.issues if i.cid not in remaining and i.cid not in unconfirmed],
+            "remaining_cids": remaining, "unconfirmed_cids": unconfirmed, "new_issues": [new[n] for n in own][:20],
             "new_issue_count": len(own), "problems": problems, "log": str(log)}
     result.unassigned_new_issues = [r for n, r in enumerate(new) if n not in assigned][:50]
 

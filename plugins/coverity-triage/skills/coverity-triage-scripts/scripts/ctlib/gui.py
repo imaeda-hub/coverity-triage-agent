@@ -42,13 +42,13 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
 import yaml
 from pydantic import BaseModel, ValidationError
 
-from . import activity, approvals, envvars, prepare
-from .common import CtError, display_text, file_lock, read_json, resolve_path, write_text
+from . import activity, approvals, assess, envvars, prepare
+from .common import CtError, display_text, file_lock, read_json, resolve_path, spawn_detached, write_text
 from .config import (CONFIG_DIR, CONFIG_FILE, FILTERS_DIR, KNOWLEDGE_TEMPLATE, NO_GROUPING_FILE, FilterSpec,
                      ProjectConfig, knowledge_path, load_config, output_dir)
 from .models import Issue, TriageResult
 from .report import CONFIDENCE_ORDER, REPORT_CSS, diff_html, item_title
-from .run import RUN_FILE, ItemState, Run, list_runs
+from .run import RUN_FILE, ItemState, Run, list_runs, unfinished
 
 PAGE = Path(__file__).with_name("gui.html")
 TOKEN_ENV = "CT_GUI_TOKEN"
@@ -436,8 +436,7 @@ def _issues(run: Run) -> dict[int, Issue]:
 
 
 def _unfinished(run: Run) -> bool:
-    counts = run.state.counts()
-    return not run.state.planned or counts["pending"] + counts["in_progress"] + counts["error"] > 0
+    return unfinished(run.state)
 
 
 def _run_info(run: Run) -> dict[str, Any]:
@@ -490,7 +489,12 @@ def runs_list(repo: Path) -> dict[str, Any]:
 
 def _item_row(run: Run, item: ItemState, issues: dict[int, Issue],
               decided: dict[str, dict[str, Any]], summary_made: bool) -> dict[str, Any]:
+    from .triage import review_of  # late import: triage is the larger module
+
     result = _result(run, item.id)
+    if result is not None:  # the confidence the reports show: the lowest of the worker, the review and the build
+        verify = read_json(run.dir / "verify.json", {}).get(item.id) if (run.dir / "verify.json").is_file() else None
+        result = assess.effective(result, review_of(run, item), verify)
     main = issues.get(item.cids[0]) if item.cids else None
     entry = decided.get(item.id)
     recommendation = result.recommendation if result else None
@@ -522,7 +526,7 @@ def run_summary(repo: Path, run_id: str) -> dict[str, Any]:
             items.append(_item_row(run, item, issues, decided, made))
         elif item.status == "error":
             errors.append({"id": item.id, "cids": list(item.cids), "reason": item.error})
-        else:
+        elif item.status != "merged":  # merged items are shown inside the item that took them
             unprocessed.append(item.id)
     items.sort(key=lambda r: (CONFIDENCE_ORDER.get(r["confidence"], -1), r["id"]))  # as in summary.html
     return {"ok": True, "run": _run_info(run), "items": items, "errors": errors, "unprocessed": unprocessed,
@@ -582,6 +586,9 @@ def set_approval(repo: Path, run_id: str, body: dict[str, Any]) -> dict[str, Any
     if not isinstance(item_id, str) or not item_id:
         raise CtError("承認する作業（item）を指定してください")
     item = _find_item(run, item_id)
+    if (run.state.integration or run.state.review) and not approvals.summary_made(run):
+        # the integration and the review may still change the item: approvals wait for the summary
+        raise CtError("統合・検証が終わって一覧ができてから承認できます（/coverity-run が終わるまでお待ちください）")
     before = approvals.load(run).get(item_id) or {}
     entry = approvals.update(run, item_id, body.get("decision"), body.get("deviation"))
     out = {"ok": True, "item": item_id, **entry}
@@ -1039,15 +1046,7 @@ def serve(repo_root: str, token: str | None = None, ready_file: str | None = Non
 
 def _spawn(args: list[str], env: dict[str, str], cwd: Path, log: Any) -> subprocess.Popen[bytes]:
     """Start the server so that it keeps running after this command (and its terminal) returns."""
-    common: dict[str, Any] = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": subprocess.STDOUT,
-                              "cwd": str(cwd), "env": env, "close_fds": True}
-    if sys.platform != "win32":
-        return subprocess.Popen(args, start_new_session=True, **common)
-    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    try:  # leave the terminal's job, so closing the terminal does not stop the screen
-        return subprocess.Popen(args, creationflags=flags | subprocess.CREATE_BREAKAWAY_FROM_JOB, **common)
-    except OSError:
-        return subprocess.Popen(args, creationflags=flags, **common)
+    return spawn_detached(args, env, cwd, log)
 
 
 def _start(repo: Path) -> dict[str, Any]:
