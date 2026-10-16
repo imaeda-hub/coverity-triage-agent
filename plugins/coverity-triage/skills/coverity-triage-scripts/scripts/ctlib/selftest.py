@@ -175,8 +175,8 @@ def start(sections: str, repo: str | None, client: str, base: str | None) -> dic
                      .replace("④", "4").split(",") if s.strip()})
     if not picked or any(s not in SECTIONS for s in picked):
         raise CtError("範囲は 1〜4（①〜④）をカンマで区切って指定します")
-    if "3" in picked and not repo:
-        raise CtError("③ には対象のリポジトリ（--repo）が要ります")
+    if ("3" in picked or "4" in picked) and not repo:
+        raise CtError("③ と ④ には対象のリポジトリ（--repo）が要ります")
     folder = Path(base or Path.home() / "coverity-triage-selftest") / datetime.now().strftime("%Y%m%d-%H%M%S")
     folder.mkdir(parents=True, exist_ok=True)
     plugin = read_json(PLUGIN_ROOT / "plugin.json")
@@ -192,7 +192,8 @@ def start(sections: str, repo: str | None, client: str, base: str | None) -> dic
             state["checks"][c.id] = {"status": "skip", "actual": "範囲外", "detail": ""}
     write_json(folder / STATE_FILE, state)
     result = Result(folder)
-    result.state = result.mask(state)
+    # the repository's path is what the later commands open (it is not in report.md): never masked
+    result.state = {**result.mask({k: v for k, v in state.items() if k != "repo_root"}), "repo_root": state["repo_root"]}
     result.save()
     return {"ok": True, "dir": str(folder), "sections": {s: SECTIONS[s] for s in picked},
             "checks": [{"id": c.id, "title": c.title, "expected": c.expected, "who": c.how}

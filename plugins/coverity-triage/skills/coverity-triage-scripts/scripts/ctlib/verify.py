@@ -59,11 +59,11 @@ class BatchResult:
     error: str = ""
 
 
-def _run_shell(command: str, cwd: Path, log: Path) -> bool:
+def _run_shell(command: str, cwd: Path, log: Path, drop: tuple[str, ...] = ()) -> bool:
     with open(log, "ab") as f:
         f.write(f"$ {command}\n".encode("utf-8"))
         f.flush()
-        proc = subprocess.run(command, cwd=cwd, shell=True, stdout=f, stderr=subprocess.STDOUT, env=build_env())
+        proc = subprocess.run(command, cwd=cwd, shell=True, stdout=f, stderr=subprocess.STDOUT, env=build_env(drop=drop))
     return proc.returncode == 0
 
 
@@ -148,8 +148,10 @@ def apply_patch(root: Path, patch: str, strip: int) -> str | None:
 
 
 class Verifier:
-    def __init__(self, config: VerifyConfig, run_dir: str | Path):
+    def __init__(self, config: VerifyConfig, run_dir: str | Path, secret_envs: tuple[str, ...] = ()):
         self.config = config
+        # environment variables the build never gets (its tools may print their environment into the log)
+        self.drop = (*secret_envs, "COVERITY_PASSPHRASE")
         self.dir = Path(run_dir) / "work" / "verify"
         self.log_dir = Path(run_dir) / "verify"
 
@@ -191,7 +193,8 @@ class Verifier:
         after = self._copy(latest_root, "after")
         applied = self._apply_all(after, items, result)
         after_json = self.dir / "after.json"
-        result.build_ok = _run_shell(build_command_line(self._own_dirs("after"), after, mode, after_json), after, log)
+        result.build_ok = _run_shell(build_command_line(self._own_dirs("after"), after, mode, after_json), after, log,
+                                     self.drop)
         result.seconds = time.time() - started
 
         if not result.build_ok:
@@ -211,7 +214,8 @@ class Verifier:
         before_log = self.log_dir / "before.log"
         before_log.unlink(missing_ok=True)
         before_json = self.dir / "before.json"
-        if _run_shell(build_command_line(self._own_dirs("before"), before, result.mode, before_json), before, before_log):
+        if _run_shell(build_command_line(self._own_dirs("before"), before, result.mode, before_json), before, before_log,
+                      self.drop):
             return load_analysis(before_json)
         # Not a problem of any fix: the unmodified code itself could not be built or analyzed.
         result.error = "修正前のコードのビルド・解析に失敗しました（設定のコマンドを確認してください）"
@@ -285,11 +289,11 @@ def _assign_analysis(result: BatchResult, applied: list[BatchItem], baseline: li
     result.unassigned_new_issues = [r for n, r in enumerate(new) if n not in assigned][:50]
 
 
-def trial_build(config: VerifyConfig, root: Path, log: Path) -> dict[str, Any]:
+def trial_build(config: VerifyConfig, root: Path, log: Path, secret_envs: tuple[str, ...] = ()) -> dict[str, Any]:
     """Build unmodified code once to confirm the settings work."""
     log.parent.mkdir(parents=True, exist_ok=True)
     log.unlink(missing_ok=True)
     started = time.time()
-    ok = _run_shell(build_command_line(config, root, "build"), root, log)
+    ok = _run_shell(build_command_line(config, root, "build"), root, log, (*secret_envs, "COVERITY_PASSPHRASE"))
     return {"build_ok": ok, "seconds": round(time.time() - started, 1), "log": str(log),
             "log_tail": "" if ok else _tail(log)}

@@ -67,13 +67,19 @@ def prewarm() -> dict[str, Any]:
             "seconds": round(time.monotonic() - started, 1)}
 
 
+# Agents an earlier version of the plugin placed and the plugin no longer has. Only these are removed:
+# another file with the same prefix may be the person's own (a copy to try another model, for example).
+RETIRED_AGENTS: tuple[str, ...] = ()
+
+
 def _stale_agents(folder: Path) -> list[Path]:
     """Agents of an earlier version of the plugin that it no longer has (they could still be started)."""
     if not folder.is_dir():
         return []
     current = {p.name.lower() for p in plugin_agents().values()}
+    retired = {f"{name}{AGENT_SUFFIX}".lower() for name in RETIRED_AGENTS}
     return sorted(p for p in folder.glob(f"{AGENT_PREFIX}*{AGENT_SUFFIX}")
-                  if p.is_file() and p.name.lower() not in current)
+                  if p.is_file() and p.name.lower() not in current and p.name.lower() in retired)
 
 
 def agent_state() -> dict[str, dict[str, str]]:
@@ -329,7 +335,7 @@ def trial_build(repo_root: str, setup_command: str, build_command: str, build_di
     vcs = make_vcs(repo, config.vcs)
     latest, note = vcs.resolve_latest()
     vcs.export(latest, work / "src")
-    result = run_trial_build(settings, work / "src", work / "trial-build.log")
+    result = run_trial_build(settings, work / "src", work / "trial-build.log", (config.coverity.key_env,))
     return {"ok": True, **result, "revision": latest, "note": note, "built_in": str(work / "src")}
 
 

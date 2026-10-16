@@ -177,7 +177,7 @@ GitHub のトークンは要りません（プルリクエストは Copilot の�
 「修正前のコードで試しにビルドします（時間がかかることがあります。サーバには登録しません）」と伝えて `ct.py trial-build` を実行する。失敗したら `log_tail` を見て、コマンドの誤りか環境の問題かを伝え、直して試す。成功したら、保存する値を見せて同意を得てから `ct.py set-verify` を実行し、コミットして共有するよう伝える。
 
 - `set-verify` には、1〜3 の値（`--setup-command`・`--build-dir`・`--build-command`）と 4（`--default`）を渡す。`--default` を省くと `build` になる。
-- 初回解析を使うときは `--initial --cov-commit-args "<6>" --timeout-minutes <7>`、使わないときは `--no-initial` を足す（省いた項目は、今の設定のまま残る）。
+- 初回解析を使うときは `--initial --cov-commit-args="<6>" --timeout-minutes <7>`、使わないときは `--no-initial` を足す（省いた項目は、今の設定のまま残る）。`--cov-commit-args` は、値が `--` で始まっても受け取れるように、`=` でつなぐ形で書く（`--cov-build-args`、`--cov-analyze-args` も同じ）。
 - 初回解析を使うときは、保存のあとに `ct.py doctor --repo <フォルダ>` を実行し、初回解析の行（`cov-build`・`cov-analyze`・`cov-commit-defects` が PATH にあるか、登録の認証情報があるか）を確かめる。ng があれば伝える（Coverity のツールの bin フォルダを PATH に足すのは、社内の手順で行ってもらう）。warning は「環境設定のコマンドで PATH に足されるなら問題ありません」と伝える。
 
 ## 11. 統合と検証（オプション）

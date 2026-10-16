@@ -122,7 +122,7 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 - 保存はすべての値を確かめてから書く（1 つでも直すところがあれば何も書かない）。確かめ方は `init-config` と同じ（設定のモデル、出力先がリポジトリの外、条件ファイルのストリームが 1 つ）。`config.yaml` の先頭のコメントは残す。
 - 認証情報は Windows のユーザの環境変数に保存する（`[Environment]::SetEnvironmentVariable(..., 'User')` と同じ。レジストリに書いて、変わったことを知らせる）。画面には認証キーが設定済みかどうかだけを返す。
 - 保存しても、タブを閉じても、サーバは止まらない。止まるのは画面の「サーバを止める」（確認つき）だけ（決定 31）。アクセスが無くても自動では止まらない。ただし、同じリポジトリで新しいサーバが起動して置き換わったときは、古いほうが止まる（3.10）。
-- Windows では、ターミナルを閉じても止まらないように、ターミナルから切り離して起動する（`DETACHED_PROCESS`、できれば `CREATE_BREAKAWAY_FROM_JOB`）。
+- Windows では、ターミナルを閉じても止まらないように、ターミナルから切り離して起動する（`common.spawn_detached`：`CREATE_NO_WINDOW` と `CREATE_NEW_PROCESS_GROUP`、できれば `CREATE_BREAKAWAY_FROM_JOB`。`DETACHED_PROCESS` にすると、uv の起動用プログラムが動かす python.exe のために、Windows が見える窓を新しく開くため）。
 
 ### 2.2 実行（`/coverity-run`）
 
@@ -422,7 +422,7 @@ agents:                     # 作業のあとのオプションの段（既定�
 `/coverity-run` の順番は、エージェントではなくスクリプトが決めます（決定 49）。エージェントは `tick` を呼び、返った `actions` を順に行い、サブエージェントが終わるたびに、その `task` を知らせて `tick` を呼び直します。
 
 - 呼び方：`ct.py tick --run D`。サブエージェントが終わった（返事が返った）ら `--finished <task>`、途中で止まった・エラーになった・起動できなかったら `--failed <task> --reason "<理由>"`。複数が終わっていたら、1 つずつ知らせる。`--wait`（既定 120 秒）は、初回解析の間に 1 回で待つ最長の秒数。
-- `task`：`collector:search`、`collector:paths`、`worker:<ID>`、`integrator`、`reviewer:<ID>`、`verify`。同じ仕事でもう一度起動したときは、回数を付ける（`worker:20001#2`）。エージェントは、actions の `task` をそのまま知らせる。同じ知らせが 2 回来ても、前の起動の知らせが遅れて来ても、何もしない（二重に起動しないため）。
+- `task`：`collector:search`、`collector:paths`、`worker:<ID>`、`integrator`、`reviewer:<ID>`、`verify` に、何回目の試みか（`@`）と、同じ試みで何回目の起動か（`#`。1 回目は付けない）を付ける。例：`worker:20001@2#3`（2 回目の試み＝再開か差し戻しのあと、の 3 回目の起動）、`collector:search@1`、`reviewer:G1@5`。エージェントは、actions の `task` をそのまま知らせる。同じ知らせが 2 回来ても、前の起動の知らせが遅れて来ても、何もしない（二重に起動しないため）。印の付いていない `task`（エージェントが印を落とした）は、いまの起動の知らせとして受け取る。いま待っている起動は、結果の `running_tasks` にある。
 
 結果：
 
@@ -434,7 +434,7 @@ agents:                     # 作業のあとのオプションの段（既定�
 | `done` | true なら、`ct.py summary` と結果の画面へ進む（`next` に書いてある） |
 | `stop` | true なら、`say` と `error` を人に伝えて止める（初回解析の失敗。`initial` に状況） |
 | `say` | 人に伝えること（件数、差し戻し、統合の結果、検証できなかった作業 など） |
-| `counts`・`running_items`・`running_roles`・`next` | 進み具合、動いている作業とエージェント、次にすること |
+| `counts`・`running_items`・`running_roles`・`running_tasks`・`next` | 進み具合、動いている作業とエージェント、いま待っている起動の `task`、次にすること |
 
 | `actions` の `type` | 中身 | エージェントがすること |
 |---|---|---|
@@ -454,7 +454,7 @@ agents:                     # 作業のあとのオプションの段（既定�
 8. 全部済んだら `done`。
 
 - 取得・統合・検証のエージェントは、それぞれ同時に 1 つまで（`roles` の `active`）。同じ仕事で起動するのは 2 回まで（`rounds`）。
-- 取得エージェントが起動できない・止まった（`--failed collector:...`）、または 2 回起動しても検索が終わらないときは、`roles.collector.fallback` を true にし、そのあとは `mcp` の actions を返す（エージェントが代わりに取る）。
+- 取得エージェントが起動できない・止まった（`--failed collector:...`）、または 2 回起動しても検索が終わらないときは、`roles.collector.fallback` を true にし、そのあとは `mcp` の actions を返す（エージェントが代わりに取る）。代わりの検索も 2 回までで（`fallback_searches`）、そのツールがエラーを返した（`--failed collector:search`）ときと合わせて、それでも終わらなければ `stop` を返して止める（Coverity に届かないまま、朝まで繰り返さないため）。
 - 統合エージェントの計画と、検証エージェントの結果に直すところがあれば、直す点を添えてもう一度起動する。2 回とも通らないとき、止まったときは、そのエージェントの仕事を飛ばして進める（統合はまとめずに進め、`notes` に書く。検証はその作業を `unverified` にする）。夜間に人が見ていなくても、最後まで進めるため。
 - `tick` が `ok: false` を返したとき（修正用のコピーを用意できないなど）は、エージェントは人に伝えて止める（動いているサブエージェントの終わりは待って知らせる）。
 
@@ -508,7 +508,7 @@ agents:                     # 作業のあとのオプションの段（既定�
   - `--version` は、開いているフォルダの今のコミット（svn はリビジョン）。スナップショットの `sourceVersion`（設定 `revision_field`）に入り、そのあと `search_issues` が読む解析リビジョンと合う。
   - 認証キーは、2 行目（登録）にだけ、環境変数 `COVERITY_PASSPHRASE` で渡す（`cov-commit-defects` は `--password` が無いとき、これを読む。4 章）。1 行目（ビルドと解析）には、認証キーの環境変数を渡さない（ビルドの道具が環境変数をログに出すことがあるため）。コマンドラインには書かず、ログに残すコマンドの行は、認証情報の値を伏せる。ユーザ名は `coverity.user_env` の環境変数。どちらかが無ければ、ビルドの前に失敗にする。認証キーのファイルを使うサイトは、`cov_commit_args` で指定する。
   - ビルドには、スクリプトのために uv が作った Python の環境（`VIRTUAL_ENV` と、PATH のその `Scripts`）を渡さない（`common.build_env`。ビルドの中の `python` が、その環境を使わないように）。最後の検証（`ct.py verify`）も同じ。
-  - 開いているフォルダに、コミットしていない変更（追跡しているファイル）があったかを `status.json` の `dirty` に残す。あったときは、`plan` が解析リビジョンを使わずに、手元のコードで調べてずれを確かめる（登録したリビジョンと、解析したコードが同じではないため）。
+  - 開いているフォルダに、コミットしていない変更（追跡しているファイル。svn では、コミットしたあとによくある、リビジョンの混在した作業コピーも）があったかを `status.json` の `dirty` に残す。あったときは、`plan` が解析リビジョンを使わずに、手元のコードで調べてずれを確かめる（登録したリビジョンと、解析したコードが同じではないため）。
   - `coverity.api: fake` のときは、登録の代わりに `echo` で記録だけする（動作確認と自動テスト用）。
 - 動かし方：`tick` が `initial.start` で、切り離したプロセス（`ct.py initial-run --run D`。画面のサーバと同じ `spawn_detached`。Windows では `CREATE_NO_WINDOW` で、窓を出さない）を起動する。プロセスは、段の区切りの印（`__CT_STEP__build` など）をログに出し、ログを少しずつ読み進めて、段が変わったときだけ `analysis/status.json` を書く。見張りのプロセスが例外で終わるときは、先にビルドを止める。シェル 1 回で数十分待てる保証が無いため、エージェントは短い `tick` を繰り返して待つ（1 回最長 120 秒）。
 - `analysis/status.json`：`status`（`running` / `done` / `failed`。ファイルが無ければ `none`）、`step`（`setup` / `build` / `analyze` / `commit`）、`started`、`finished`、`pid`、`error`、登録できたときは `revision` と `stream`。`ct.py initial-status` は、これに経過秒数、段の名前、失敗したときはログの最後を足して返す。`running` なのにプロセスがいない（始めて 30 秒より後）とき、または時間の上限を 10 分過ぎても `running` のとき（プロセスの番号が別のプログラムに使い回された場合）は、失敗とみなす。ログの最後は、UTF-8 で読めなければ cp932 で読む（日本語の Windows のビルドの道具の出力）。

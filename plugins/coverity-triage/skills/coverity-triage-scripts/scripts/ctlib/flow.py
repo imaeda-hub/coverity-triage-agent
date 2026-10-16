@@ -54,11 +54,43 @@ def _prompt(brief: Path, what: str) -> str:
     return f"{what}。指示ファイル {brief} を読み、書かれた手順に従ってください。"
 
 
-def _launch(role: str, task: str, prompt: str, item: str | None = None, round_: int = 1) -> dict[str, Any]:
-    """Start an agent. A start after the first has the round in its task (``worker:20001#2``), so a late
-    second report of an earlier start is told apart and ignored."""
-    return {"type": "launch", "agent": AGENTS[role], "task": task if round_ <= 1 else f"{task}#{round_}",
-            "item": item, "prompt": prompt, "background": True}
+TASK = re.compile(r"^(?P<base>[^@#]+)(?:@(?P<gen>\d+))?(?:#(?P<round>\d+))?$")
+
+
+def _task(base: str, gen: int | None = None, round_: int = 1) -> str:
+    """The task an agent is started with: ``worker:20001@2#3`` is the 3rd start of the 2nd attempt.
+
+    The marks tell a late report of an earlier start apart from the report of the current one."""
+    return base + (f"@{gen}" if gen else "") + (f"#{round_}" if round_ > 1 else "")
+
+
+def _current(gen: int | None, round_: int | None, current_gen: int, current_round: int) -> bool:
+    """Whether a report is about the current start. A task without marks (the orchestrating agent left
+    them out) is taken as the current start."""
+    if gen is None and round_ is None:
+        return True
+    if gen is not None and gen != current_gen:
+        return False
+    return (round_ or 1) == current_round
+
+
+def _worker_task(item: ItemState) -> str:
+    return _task(f"worker:{item.id}", item.attempts, item.fix_rounds + 1)
+
+
+def _role_task(role: str, lease: dict[str, Any]) -> str:
+    if role == "collector":
+        return _task(f"collector:{lease.get('task')}", lease.get("rounds", 1))
+    if role == "integrator":
+        return _task("integrator", 1, lease.get("rounds", 1))
+    if role == "reviewer":
+        return _task(str(lease.get("task")), lease.get("gen", 1), lease.get("rounds", 1))
+    return str(lease.get("task") or role)
+
+
+def _launch(role: str, task: str, prompt: str, item: str | None = None) -> dict[str, Any]:
+    return {"type": "launch", "agent": AGENTS[role], "task": task, "item": item, "prompt": prompt,
+            "background": True}
 
 
 def _sha(path: Path) -> str | None:
@@ -71,8 +103,10 @@ def _start_role(run: Run, role: str, task: str, fresh: bool = False, **extra: An
     with run.update() as state:
         before = state.roles.get(role, {})
         rounds = before.get("rounds", 0) + 1 if before.get("task") == task and not fresh else 1
-        state.roles[role] = {"task": task, "active": True, "started": time.time(), "rounds": rounds,
-                             "fallback": before.get("fallback", False), **extra}
+        gen = before.get("gen", 0) + 1 if fresh or not before else before.get("gen", 1)
+        state.roles[role] = {"task": task, "active": True, "started": time.time(), "rounds": rounds, "gen": gen,
+                             "fallback": before.get("fallback", False),
+                             "fallback_searches": before.get("fallback_searches", 0), **extra}
     _log(run, "launch", role=role, task=task, item=extra.get("item"), round=rounds)
 
 
@@ -138,9 +172,18 @@ def tick(run_dir: str, finished: str | None = None, failed: str | None = None, r
             if _role_busy(run, "collector"):
                 return _answer(run, "search", actions, say, wait=True)
             if _fallback(run):
+                tries = run.state.roles.get("collector", {}).get("fallback_searches", 0)
+                if tries >= ROLE_ROUNDS:
+                    say.append("警告を検索できませんでした（Coverity に届かない、認証キーの期限が切れた、条件ファイルの"
+                               "ストリームが違う など）。トリアージは始めずに止めます")
+                    return _answer(run, "search", [], say, extra={"stop": True, "error": "警告を検索できませんでした"},
+                                   next_step="利用者に say を伝えて止める（/coverity-help で接続を確かめられる）")
+                with run.update() as state:
+                    state.roles.setdefault("collector", {})["fallback_searches"] = tries + 1
                 return _answer(run, "search", [_mcp_search(run)], say,
                                next_step="取得エージェントが使えないため、MCP の search_issues を自分で done になるまで"
-                                         "呼び、そのあと ct.py tick")
+                                         "呼び、そのあと ct.py tick（ツールがエラーを返したら ct.py tick --failed "
+                                         "collector:search --reason \"<エラー>\"）")
             actions.append(_collector_search(run))
             return _answer(run, "search", actions, say)
         planned = triage.plan(str(run.dir))
@@ -169,7 +212,7 @@ def tick(run_dir: str, finished: str | None = None, failed: str | None = None, r
         say.append(f"警告経路を取れなかった警告が {sum(len(c) for c in missing.values())} 件あります（経路なしで調べます）")
 
     # 4. the worker agents
-    actions += _fill_slots(run, say)
+    actions += _fill_slots(run, say, keep=bool(actions))
     run = Run(run_dir)
     counts = run.state.counts()
     if counts["pending"] or counts["in_progress"]:
@@ -212,15 +255,19 @@ def _answer(run: Run, stage: str, actions: list[dict[str, Any]], say: list[str],
     state = run.state
     running = [i.id for i in state.items if i.status == "in_progress"]
     roles = {role: lease.get("task") for role, lease in state.roles.items() if lease.get("active")}
+    tasks = [_worker_task(i) for i in state.items if i.status == "in_progress"] + \
+        [_role_task(role, lease) for role, lease in state.roles.items() if lease.get("active")]
     if done:
         next_step = (f"ct.py summary --run {run.dir} で一覧を作り、ct.py gui --repo {run.repo} --run {run.dir} "
                      "--view summary で画面の「結果」を開いて、利用者に伝える")
     elif not next_step:
         next_step = ("actions を順に行う（launch はそのエージェントを裏で動かす）。どれかが終わったら "
                      "ct.py tick --finished <task>（途中で止まった・起動できなかったら --failed <task> --reason ...）"
-                     if actions else "動いているエージェントが終わるのを待ち、終わったら ct.py tick --finished <task>")
+                     if actions else "動いているエージェントが終わるのを待ち、終わったら ct.py tick --finished <task>"
+                     "（task は running_tasks のもの）")
     out = {"ok": True, "stage": stage, "stage_label": STAGE_JA[stage], "actions": actions, "wait": wait and not actions,
-           "done": done, "running_items": running, "running_roles": roles, "counts": state.counts(), "say": say,
+           "done": done, "running_items": running, "running_roles": roles, "running_tasks": tasks,
+           "counts": state.counts(), "say": say,
            "next": next_step}
     if extra:
         out.update(extra)
@@ -232,32 +279,38 @@ def _answer(run: Run, stage: str, actions: list[dict[str, Any]], say: list[str],
 
 def _ended(run: Run, task: str, failed: bool, reason: str, say: list[str],
            actions: list[dict[str, Any]]) -> dict[str, Any] | None:
-    name, _, number = task.partition("#")
-    round_ = int(number) if number.isdigit() else 1
-    role, _, rest = name.partition(":")
+    match = TASK.match(task.strip())
+    base = match.group("base") if match else task
+    gen = int(match.group("gen")) if match and match.group("gen") else None
+    round_ = int(match.group("round")) if match and match.group("round") else None
+    role, _, rest = base.partition(":")
     if role == "worker":
-        _worker_ended(run, rest, round_, failed, reason, say, actions)
+        _worker_ended(run, rest, gen, round_, failed, reason, say, actions)
     elif role == "collector":
-        _collector_ended(run, rest, round_, failed, reason, say)
+        _collector_ended(run, rest, gen, round_, failed, reason, say)
     elif role == "integrator":
-        _integrator_ended(run, round_, failed, reason, say, actions)
+        _integrator_ended(run, gen, round_, failed, reason, say, actions)
     elif role == "reviewer":
-        _reviewer_ended(run, rest, round_, failed, reason, say, actions)
+        _reviewer_ended(run, rest, gen, round_, failed, reason, say, actions)
     elif role == "verify":
         _verify_ended(run, failed, reason, say)
     else:
         raise CtError(f"task が分かりません: {task}（worker:<ID>、collector:search、collector:paths、integrator、"
-                      "reviewer:<ID>、verify のどれか。#<数> が付いていればそのまま）")
+                      "reviewer:<ID>、verify のどれか。actions の task をそのまま渡す）")
     return None
 
 
 def _fail_item(run: Run, item_id: str, reason: str, say: list[str]) -> None:
     """The item could not be worked on. A merged item gives its members back as they were."""
     triage.fail(str(run.dir), item_id, reason)
-    item = run.state.item(item_id)
-    if not item.merged_from:
+    if not run.state.item(item_id).merged_from:
         say.append(f"{item_id}: 処理できませんでした（{reason}）")
         return
+    _undo_merge(run, item_id, reason, say)
+
+
+def _undo_merge(run: Run, item_id: str, reason: str, say: list[str]) -> None:
+    item = run.state.item(item_id)
     with run.update() as state:
         for member in item.merged_from:
             current = state.item(member)
@@ -270,10 +323,13 @@ def _fail_item(run: Run, item_id: str, reason: str, say: list[str]) -> None:
     say.append(f"{item_id}: 処理できなかったため、統合をやめて元の作業 {', '.join(item.merged_from)} に戻しました")
 
 
-def _worker_ended(run: Run, item_id: str, round_: int, failed: bool, reason: str, say: list[str],
-                  actions: list[dict[str, Any]]) -> None:
-    item = run.state.item(item_id)
-    if item.status != "in_progress" or round_ != item.fix_rounds + 1:
+def _worker_ended(run: Run, item_id: str, gen: int | None, round_: int | None, failed: bool, reason: str,
+                  say: list[str], actions: list[dict[str, Any]]) -> None:
+    try:
+        item = run.state.item(item_id)
+    except CtError:
+        return  # a merged item that was given back: a late report
+    if item.status != "in_progress" or not _current(gen, round_, item.attempts, item.fix_rounds + 1):
         return  # told twice, or about a start that was followed by another
     if failed:
         _fail_item(run, item_id, reason or "作業エージェントが途中で止まりました", say)
@@ -285,15 +341,16 @@ def _worker_ended(run: Run, item_id: str, round_: int, failed: bool, reason: str
         if not problems:  # not the worker's to fix (saving the fix failed, for example)
             _fail_item(run, item_id, str(exc), say)
             return
+        _log(run, "error", level="warning", command="finish", item=item_id, problems=problems)  # for the monitor
         if item.fix_rounds >= FIX_ROUNDS:
             _fail_item(run, item_id, f"結果ファイルを {FIX_ROUNDS} 回直しても通りませんでした: {'；'.join(problems)}", say)
             return
         with run.update() as state:
             state.item(item_id).fix_rounds += 1
         brief = run.item_dir(item_id) / "brief.md"
-        actions.append(_launch("worker", f"worker:{item_id}",
+        actions.append(_launch("worker", _worker_task(run.state.item(item_id)),
                                _prompt(brief, "Coverity の警告を調べます") + " 結果ファイルの次の点を直してください：\n"
-                               + "\n".join(f"- {p}" for p in problems), item_id, item.fix_rounds + 2))
+                               + "\n".join(f"- {p}" for p in problems), item_id))
         return
     if done.get("split_into"):
         say.append(f"{item_id}: 原因の違う CID {', '.join(done['split_into'])} を個別の作業に戻しました")
@@ -301,9 +358,15 @@ def _worker_ended(run: Run, item_id: str, round_: int, failed: bool, reason: str
         say.append(f"{item_id}: {warning}")
 
 
-def _collector_ended(run: Run, task: str, round_: int, failed: bool, reason: str, say: list[str]) -> None:
+def _collector_ended(run: Run, task: str, gen: int | None, round_: int | None, failed: bool, reason: str,
+                     say: list[str]) -> None:
     lease = run.state.roles.get("collector", {})
-    if not lease.get("active") or lease.get("task") != task or round_ != lease.get("rounds", 1):
+    if failed and task == "search" and lease.get("fallback") and not lease.get("active"):
+        with run.update() as state:  # the orchestrating agent's own search failed: the next tick stops
+            state.roles["collector"]["fallback_searches"] = ROLE_ROUNDS
+        say.append(f"警告の検索がエラーになりました（{reason or '理由不明'}）")
+        return None
+    if not lease.get("active") or lease.get("task") != task or not _current(gen, round_, lease.get("rounds", 1), 1):
         return None  # told twice, or about a start that was followed by another
     _end_role(run, "collector", "failed" if failed else "done", reason=reason)
     if failed:  # the agent could not be started or stopped: the orchestrating agent calls the tools itself
@@ -366,8 +429,8 @@ def _collector_search(run: Run) -> dict[str, Any]:
         "`検索: found=<found> limited=<limited> excluded=<excluded>`", "",
         "ツールがエラーを返したら、そのエラーの文を 1 行で返します（何度も呼び直さない）。", ""]))
     _start_role(run, "collector", "search")
-    return _launch("collector", "collector:search", _prompt(brief, "Coverity の警告を検索します"),
-                   round_=run.state.roles["collector"]["rounds"])
+    return _launch("collector", _role_task("collector", run.state.roles["collector"]),
+                   _prompt(brief, "Coverity の警告を検索します"))
 
 
 def _missing_paths(run: Run) -> dict[str, list[int]]:
@@ -414,8 +477,8 @@ def _collector_paths(run: Run, missing: dict[str, list[int]]) -> dict[str, Any]:
         "`警告経路: 保存 <保存した CID の数> / 取れなかった <取れなかった CID の数>`", "",
         "ツールがエラーを返した行は飛ばして、次の行へ進みます。", ""]))
     _start_role(run, "collector", "paths")
-    return _launch("collector", "collector:paths", _prompt(brief, "Coverity の警告経路を取ります"),
-                   round_=run.state.roles["collector"]["rounds"])
+    return _launch("collector", _role_task("collector", run.state.roles["collector"]),
+                   _prompt(brief, "Coverity の警告経路を取ります"))
 
 
 def _mark_unfetched(run: Run, missing: dict[str, list[int]]) -> None:
@@ -430,24 +493,35 @@ def _mark_unfetched(run: Run, missing: dict[str, list[int]]) -> None:
 # ---- workers ------------------------------------------------------------------------------------
 
 
-def _fill_slots(run: Run, say: list[str]) -> list[dict[str, Any]]:
-    """Start as many items as there are free slots."""
+def _fill_slots(run: Run, say: list[str], keep: bool = False) -> list[dict[str, Any]]:
+    """Start as many items as there are free slots.
+
+    When a start fails, the starts made before it (and, with ``keep``, what the tick has to give out
+    already) are given out; the next tick meets the error again if it is not of that item only."""
     actions: list[dict[str, Any]] = []
     while True:
+        item_id = None
         try:
             got = triage.next_item(str(run.dir))
+            if not got.get("item"):
+                break
+            item_id = got["item"]
+            if got.get("missing_issue_files"):  # an item made by the split or the integration copies them
+                _mark_unfetched(run, {item_id: got["missing_issue_files"]})
+            brief = triage.brief(str(run.dir), item_id)
         except CtError as exc:
-            if not actions:
+            current = Run(run.dir)
+            for item in current.state.items:  # a merged item that could not be started gives its members back
+                if item.status == "error" and item.merged_from:
+                    _undo_merge(current, item.id, str(exc), say)
+            if item_id and current.state.items and any(i.id == item_id and i.status == "in_progress"
+                                                       for i in current.state.items):
+                triage.fail(str(run.dir), item_id, str(exc))
+            if not actions and not keep:
                 raise
-            say.append(str(exc))  # the items started already are given out; the next tick meets the error again
+            say.append(str(exc))
             break
-        if not got.get("item"):
-            break
-        item_id = got["item"]
-        if got.get("missing_issue_files"):  # an item made by the split or the integration copies them
-            _mark_unfetched(run, {item_id: got["missing_issue_files"]})
-        brief = triage.brief(str(run.dir), item_id)
-        actions.append(_launch("worker", f"worker:{item_id}", brief["prompt"], item_id))
+        actions.append(_launch("worker", _worker_task(Run(run.dir).state.item(item_id)), brief["prompt"], item_id))
         if not got.get("can_start_more"):
             break
     return actions
@@ -588,14 +662,15 @@ def _integrator(run: Run, say: list[str]) -> dict[str, Any] | None:
     write_text(brief, "\n".join(lines))
     (run.dir / "agents" / "integrator" / "progress.json").unlink(missing_ok=True)
     _start_role(run, "integrator", "integrator", fresh=True, repo_fingerprint=run.vcs.fingerprint())
-    return _launch("integrator", "integrator", _prompt(brief, "同じ原因の警告をまとめます"))
+    return _launch("integrator", _role_task("integrator", run.state.roles["integrator"]),
+                   _prompt(brief, "同じ原因の警告をまとめます"))
 
 
-def _integrator_ended(run: Run, round_: int, failed: bool, reason: str, say: list[str],
+def _integrator_ended(run: Run, gen: int | None, round_: int | None, failed: bool, reason: str, say: list[str],
                       actions: list[dict[str, Any]]) -> None:
     lease = run.state.roles.get("integrator", {})
     rounds = lease.get("rounds", 1)
-    if not lease.get("active") or round_ != rounds:
+    if not lease.get("active") or not _current(gen, round_, 1, rounds):
         return  # told twice, or about a start that was followed by another
     if lease.get("repo_fingerprint") and run.vcs.fingerprint() != lease["repo_fingerprint"]:
         say.append("統合の間に、利用者のリポジトリのファイルが変わりました。統合エージェントが誤って変更していないか確かめてください")
@@ -612,9 +687,9 @@ def _integrator_ended(run: Run, round_: int, failed: bool, reason: str, say: lis
     if not failed and rounds < ROLE_ROUNDS:
         brief = run.dir / "agents" / "integrator" / "brief.md"
         _start_role(run, "integrator", "integrator", repo_fingerprint=lease.get("repo_fingerprint"))
-        actions.append(_launch("integrator", "integrator", _prompt(brief, "同じ原因の警告をまとめます")
-                               + " 計画の次の点を直してください：\n" + "\n".join(f"- {p}" for p in problems),
-                               round_=rounds + 1))
+        actions.append(_launch("integrator", _role_task("integrator", run.state.roles["integrator"]),
+                               _prompt(brief, "同じ原因の警告をまとめます")
+                               + " 計画の次の点を直してください：\n" + "\n".join(f"- {p}" for p in problems)))
         return
     _end_role(run, "integrator", "failed", reason=reason or "；".join(problems))
     with run.update() as state:
@@ -841,13 +916,15 @@ def _reviewer(run: Run, item: ItemState) -> dict[str, Any]:
     write_text(brief, "\n".join(lines))
     _start_role(run, "reviewer", f"reviewer:{item.id}", fresh=True, item=item.id, repo_fingerprint=run.vcs.fingerprint(),
                 result_sha=_sha(run.result_file(item.id)), patch_sha=_sha(Path(patch)) if patch else None)
-    return _launch("reviewer", f"reviewer:{item.id}", _prompt(brief, "調べた結果を独立に確かめます"), item.id)
+    return _launch("reviewer", _role_task("reviewer", run.state.roles["reviewer"]),
+                   _prompt(brief, "調べた結果を独立に確かめます"), item.id)
 
 
-def _reviewer_ended(run: Run, item_id: str, round_: int, failed: bool, reason: str, say: list[str],
-                    actions: list[dict[str, Any]]) -> None:
+def _reviewer_ended(run: Run, item_id: str, gen: int | None, round_: int | None, failed: bool, reason: str,
+                    say: list[str], actions: list[dict[str, Any]]) -> None:
     lease = run.state.roles.get("reviewer", {})
-    if lease.get("task") != f"reviewer:{item_id}" or not lease.get("active") or round_ != lease.get("rounds", 1):
+    if lease.get("task") != f"reviewer:{item_id}" or not lease.get("active") or \
+            not _current(gen, round_, lease.get("gen", 1), lease.get("rounds", 1)):
         return  # told twice, or about a start that was followed by another
     item = run.state.item(item_id)
     problems: list[str] = []
@@ -878,9 +955,10 @@ def _reviewer_ended(run: Run, item_id: str, round_: int, failed: bool, reason: s
         brief = run.dir / "agents" / "reviewer" / f"{item_id}.md"
         _start_role(run, "reviewer", f"reviewer:{item_id}", item=item_id, result_sha=lease.get("result_sha"),
                     patch_sha=lease.get("patch_sha"), repo_fingerprint=lease.get("repo_fingerprint"))
-        actions.append(_launch("reviewer", f"reviewer:{item_id}", _prompt(brief, "調べた結果を独立に確かめます")
+        actions.append(_launch("reviewer", _role_task("reviewer", run.state.roles["reviewer"]),
+                               _prompt(brief, "調べた結果を独立に確かめます")
                                + " 検証の結果ファイルの次の点を直してください：\n" + "\n".join(f"- {p}" for p in problems),
-                               item_id, run.state.roles["reviewer"]["rounds"]))
+                               item_id))
         return
     _end_role(run, "reviewer", "failed" if failed or problems else review.outcome, item=item_id,
               reason=reason or "；".join(problems))

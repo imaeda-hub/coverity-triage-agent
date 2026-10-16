@@ -331,7 +331,13 @@ class SvnVcs(Vcs):
         return out_text(self.svn("info", "--show-item", "revision", str(self.repo)))
 
     def has_local_changes(self) -> bool:
-        return bool(out_text(self.svn("status", "-q")))
+        """Changed files, or a working copy of mixed revisions (usual after a commit): its top revision is
+        then not the code that is there. ``svnversion`` writes 100:101, 100M or 100S for those."""
+        if out_text(self.svn("status", "-q")):
+            return True
+        proc = run_cmd(["svnversion", str(self.repo)], check=False)
+        version = out_text(proc)
+        return proc.returncode != 0 or not version.isdigit()
 
     def fingerprint(self) -> str:
         status = self.svn("status").stdout

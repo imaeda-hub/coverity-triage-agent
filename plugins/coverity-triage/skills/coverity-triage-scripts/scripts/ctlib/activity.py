@@ -325,6 +325,15 @@ def _describe(record: dict[str, Any]) -> str:
         if record.get("conflicts"):
             notes.append(f"同じ箇所を変える別の原因 {_count(record.get('conflicts'))} 組")
         return f"同じ原因の作業をまとめた（{'、'.join(notes)}）"
+    if event == "integrate-undo":
+        members = record.get("members") if isinstance(record.get("members"), list) else []
+        return (f"統合した {item or '-'} を処理できず、元の作業 {', '.join(map(str, members)) or '-'} に戻した"
+                + (f": {_short(record.get('reason'), 100)}" if record.get("reason") else ""))
+    if event == "integrate-build":
+        return f"統合した {item or '-'} の修正を差分から作れなかった（作業エージェントが作り直す）"
+    if event == "verify-failed":
+        return "ビルドでの検証ができなかった（確かめずに一覧を作る）" + (
+            f": {_short(record.get('reason'), 100)}" if record.get("reason") else "")
     if event == "paths-missing":
         items = record.get("items") if isinstance(record.get("items"), list) else []
         return f"警告経路を取れなかった作業がある（{', '.join(map(str, items)) or '-'}。経路なしで調べる）"

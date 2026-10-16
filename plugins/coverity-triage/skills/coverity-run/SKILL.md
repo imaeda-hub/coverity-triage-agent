@@ -28,6 +28,7 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 2. `ct.py runs --repo <repo_root>` で前回の実行を見る。
    - 設定ファイルが無いなどで失敗したら、「先に `/coverity-setup` で準備してください」と伝えて終わる。
    - いちばん新しい実行が途中（`unfinished: true`）なら、「前回の実行（日時・条件）が途中です。続きから再開しますか？」と聞く。再開するなら `ct.py resume --run <run_dir>` を実行し、結果の `run_dir`、`repo_root`、`work_dir` をこの後ずっと使う。下の「監視の画面を開く」と「修正用のコピーの案内」を行い、2 へ進む。
+     - 利用者が初回解析を指定していて（「最初に解析して」「解析はしないで」）、途中の実行と違うときは、再開では変えられないことを伝え、新しく始めるよう勧める（途中の実行の初回解析のする・しないは、始めたときのまま）。
 3. 新しく始めるとき：
    1. 利用者の言葉から条件を決める。条件ファイルの名前があれば `--filter`、「High だけ」などは `--impact High` のように引数で足す。件数の指定は `--limit`。ビルドでの検証の指定があれば `--verify build` など。「最初に解析して」「解析してから」と言われたら `--initial`、「解析はしないで」なら `--no-initial`（どちらも無ければ設定 `verify.initial` のとおり）。
    2. `ct.py new-run --repo <repo_root> ...` を実行する。結果の `run_dir`、`repo_root`、`work_dir` をこの後ずっと使う。`initial` が true なら「最初に、開いているフォルダをビルド・解析して、Coverity サーバに登録します（数十分かかることがあります）」と伝える。
@@ -58,8 +59,8 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 - `actions`：いまからすること。順に全部行う。
   - `type: launch`：`agent` の名前のカスタムエージェントを、`prompt` をそのまま渡して、**裏で動かす指定（background）で**起動する（1 つ終わるごとに次へ進めるように）。`task` を覚えておく。
   - `type: command`：`command` を `ct.py` で実行する（ビルドでの検証など。時間がかかるので、裏で動かす指定で動かし、終わるのを待つ）。`note` があれば先に伝える。終わったら、結果（`build_ok`、`downgraded_to_low`）を短く伝えて `ct.py tick --finished <task>`。`ok: false` で終わった・止まったときは `ct.py tick --failed <task> --reason "<error>"`。
-  - `type: mcp`：`tool` の MCP のツールを `args` で呼ぶ。`until_done` が true なら `done` が true になるまで同じ引数で呼び直す。全部終わったら `ct.py tick`（取得エージェントが使えないときに、あなたが代わりに取る）。
-- `wait` が true：裏で動いているエージェント（`running_items`、`running_roles`）が終わるのを待つ。初回解析の間（`stage` が `initial`）は、そのまま `ct.py tick` を呼び直す（tick が少し待ってから返る）。
+  - `type: mcp`：`tool` の MCP のツールを `args` で呼ぶ。`until_done` が true なら `done` が true になるまで同じ引数で呼び直す。全部終わったら `ct.py tick`（取得エージェントが使えないときに、あなたが代わりに取る）。ツールがエラーを返したら、呼び直さずに `ct.py tick --failed collector:search --reason "<エラーの文>"`（`get_issues` のときは `collector:paths`）で知らせる。
+- `wait` が true：裏で動いているエージェントが終わるのを待つ。終わったら、`running_tasks` にあるその `task` で知らせる（actions の `task` を覚えていなくても、ここで分かる）。初回解析の間（`stage` が `initial`）は、そのまま `ct.py tick` を呼び直す（tick が少し待ってから返る）。
 - `done` が true：3 へ進む。
 
 裏で動かしたエージェントが終わったら：

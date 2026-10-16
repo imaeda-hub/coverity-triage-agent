@@ -502,6 +502,12 @@ def finish(run_dir: str, item_id: str) -> dict[str, Any]:
         if excluded:
             current.cids = kept
             for cid in result.group_excluded_cids:
+                for member in state.items:  # a merged group that held the CID: it is no longer there
+                    if member.status == "merged" and member.merged_into == item_id and member.id != str(cid) \
+                            and cid in member.cids:
+                        member.cids = [c for c in member.cids if c != cid]
+                        if not member.cids:
+                            current.merged_from = [m for m in current.merged_from if m != member.id]
                 same = next((i for i in state.items if i.id == str(cid)), None)
                 if same is None:
                     state.items.append(ItemState(id=str(cid), cids=[cid], split_from=item_id))
@@ -769,7 +775,7 @@ def verify(run_dir: str, mode: str | None) -> dict[str, Any]:
         shutil.rmtree(latest)
     run.vcs.export(run.state.latest_revision or "", latest)
     _log(run, "verify-start", mode=mode, items=[b.item_id for b in batch])
-    outcome = Verifier(run.config.verify, run.dir).run_batch(mode, latest, batch)
+    outcome = Verifier(run.config.verify, run.dir, (run.config.coverity.key_env,)).run_batch(mode, latest, batch)
     shutil.rmtree(latest, ignore_errors=True)
 
     # result.json keeps what the worker wrote; the reports show the lower confidence (assess.effective)

@@ -23,7 +23,7 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 
 1. 範囲を決める（指定が無ければ ①〜④ すべて）。③④ は対象のリポジトリ（`/coverity-setup` 済み）を開いているときだけ。
 2. 使っているもの（VS Code か Copilot CLI）が分からなければ、利用者に聞く。
-3. `ct.py selftest start --sections <1,2,3,4 のうち> --client "<VS Code か Copilot CLI>" [--repo <リポジトリ>]` を実行する。結果の `dir` をこの後ずっと使う。
+3. `ct.py selftest start --sections <1,2,3,4 のうち> --client "<VS Code か Copilot CLI>" [--repo <リポジトリ>]` を実行する。③ か ④ を含むときは `--repo` を必ず付ける（④ の 4-3 は、そのリポジトリの設定で初回解析を使うかを見る）。結果の `dir` をこの後ずっと使う。
 4. 「結果は `<dir>` にまとめます」と伝え、①→②→③→④ の順に進める。
 
 ## ① 組み込み
