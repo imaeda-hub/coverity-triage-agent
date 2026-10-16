@@ -56,6 +56,9 @@ p { margin: 6px 0; }
 .badge.conf-high { background: var(--green-bg); color: var(--green); }
 .badge.conf-medium { background: var(--amber-bg); color: var(--amber); }
 .badge.conf-low { background: var(--red-bg); color: var(--red); }
+.badge.review-pass { background: var(--green-bg); color: var(--green); }
+.badge.review-flag, .badge.review-rework { background: var(--amber-bg); color: var(--amber); }
+.badge.review-unverified { background: var(--gray-bg); color: var(--gray); }
 .badge.impact-high { background: var(--red-bg); color: var(--red); }
 .badge.impact-medium { background: var(--amber-bg); color: var(--amber); }
 .badge.ok { background: var(--green-bg); color: var(--green); }
@@ -207,7 +210,7 @@ footer.foot { color: var(--muted); font-size: .85rem; margin-top: 24px; }
 <dl class="kv">
 <dt>概要</dt><dd>3 箇所の代入に明示のキャストを付ける</dd>
 <dt>影響とリスク</dt><dd>動きは変わらない（暗黙の変換を明示にするだけ）</dd>
-<dt>ブランチ</dt><dd><code>coverity-fix/20261015-134741-G1</code></dd>
+<dt>ブランチ</dt><dd><code>coverity-fix/20261016-043949-G1</code></dd>
 <dt>差分ファイル</dt><dd><a href="../patches/G1-fix.patch">G1-fix.patch</a></dd>
 <dt>修正後のファイル</dt><dd><ul class="files"><li><a href="../fixed/G1/fix/src/reader.c">src/reader.c</a></li></ul></dd>
 </dl>
@@ -245,7 +248,7 @@ footer.foot { color: var(--muted); font-size: .85rem; margin-top: 24px; }
 <h2>処理情報</h2>
 <dl class="kv">
 <dt>調べたコード</dt><dd>手元のコード</dd>
-<dt>修正の元にしたリビジョン</dt><dd>be38054022</dd>
+<dt>修正の元にしたリビジョン</dt><dd>fa9739ab6b</dd>
 </dl>
 </section>
 <footer class="foot">このレポートは表示専用です。承認（修正／逸脱／却下）と逸脱コメントの手直しは、画面（ct.py gui）の「結果」で入力します。</footer>

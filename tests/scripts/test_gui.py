@@ -91,17 +91,23 @@ def test_new_setup_writes_what_init_config_writes(product, saved_env):
     saved = yaml.safe_load(text)
     assert saved["coverity"]["url"] == "https://cov.example:8443"
     assert "ca_file" not in saved["coverity"] and "fake_data" not in saved["coverity"]
+    # The options of the initial analysis, the integration and the review are written off, as their defaults.
+    assert (saved["verify"]["initial"], saved["verify"]["cov_commit_args"], saved["verify"]["timeout_minutes"]) == (
+        False, "", 180)
+    assert saved["agents"] == {"integration": False, "review": False, "max_rework": 1}
     server_settings.load_coverity_config(product)  # the MCP server accepts what was written
     first = yaml.safe_load((folder / "filters" / "untriaged.yaml").read_text(encoding="utf-8"))
     assert first == {"name": "未トリアージ（20 件まで）", "project": "P", "streams": ["P-main"],
                      "triage": {"classification": ["Unclassified"]}, "limit": 20}
     assert (folder / "knowledge.md").read_text(encoding="utf-8") == config.KNOWLEDGE_TEMPLATE
 
-    # Same shape as the questions in chat.
+    # Same shape as the questions in chat (they may leave out a part that keeps its defaults, such as agents).
     other = product.parent / "other"
     subprocess.run(["git", "clone", "-q", str(product), str(other)], check=True)
     prepare.init_config(str(other), "https://cov.example:8443/", "P", "P-main", "develop", None, [], True)
-    assert yaml.safe_load((other / ".coverity-triage" / "config.yaml").read_text(encoding="utf-8")) == saved
+    chat = yaml.safe_load((other / ".coverity-triage" / "config.yaml").read_text(encoding="utf-8"))
+    assert chat == {key: value for key, value in saved.items() if key in chat}
+    assert config.load_config(other).model_dump() == config.load_config(product).model_dump()
 
     again = gui.load_state(product)
     assert again["config_exists"] and again["config_error"] is None
@@ -135,8 +141,11 @@ def test_every_setting_can_be_changed(product, saved_env):
     cfg.update({"output_dir": "../elsewhere", "max_items": 30, "parallel": 3})
     cfg["options"] = {"annotation": True, "per_run_branch": True, "knowledge_suggestions": True, "metrics": True,
                       "markdown": True}
-    cfg["verify"] = {"default": "build+analyze", "setup_command": 'envset.bat "{root}" x', "build_dir": "src",
-                     "build_command": "make", "cov_build_args": "--dir i2", "cov_analyze_args": "--dir i2 --all"}
+    cfg["verify"] = {"default": "build+analyze", "initial": True, "setup_command": 'envset.bat "{root}" x',
+                     "build_dir": "src", "build_command": "make", "cov_build_args": "--dir i2",
+                     "cov_analyze_args": "--dir i2 --all", "cov_commit_args": "--auth-key-file key.json",
+                     "timeout_minutes": 60}
+    cfg["agents"] = {"integration": True, "review": True, "max_rework": 2}
     misra = {"name": "MISRA", "project": "P", "streams": ["P-main"], "checkers": ["MISRA C-2012 *"],
              "impacts": ["High"], "triage": {"status": ["New"], "classification": [], "action": ["Undecided"]},
              "limit": None}

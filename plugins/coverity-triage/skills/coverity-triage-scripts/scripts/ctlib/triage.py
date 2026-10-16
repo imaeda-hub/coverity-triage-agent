@@ -25,6 +25,7 @@ from .vcs import detect
 VCS_LOCK_SECONDS = 1800  # creating a work copy of a large repository can take long
 PROGRESS_FILE = "progress.json"  # written by the worker subagent at each step (best effort)
 PREVIOUS_RESULT = "result.previous.json"  # the result before the review sent the item back
+REWORK_FRESH = "rework-fresh"  # the earlier fix could not be applied to the work copy again
 
 
 def _repo(path: str) -> Path:
@@ -120,6 +121,13 @@ def plan(run_dir: str) -> dict[str, Any]:
     if analyzed and not vcs.has_revision(analyzed):
         notes.append(f"Coverity が解析したリビジョン {analyzed} がリポジトリにありません。")
         analyzed = None
+    if analyzed and run.state.initial:
+        from . import initial
+
+        if initial.status(run).get("dirty"):
+            notes.append("初回解析は、コミットしていない変更を含む手元のフォルダで行いました（登録したリビジョンは "
+                         f"{analyzed[:10]}）。")
+            analyzed = None
     if not analyzed:
         notes.append("解析したリビジョンが分からないため、手元のコードで調べ、警告とのずれを確かめます。")
     latest, latest_note = vcs.resolve_latest()
@@ -187,10 +195,13 @@ def next_item(run_dir: str) -> dict[str, Any]:
     try:
         with file_lock(run.dir / "work" / "vcs", timeout=VCS_LOCK_SECONDS):
             vcs.reset_copy(run.copy_dir("fix", item.slot), latest)
+            fresh = run.item_dir(item.id) / REWORK_FRESH
+            fresh.unlink(missing_ok=True)
             if start_from is not None:  # sent back by the review: the worker changes its earlier fix
-                problem = vcs.apply_to_copy(run.copy_dir("fix", item.slot), start_from)
-                if problem:
-                    raise CtError(f"前の修正を修正用のコピーに当てられませんでした: {problem}")
+                if vcs.apply_to_copy(run.copy_dir("fix", item.slot), start_from):
+                    vcs.reset_copy(run.copy_dir("fix", item.slot), latest)  # made anew from the latest revision
+                    fresh.parent.mkdir(parents=True, exist_ok=True)
+                    fresh.write_text("前の修正を当てられませんでした\n", encoding="utf-8")
             if config.options.annotation:
                 vcs.reset_copy(run.copy_dir("annotation", item.slot), latest)
             # the analyzed copy is shared and read-only: reset it only while no other item is reading it
@@ -204,8 +215,8 @@ def next_item(run_dir: str) -> dict[str, Any]:
     folder = run.item_dir(item.id)
     folder.mkdir(parents=True, exist_ok=True)
     result_file = run.result_file(item.id)
-    if item.rework and result_file.is_file():
-        result_file.replace(folder / PREVIOUS_RESULT)  # the worker reads what it wrote before
+    if item.rework and result_file.is_file() and not (folder / PREVIOUS_RESULT).is_file():
+        result_file.replace(folder / PREVIOUS_RESULT)  # the worker reads what the review checked
     result_file.unlink(missing_ok=True)
     (folder / PROGRESS_FILE).unlink(missing_ok=True)  # the progress of an earlier attempt
     with run.update() as state:
@@ -357,10 +368,11 @@ def _merge_lines(run: Run, item: ItemState) -> list[str]:
     merged = read_json(run.dir / "integration" / "merged.json", {}).get(item.id)
     if not item.merged_from or not merged:
         return []
+    what = ("検証からの指摘を直すときの参考に、元の作業の結果と差分を読みます。" if item.rework else
+            "それぞれの結果と差分を読み、すべての CID に効く 1 つの修正を、修正するコードのフォルダで作り直します"
+            "（修正するコードは最新のリビジョンのままで、まだ何も直していません）。")
     lines = ["## 統合の指示", "",
-             f"統合エージェントが、作業 {', '.join(item.merged_from)} は同じ原因だと判断し、1 つの作業にまとめました。"
-             "それぞれの結果と差分を読み、すべての CID に効く 1 つの修正を、修正するコードのフォルダで作り直します"
-             "（修正するコードは最新のリビジョンのままで、まだ何も直していません）。",
+             f"統合エージェントが、作業 {', '.join(item.merged_from)} は同じ原因だと判断し、1 つの作業にまとめました。{what}",
              f"統合の理由：{merged['reason']}", "",
              "| 元の作業 | 結果ファイル | 修正の差分 |", "|---|---|---|"]
     for member in item.merged_from:
@@ -376,12 +388,19 @@ def _rework_lines(run: Run, item: ItemState) -> list[str]:
     if not item.rework:
         return []
     previous = run.item_dir(item.id) / PREVIOUS_RESULT
-    return ["## 検証からの指摘（直すこと）", "",
-            "独立した検証エージェントが、前の結果を確かめて、次の点を指摘しました。",
-            *[f"- {r}" for r in item.rework], "",
-            f"前の結果ファイルは `{previous}` です。修正するコードのフォルダには、前の修正が当ててあります。"
-            "指摘の点を確かめ、正しければ直し、指摘が当たらないと分かったときは、その根拠を confidence_reason に書きます。"
-            "結果ファイルは、前の結果を元に、全体を書き直します。", ""]
+    copy = ("修正するコードのフォルダは最新のリビジョンのままです（前の修正をもう当てられなかったため）。前の結果を参考に、"
+            "修正を作り直します。" if (run.item_dir(item.id) / REWORK_FRESH).is_file() else
+            "修正するコードのフォルダには、前の修正が当ててあります。")
+    lines = ["## 検証からの指摘（直すこと）", "",
+             "独立した検証エージェントが、前の結果を確かめて、次の点を指摘しました。",
+             *[f"- {r}" for r in item.rework], "",
+             f"前の結果ファイルは `{previous}` です。{copy}"
+             "指摘の点を確かめ、正しければ直し、指摘が当たらないと分かったときは、その根拠を confidence_reason に書きます。"
+             "結果ファイルは、前の結果を元に、全体を書き直します。",
+             "- group_excluded_cids には、今の作業の CID の中から書きます（前に外した CID は、もう別の作業です）。"]
+    if run.config.options.annotation:
+        lines.append("- アノテーションを入れるコードのフォルダは最新のリビジョンに戻してあります。注釈も入れ直します。")
+    return lines + [""]
 
 
 # ---- finish ----------------------------------------------------------------------------------
@@ -483,10 +502,18 @@ def finish(run_dir: str, item_id: str) -> dict[str, Any]:
         if excluded:
             current.cids = kept
             for cid in result.group_excluded_cids:
-                if not any(i.id == str(cid) for i in state.items):
+                same = next((i for i in state.items if i.id == str(cid)), None)
+                if same is None:
                     state.items.append(ItemState(id=str(cid), cids=[cid], split_from=item_id))
+                elif same.status == "merged":  # merged into this item earlier: worked on by itself again
+                    same.status, same.merged_into, same.cids, same.split_from = "pending", None, [cid], item_id
+                    same.review, same.rework, same.review_rounds = None, [], 0
+                    current.merged_from = [m for m in current.merged_from if m != same.id]
                 split.append(str(cid))
         current.warnings = warnings
+        if current.rework:
+            (run.item_dir(item_id) / PREVIOUS_RESULT).unlink(missing_ok=True)
+            (run.item_dir(item_id) / REWORK_FRESH).unlink(missing_ok=True)
         current.rework = []
         current.review = None  # a new result is reviewed again
         finish_item(current, "done")
@@ -617,7 +644,7 @@ def runs(repo_root: str, limit: int) -> dict[str, Any]:
             continue
         counts = state.counts()
         found.append({"run_dir": str(folder), "created_at": state.created_at, "filter": state.filter_name,
-                      "planned": state.planned, "counts": counts, "unfinished": unfinished(state),
+                      "planned": state.planned, "counts": counts, "unfinished": unfinished(state, folder),
                       "summary": any((folder / f"summary.{ext}").is_file() for ext in ("html", "md")),
                       "applied": sum(1 for i in state.items if i.applied)})
     return {"ok": True, "output_dir": str(output), "runs": found}
@@ -710,6 +737,12 @@ def filter_from(run: Run) -> FilterSpec:
 # ---- verify (option) -------------------------------------------------------------------------
 
 
+def _mark_verified(run: Run) -> None:
+    with run.update() as state:
+        state.verified = True
+        state.roles.pop("verify", None)
+
+
 def verify(run_dir: str, mode: str | None) -> dict[str, Any]:
     """Build (and analyze) the latest code with every fix of the run applied, once."""
     from .verify import BatchItem, Verifier
@@ -718,6 +751,7 @@ def verify(run_dir: str, mode: str | None) -> dict[str, Any]:
     run = Run(run_dir)
     mode = mode or run.state.verify_mode
     if mode == "none":
+        _mark_verified(run)
         return {"ok": True, "mode": "none", "message": "ビルドでの検証は使わない設定です"}
     issues, _ = _mapped(run)
     strip = 1 if isinstance(run.vcs, GitVcs) else 0
@@ -728,6 +762,7 @@ def verify(run_dir: str, mode: str | None) -> dict[str, Any]:
             batch.append(BatchItem(item.id, saved["fix"]["patch"], saved["fix"]["files"],
                                    [issues[c] for c in item.cids], strip))
     if not batch:
+        _mark_verified(run)
         return {"ok": True, "mode": mode, "message": "確かめる修正案がありません"}
     latest = run.copy_dir("verify-latest")
     if latest.exists():
@@ -749,8 +784,7 @@ def verify(run_dir: str, mode: str | None) -> dict[str, Any]:
         results[item_id] = checked
         rerender(run, item_id, checked)
     write_json(run.dir / "verify.json", results)
-    with run.update() as state:
-        state.verified = True
+    _mark_verified(run)
     _log(run, "verify", mode=mode, build_ok=outcome.build_ok, downgraded=downgraded, error=outcome.error)
     return {"ok": True, "mode": mode, "build_ok": outcome.build_ok, "seconds": round(outcome.seconds),
             "items": len(outcome.items), "downgraded_to_low": sorted(downgraded),

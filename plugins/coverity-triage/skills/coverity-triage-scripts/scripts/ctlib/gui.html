@@ -224,6 +224,8 @@ a.btn { display: inline-block; text-decoration: none; color: inherit; }
 .linkish { border: 0; background: none; padding: 0; color: var(--accent); cursor: pointer; text-decoration: underline; text-align: left; font-weight: 600; }
 .sub { display: block; color: var(--muted); font-size: 12px; font-weight: normal; }
 .sub.bad { color: var(--ng); }
+.sub.ok { color: var(--ok); }
+.sub.warn { color: var(--warn); }
 .muted { color: var(--muted); }
 
 /* monitor */
@@ -241,6 +243,7 @@ pre.board .probe { position: absolute; visibility: hidden; }
 .b-retry { color: var(--violet); }
 .b-stall { color: var(--warn); font-weight: 700; }
 .b-err { color: var(--ng); font-weight: 700; }
+.b-done { color: var(--ok); }
 .b-idle, .b-line, .b-dim, .bar-off { color: var(--muted); }
 .bar-off { opacity: .6; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--muted); margin: 10px 0 0; }
@@ -249,6 +252,7 @@ pre.board .probe { position: absolute; visibility: hidden; }
 .legend .retry { background: var(--violet); }
 .legend .stall { background: var(--warn); }
 .legend .err { background: var(--ng); }
+.legend .done { background: var(--ok); }
 .legend .idle { background: var(--line-strong); }
 .slots { list-style: none; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
 .slots li { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 8px; padding: 8px 12px; background: var(--surface); min-width: 0; overflow-wrap: anywhere; }
@@ -536,17 +540,39 @@ table.items td.acts { white-space: nowrap; }
       </div>
 
       <div class="card">
-        <h3>ビルドでの検証 <span class="scope">チームで共有</span></h3>
-        <p class="desc">全件を調べたあと、修正案をすべて当てたコードで 1 回ビルドし、問題が出た修正案の確信度を「低」にします。</p>
+        <h3>統合と検証 <span class="scope">チームで共有</span></h3>
+        <p class="desc">警告を調べ終わったあと、別の AI が結果を見直します。既定はどちらもオフです。オンにすると、その分だけ時間が延びます。オンのときは、統合と検証が終わって一覧ができてから承認を入れます。</p>
+        <div class="switch-row">
+          <div class="text"><b>統合</b><span>調べたあと、同じ原因の警告を 1 つにまとめます。別の AI が、調べた結果と修正の差分を見比べて決めます（この AI はコードを書きません）。</span></div>
+          <label class="switch"><input type="checkbox" data-bind="agents.integration" data-kind="bool" aria-label="統合"><i></i></label>
+        </div>
+        <div class="switch-row">
+          <div class="text"><b>検証</b><span>調べた結果を、別の AI が独立に確かめます。問題があれば、確信度を下げるか、調べた AI に直してもらいます（差し戻し）。</span></div>
+          <label class="switch"><input type="checkbox" data-bind="agents.review" data-kind="bool" aria-label="検証"><i></i></label>
+        </div>
+        <div class="field" data-show="review" style="margin-top:8px">
+          <label for="f-rework">差し戻しの上限</label>
+          <input type="number" id="f-rework" min="0" max="2" step="1" data-bind="agents.max_rework" data-kind="int">
+          <div class="help">既定 1（0〜2）。検証で直すところが見つかったとき、調べた AI に直してもらう回数です。0 なら直してもらわず、「要確認」にします。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>ビルドでの検証と初回解析 <span class="scope">チームで共有</span></h3>
+        <p class="desc">ビルドでの検証は、全件を調べたあと、修正案をすべて当てたコードで 1 回ビルドし、問題が出た修正案の確信度を「低」にします。初回解析は、調べる前に解析してサーバに登録します。ビルドのコマンドは、どちらも同じものを使います。</p>
         <div class="field">
-          <div class="label">確かめ方</div>
+          <div class="label">ビルドでの検証の確かめ方</div>
           <div class="radio-cards">
-            <label><input type="radio" name="verify-default" value="none" data-bind="verify.default" data-kind="radio"><div><b>使わない（既定）</b><span>修正案をビルドで確かめません。下の項目は使いません。</span></div></label>
+            <label><input type="radio" name="verify-default" value="none" data-bind="verify.default" data-kind="radio"><div><b>使わない（既定）</b><span>修正案をビルドで確かめません。下のビルドの項目は、初回解析を使うときだけ使います。</span></div></label>
             <label><input type="radio" name="verify-default" value="build" data-bind="verify.default" data-kind="radio"><div><b>ビルドだけ</b><span>修正案をすべて当てたコードを 1 回ビルドし、ビルドが通るかを確かめます。</span></div></label>
             <label><input type="radio" name="verify-default" value="build+analyze" data-bind="verify.default" data-kind="radio"><div><b>ビルドと再解析</b><span>ビルドに加えて Coverity で解析し直し、警告が消えたか、新しい警告が出ていないかも確かめます（解析は 2 回。時間がかかります）。</span></div></label>
           </div>
         </div>
-        <div class="note" data-show="no-verify">「ビルドだけ」か「ビルドと再解析」を選ぶと、ビルドのコマンドなどを入れる欄が出ます。</div>
+        <div class="switch-row">
+          <div class="text"><b>初回解析</b><span>/coverity-run の最初に、開いているフォルダをビルド・解析して Coverity サーバに登録します（今まで手でしていたこと）。登録が終わってから警告を取ります。失敗したら、調べ始めずに止まります。</span></div>
+          <label class="switch"><input type="checkbox" data-bind="verify.initial" data-kind="bool" aria-label="初回解析"><i></i></label>
+        </div>
+        <div class="note" data-show="no-verify">「ビルドだけ」か「ビルドと再解析」を選ぶか、初回解析をオンにすると、ビルドのコマンドなどを入れる欄が出ます。</div>
         <div data-show="verify">
           <div class="field">
             <label for="f-setup">ビルドの前に実行する環境設定のコマンド<span class="cond">任意</span></label>
@@ -566,20 +592,33 @@ table.items td.acts { white-space: nowrap; }
           </div>
           <div class="row" data-show="analyze">
             <div class="field">
-              <label for="f-covb">cov-build の引数<span class="cond">ビルドと再解析のとき</span></label>
+              <label for="f-covb">cov-build の引数<span class="cond">再解析と初回解析のとき</span></label>
               <input type="text" id="f-covb" class="mono" data-bind="verify.cov_build_args" autocomplete="off" spellcheck="false">
               <div class="help"><code>--dir</code> が必要です。既定 <code>--dir idir</code></div>
             </div>
             <div class="field">
-              <label for="f-cova">cov-analyze の引数<span class="cond">ビルドと再解析のとき</span></label>
+              <label for="f-cova">cov-analyze の引数<span class="cond">再解析と初回解析のとき</span></label>
               <input type="text" id="f-cova" class="mono" data-bind="verify.cov_analyze_args" autocomplete="off" spellcheck="false">
               <div class="help">既定 <code>--dir idir --all</code></div>
             </div>
           </div>
-          <div class="help" style="margin:-6px 0 14px" data-show="analyze">ビルドと再解析では、ビルドのコマンドを <code>cov-build</code> の下で動かし、そのあと <code>cov-analyze</code> を実行します。</div>
+          <div class="help" style="margin:-6px 0 14px" data-show="analyze">ビルドと再解析・初回解析では、ビルドのコマンドを <code>cov-build</code> の下で動かし、そのあと <code>cov-analyze</code> を実行します。</div>
+          <div class="row" data-show="initial">
+            <div class="field">
+              <label for="f-covc">cov-commit-defects に足す引数<span class="cond">初回解析のとき・任意</span></label>
+              <input type="text" id="f-covc" class="mono" data-bind="verify.cov_commit_args" placeholder="（空でかまいません）" autocomplete="off" spellcheck="false">
+              <div class="help"><code>--dir</code>・<code>--url</code>・<code>--stream</code>・<code>--user</code>・<code>--version</code> はスクリプトが付けます。認証キーのファイルを使うときは、<code>--auth-key-file</code> をここに書きます。</div>
+            </div>
+            <div class="field">
+              <label for="f-timeout">初回解析の時間の上限（分）</label>
+              <input type="number" id="f-timeout" min="1" step="1" data-bind="verify.timeout_minutes" data-kind="int">
+              <div class="help">既定 180。これを超えたら止めて、失敗として伝えます（固まったビルドを、見ていない間に止めるため）。</div>
+            </div>
+          </div>
+          <div class="help" style="margin:-6px 0 14px" data-show="initial">初回解析では、<code>cov-analyze</code> のあと <code>cov-commit-defects</code> でサーバに登録します。登録先は条件ファイルのストリーム、<code>--version</code> は開いているフォルダの今のリビジョンです。認証キーはコマンドに書かず、環境変数で渡します。</div>
           <div class="field">
             <button class="btn" type="button" id="trialBtn">試しにビルドする</button>
-            <span class="help" style="margin-left:8px">修正前の最新のコードを、この画面の値でビルドします（時間がかかることがあります）。保存の前に試すのがおすすめです。</span>
+            <span class="help" style="margin-left:8px">修正前の最新のコードを、この画面の値でビルドします（時間がかかることがあります。サーバには登録しません）。保存の前に試すのがおすすめです。</span>
             <div class="build-result" id="trialResult"></div>
           </div>
         </div>
@@ -757,11 +796,12 @@ table.items td.acts { white-space: nowrap; }
   <div id="monBody">
     <div class="card board-card">
       <h3>エージェントの動き</h3>
-      <p class="desc">上がメインのエージェント（Copilot）、下が同時に動くサブエージェント（worker）です。1 つの枠が 1 つのサブエージェントです。このタブを開いている間、2 秒ごとに新しくします。</p>
+      <p class="desc">上がメインのエージェント（Copilot）、下がその指示で動くものです。下の枠は、実行の順に、初回解析（initial）、取得（collector）、作業（worker。同時に動く数だけ）、統合（integrator）、検証（reviewer）です。初回解析・統合・検証はオプションで、使っていないものは出ません。このタブを開いている間、2 秒ごとに新しくします。</p>
       <pre class="board" id="board"></pre>
       <div class="legend">
-        <span><i class="run"></i>調べている</span><span><i class="retry"></i>結果を直している</span>
-        <span><i class="stall"></i>止まっているかもしれない（10 分以上動きがない）</span><span><i class="err"></i>エラー</span><span><i class="idle"></i>空き</span>
+        <span><i class="run"></i>動いている</span><span><i class="retry"></i>結果を直している・メインが代わりにしている</span>
+        <span><i class="stall"></i>止まっているかもしれない（10 分以上動きがない。初回解析は 30 分）</span><span><i class="err"></i>エラー</span>
+        <span><i class="done"></i>終わった</span><span><i class="idle"></i>空き・待ち</span>
       </div>
       <ul class="slots" id="slots"></ul>
     </div>
@@ -834,6 +874,8 @@ const LABELS = {
   "options.knowledge_suggestions": "知識の追記の提案", "options.metrics": "効果測定の記録", "options.markdown": "Markdown も出す",
   "verify.default": "ビルドでの検証", "verify.setup_command": "環境設定のコマンド", "verify.build_dir": "ビルドするフォルダ",
   "verify.build_command": "ビルドのコマンド", "verify.cov_build_args": "cov-build の引数", "verify.cov_analyze_args": "cov-analyze の引数",
+  "verify.initial": "初回解析", "verify.cov_commit_args": "cov-commit-defects の引数", "verify.timeout_minutes": "初回解析の時間の上限（分）",
+  "agents.integration": "統合", "agents.review": "検証", "agents.max_rework": "差し戻しの上限",
 };
 const FILTER_LABELS = { name: "表示名", project: "プロジェクト", streams: "ストリーム", checkers: "チェッカー名",
   impacts: "Impact", "triage.classification": "Classification", "triage.action": "Action", "triage.status": "Status", limit: "調べる警告の数（上限）" };
@@ -975,8 +1017,11 @@ function renderFirst() {
 }
 function visibility() {
   const git = S.config.vcs.type === "git";
-  const verify = S.config.verify.default !== "none";
-  const show = { git, svn: S.config.vcs.type === "svn", verify, "no-verify": !verify, analyze: S.config.verify.default === "build+analyze", fake: S.config.coverity.api === "fake",
+  const analyzeFirst = !!S.config.verify.initial;
+  // The commands of the build are shared by the verification and the initial analysis.
+  const verify = S.config.verify.default !== "none" || analyzeFirst;
+  const show = { git, svn: S.config.vcs.type === "svn", verify, "no-verify": !verify, initial: analyzeFirst,
+    analyze: S.config.verify.default === "build+analyze" || analyzeFirst, review: !!(S.config.agents || {}).review, fake: S.config.coverity.api === "fake",
     first: !!firstDraft() && S.filters.filter((f) => !f.deleted).length === 1, "not-first": !(!!firstDraft() && S.filters.filter((f) => !f.deleted).length === 1) };
   for (const node of $$("[data-show]")) node.hidden = !show[node.dataset.show];
   for (const input of $$("[data-git-only]")) input.disabled = !git;
@@ -1167,6 +1212,10 @@ function validate() {
   for (const [sel, key, label] of [["#f-uenv", "user_env", "ユーザ名"], ["#f-kenv", "key_env", "認証キー"]])
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(c.coverity[key] || "")) add("options", sel, `${label}の環境変数の名前は、英字・数字・_ だけにしてください`);
   if (c.verify.default !== "none" && !(c.verify.build_command || "").trim()) add("options", "#f-bcmd", "ビルドでの検証を使うときは、ビルドのコマンドを入れてください");
+  else if (c.verify.initial && !(c.verify.build_command || "").trim()) add("options", "#f-bcmd", "初回解析を使うときは、ビルドのコマンドを入れてください");
+  if (!Number.isInteger(c.verify.timeout_minutes) || c.verify.timeout_minutes < 1) add("options", "#f-timeout", "初回解析の時間の上限は 1 以上の整数（分）にしてください");
+  const rework = (c.agents || {}).max_rework;
+  if (!Number.isInteger(rework) || rework < 0 || rework > 2) add("options", "#f-rework", "差し戻しの上限は 0〜2 の整数にしてください");
   const active = S.filters.filter((f) => !f.deleted);
   if (!active.length) add("filters", "#addFilter", "条件ファイルが 1 つもありません");
   const names = new Set();
@@ -1189,9 +1238,11 @@ function warnings(c) {
   if (cfg.coverity.api !== "fake" && S.cred.can_save && !S.cred.key_set && !S.key) out.push("認証キー（またはパスワード）がまだ設定されていません（基本設定の「認証情報」）。");
   if (cfg.coverity.api === "fake") out.push("接続先が偽データ（fake）です。社内の Coverity を使うときは auto にします。");
   const v = cfg.verify;
-  const verifyChanged = c.config.some((r) => /ビルド|環境設定|cov-/.test(r.what));
+  const verifyChanged = c.config.some((r) => /ビルド|環境設定|cov-|初回解析/.test(r.what));
   const cmds = { setup_command: v.setup_command, build_dir: v.build_dir, build_command: v.build_command };
-  if (v.default !== "none" && verifyChanged && !same(lastBuildOk, cmds)) out.push("ビルドの設定を、この値ではまだ試していません。オプション設定の「試しにビルドする」で確かめるのがおすすめです。");
+  if ((v.default !== "none" || v.initial) && verifyChanged && !same(lastBuildOk, cmds)) out.push("ビルドの設定を、この値ではまだ試していません。オプション設定の「試しにビルドする」で確かめるのがおすすめです。");
+  if (v.initial && !(state.config_exists && initial.config.verify.initial))
+    out.push(`初回解析をオンにすると、/coverity-run のたびに、開いているフォルダをビルド・解析して Coverity サーバに登録します（時間がかかります。上限 ${v.timeout_minutes} 分）。登録する権限が要ります。`);
   return out;
 }
 
@@ -1481,7 +1532,8 @@ const VIEWS = ["monitor", "summary", "settings"];
 const VIEW_TITLES = { monitor: "監視 — Coverity トリアージ", summary: "結果 — Coverity トリアージ", settings: "Coverity トリアージの設定" };
 const RUN_ID = /^[0-9]{8}-[0-9]{6}(-[0-9]+)?$/;
 const ITEM_ID = /^[A-Za-z0-9_-]{1,40}$/;
-const STAGE_JA = { search: "Coverity で警告を検索中", plan: "作業の一覧を作っている", items: "警告を調べている",
+const STAGE_JA = { initial: "初回解析（ビルド・解析・サーバへの登録）", search: "Coverity で警告を検索中", plan: "作業の一覧を作っている",
+  paths: "警告経路を取っている", items: "警告を調べている", integrate: "同じ原因の警告をまとめている", review: "結果を検証している",
   verify: "ビルドで確かめている", summary: "一覧を作っている", apply: "反映の途中", done: "終わりました" };
 const PLAN_JA = { fix: "修正", deviation: "逸脱" };
 const CONF_JA = { high: "高", medium: "中", low: "低" };
@@ -1489,7 +1541,8 @@ const CONF_ORDER = { low: 0, medium: 1, high: 2 };
 const DECISIONS = [["fix", "修正"], ["deviation", "逸脱"], ["reject", "却下"], ["", "反映しない"]];
 const DECISION_JA = Object.fromEntries(DECISIONS);
 const KIND_JA = { fix: "修正", annotation: "アノテーション" };
-const SOURCE_JA = { ct: "ct.py", mcp: "MCP サーバ", stall: "停止の疑い", verify: "ビルドでの確かめ", apply: "反映" };
+const SOURCE_JA = { ct: "ct.py", mcp: "MCP サーバ", stall: "停止の疑い", verify: "ビルドでの確かめ", apply: "反映",
+  initial: "初回解析", review: "検証", integrate: "統合" };
 const STATUS_JA = { done: "調べ終わり", error: "エラー", in_progress: "調査中", pending: "待ち" };
 const DEVIATION_FIELDS = ["classification", "action", "severity", "comment"];
 const enc = encodeURIComponent;
@@ -1618,7 +1671,10 @@ function runLabel(r) {
 const BOX_W = 14;          // a worker's box, borders included (as in the example of the spec)
 const BAR = 9;             // progress bar inside it
 const STEP_SHORT = { read: "読む", judge: "判断", fix: "修正", deviation: "逸脱", result: "結果",
-  fetch: "取得", brief: "指示", investigate: "調査", retry: "直す", finishing: "確認" };
+  fetch: "取得", brief: "指示", investigate: "調査", retry: "直す", finishing: "確認",
+  compare: "比較", check: "確かめ", write: "書く" };
+const INITIAL_SHORT = { setup: "準備", build: "ビルド", analyze: "解析", commit: "登録" };
+const ROLE_TITLE = { collector: "collector", integrator: "integrator", reviewer: "reviewer" };
 let monTimer = null;
 let monGen = 0;            // a newer poll makes older answers stale
 let monTick = 0;
@@ -1768,11 +1824,16 @@ function fitSegs(segs, width) {
 function boxRow(segs, inner, cls) {
   return [["│", cls], [" ", ""], ...fitSegs(segs, inner - 2), [" ", ""], ["│", cls]];
 }
-// The main agent has left no record for 10 minutes while nothing else is working.
+// The main agent has left no record for 10 minutes while nothing else is working: no worker, no
+// other agent and no initial analysis (a failed initial analysis stops the run on purpose).
 function mainQuiet(b) {
   const m = b.main || {};
-  const busy = (b.workers || []).some((w) => w.item && !w.stalled);
-  return ["search", "plan", "items", "verify", "summary"].includes(b.stage) && !busy && (m.idle_seconds || 0) >= 600;
+  const f = b.initial;
+  const busy = (b.workers || []).some((w) => w.item && !w.stalled)
+    || (b.roles || []).some((r) => (r.state === "running" || r.state === "fallback") && !r.stalled)
+    || (!!f && ((f.status === "running" && !f.stalled) || f.status === "failed"));
+  return ["initial", "search", "plan", "paths", "items", "integrate", "review", "verify", "summary"].includes(b.stage)
+    && !busy && (m.idle_seconds || 0) >= 600;
 }
 function mainBox(b, width) {
   const inner = width - 2, cls = "b-main", m = b.main || {}, c = b.counts || {};
@@ -1807,48 +1868,89 @@ function workerState(w, b) {
   if (w.stalled) return "stall";
   return w.stage === "retry" ? "retry" : "run";
 }
+// One box below the main one: its frame (joined to the main box in the first row) and its rows.
+function frameBox(cls, connect, rows) {
+  const inner = BOX_W - 2;
+  const top = connect ? "┌" + "─".repeat(6) + "┴" + "─".repeat(inner - 7) + "┐" : "┌" + "─".repeat(inner) + "┐";
+  return [[[top, cls]], ...rows.map((segs) => boxRow(segs, inner, cls)), [["└" + "─".repeat(inner) + "┘", cls]]];
+}
+function barSegs(frac, cls) {
+  const filled = Math.max(0, Math.min(BAR, Math.round(BAR * (Number.isFinite(frac) ? frac : 0))));
+  return [["█".repeat(filled), cls], ["░".repeat(BAR - filled), "bar-off"]];
+}
 function workerBox(w, connect, b) {
   const st = workerState(w, b), cls = "b-" + st, inner = BOX_W - 2;
-  const top = connect ? "┌" + "─".repeat(6) + "┴" + "─".repeat(inner - 7) + "┐" : "┌" + "─".repeat(inner) + "┐";
-  const lines = [[[top, cls]]];
-  const row = (segs) => lines.push(boxRow(segs, inner, cls));
-  row([[`worker #${w.slot}`, cls]]);
-  if (!w.item) {
-    row([["（空き）", "b-idle"]]);
-    row([]);
-    row([["░".repeat(BAR), "bar-off"]]);
-    row([]);
-  } else {
-    let target = w.is_group ? `${w.item} (${(w.cids || []).length}件)` : `CID ${w.item}`;
-    if (!w.is_group && textWidth(target) > inner - 2) target = String(w.item);
-    const step = st === "err" ? ["✖ エラー", "b-err"] : w.stalled ? ["⚠ 停止?", "b-stall"]
-      : ["▶ " + (own(STEP_SHORT, w.phase) || own(STEP_SHORT, w.stage) || "調査"), cls];
-    const filled = w.stage === "finishing" ? BAR
-      : Math.max(0, Math.min(BAR, Math.round((BAR * (w.phase_index || 0)) / (w.phase_total || 5))));
-    row([[target, ""]]);
-    row([step]);
-    row([["█".repeat(filled), cls], ["░".repeat(BAR - filled), "bar-off"]]);
-    row([[clock(w.elapsed_seconds), ""], [w.attempts > 1 ? ` ×${w.attempts}` : "", "b-retry"]]);
-  }
-  lines.push([["└" + "─".repeat(inner) + "┘", cls]]);
-  return lines;
+  if (!w.item) return frameBox(cls, connect, [[[`worker #${w.slot}`, cls]], [["（空き）", "b-idle"]], [], [["░".repeat(BAR), "bar-off"]], []]);
+  let target = w.is_group ? `${w.item} (${(w.cids || []).length}件)` : `CID ${w.item}`;
+  if (!w.is_group && textWidth(target) > inner - 2) target = String(w.item);
+  const step = st === "err" ? ["✖ エラー", "b-err"] : w.stalled ? ["⚠ 停止?", "b-stall"]
+    : ["▶ " + (own(STEP_SHORT, w.phase) || own(STEP_SHORT, w.stage) || "調査"), cls];
+  const frac = w.stage === "finishing" ? 1 : (w.phase_index || 0) / (w.phase_total || 5);
+  return frameBox(cls, connect, [[[`worker #${w.slot}`, cls]], [[target, ""]], [step], barSegs(frac, cls),
+    [[clock(w.elapsed_seconds), ""], [w.attempts > 1 ? ` ×${w.attempts}` : "", "b-retry"]]]);
+}
+// The initial analysis (option): build → analyze → commit to the server, before the warnings are searched.
+function initialState(f) {
+  if (f.status === "failed") return "err";
+  if (f.status === "done") return "done";
+  if (f.status === "running") return f.stalled ? "stall" : "run";
+  return "idle";
+}
+function initialBox(f, connect) {
+  const st = initialState(f), cls = "b-" + st;
+  const where = st === "idle" ? ["（待ち）", "b-idle"]
+    : [`${own(INITIAL_SHORT, f.step) || f.step || ""} ${f.step_index || 0}/${f.step_total || 4}`, ""];
+  const step = st === "err" ? ["✖ 失敗", "b-err"] : st === "stall" ? ["⚠ 停止?", "b-stall"]
+    : st === "done" ? ["✔ 登録済み", "b-done"] : st === "run" ? ["▶ 実行中", cls] : ["", ""];
+  const frac = st === "done" ? 1 : (f.step_index || 0) / (f.step_total || 4);
+  return frameBox(cls, connect, [[["initial", cls]], [where], [step],
+    st === "idle" ? [["░".repeat(BAR), "bar-off"]] : barSegs(frac, cls), [[st === "idle" ? "" : clock(f.elapsed_seconds), ""]]]);
+}
+// The collector, the integrator and the reviewer: one of each works at a time.
+function roleState(r) {
+  if (r.state === "failed") return "stall";  // not a stop of the run: it went on without this step
+  if (r.stalled) return "stall";
+  if (r.state === "running") return "run";
+  if (r.state === "fallback") return "retry";
+  if (r.state === "done") return "done";
+  return "idle";
+}
+function roleBox(r, connect) {
+  const st = roleState(r), cls = "b-" + st;
+  const step = r.state === "failed" ? ["✖ できず", "b-stall"] : r.stalled ? ["⚠ 停止?", "b-stall"]
+    : r.state === "running" ? ["▶ " + (own(STEP_SHORT, r.phase) || "実行中"), cls]
+    : r.state === "fallback" ? ["▶ 代行中", cls] : r.state === "done" ? ["✔ 終わり", "b-done"] : ["（待ち）", "b-idle"];
+  const working = r.state === "running" || r.state === "fallback";
+  return frameBox(cls, connect, [[[own(ROLE_TITLE, r.role) || String(r.role || ""), cls]], [[r.target || "", ""]], [step],
+    st === "idle" && !r.bar ? [["░".repeat(BAR), "bar-off"]] : barSegs(r.bar, cls),
+    working ? [[clock(r.elapsed_seconds), ""], [r.rounds > 1 ? ` ×${r.rounds}` : "", "b-retry"]] : []]);
+}
+// In the order of the run: initial analysis, collector, workers, integrator, reviewer (only those the run uses).
+function boardBoxes(b) {
+  const roles = b.roles || [];
+  const boxes = [];
+  if (b.initial) boxes.push((connect) => initialBox(b.initial, connect));
+  for (const r of roles.filter((x) => x.role === "collector")) boxes.push((connect) => roleBox(r, connect));
+  for (const w of b.workers || []) boxes.push((connect) => workerBox(w, connect, b));
+  for (const r of roles.filter((x) => x.role !== "collector")) boxes.push((connect) => roleBox(r, connect));
+  return boxes;
 }
 function boardLines(b, cols) {
-  const workers = b.workers || [];
+  const all = boardBoxes(b);
   const per = Math.max(1, Math.floor((cols + 1) / (BOX_W + 1)));
-  const rowW = Math.min(Math.max(workers.length, 1), per) * (BOX_W + 1) - 1;
+  const rowW = Math.min(Math.max(all.length, 1), per) * (BOX_W + 1) - 1;
   const width = Math.max(rowW, 30, Math.min(cols, 64));
   const lines = mainBox(b, width);
-  const centers = workers.slice(0, per).map((_, i) => i * (BOX_W + 1) + 7);
+  const centers = all.slice(0, per).map((_, i) => i * (BOX_W + 1) + 7);
   const bottom = ["└", ..."─".repeat(width - 2), "┘"];
   for (const x of centers) bottom[x] = "┬";
   lines.push([[bottom.join(""), "b-main"]]);
-  if (!workers.length) return lines;
+  if (!all.length) return lines;
   const link = Array(rowW).fill(" ");
   for (const x of centers) link[x] = "│";
   lines.push([[link.join(""), "b-line"]]);
-  for (let start = 0; start < workers.length; start += per) {
-    const boxes = workers.slice(start, start + per).map((w) => workerBox(w, start === 0, b));
+  for (let start = 0; start < all.length; start += per) {
+    const boxes = all.slice(start, start + per).map((draw) => draw(start === 0));
     if (start) lines.push([]);
     for (let j = 0; j < boxes[0].length; j++) lines.push(boxes.flatMap((box, i) => (i ? [[" ", ""], ...box[j]] : box[j])));
   }
@@ -1887,28 +1989,50 @@ function drawBoard(b) {
   });
   pre.replaceChildren(frag);
 }
+function stallFlag(st, failed) {
+  return st === "err" ? el("span", { class: "pill ng" }, failed || "エラー")
+    : st === "stall" ? el("span", { class: "pill warn" }, "止まっているかもしれません") : null;
+}
+function initialSlot(f) {
+  const st = initialState(f);
+  return el("li", { class: st },
+    el("div", {}, el("b", {}, "初回解析（ビルド → 解析 → サーバへの登録）"), " ", stallFlag(st, "失敗")),
+    el("div", { class: "help" }, [f.step_label ? `${f.step_label}（${f.step_index}/${f.step_total}）` : "", f.status_label].filter(Boolean).join("・")),
+    f.error ? el("div", { class: "memo" }, f.error) : null,
+    el("div", { class: "help" }, `経過 ${clock(f.elapsed_seconds)}` + (f.status === "running" ? `・ログが最後に増えた ${ago(f.idle_seconds)}` : "")));
+}
+function roleSlot(r) {
+  const st = roleState(r);
+  const steps = [r.task_label, r.phase ? `${r.phase_label}（${r.phase_index}/${r.phase_total}）` : "", r.detail,
+    r.rounds > 1 ? `${r.rounds} 回目` : "", r.state === "fallback" ? "取得エージェントを使えないため、メインの AI が代わりにしている" : ""].filter(Boolean).join("・");
+  return el("li", { class: st === "done" ? "" : st },
+    el("div", {}, el("b", {}, `${r.label}（${own(ROLE_TITLE, r.role) || r.role}）`), " ", stallFlag(st)),
+    el("div", { class: "help" }, steps || "—"),
+    r.note ? el("div", { class: "memo" }, "メモ: ", r.note) : null,
+    el("div", { class: "help" }, `経過 ${clock(r.elapsed_seconds)}・最後の動き ${ago(r.idle_seconds)}`));
+}
 function renderSlots(b) {
   const box = $("#slots");
   if (!b) { box.replaceChildren(); return; }
   const busy = (b.workers || []).filter((w) => w.item);
-  if (!busy.length) { box.replaceChildren(el("li", { class: "none" }, "いま動いているサブエージェントはありません。")); return; }
-  box.replaceChildren(...busy.map((w) => {
+  const f = b.initial && (b.initial.status === "running" || b.initial.status === "failed") ? b.initial : null;
+  const roles = (b.roles || []).filter((r) => r.state === "running" || r.state === "fallback");
+  if (!busy.length && !f && !roles.length) { box.replaceChildren(el("li", { class: "none" }, "いま動いているサブエージェントはありません。")); return; }
+  box.replaceChildren(...(f ? [initialSlot(f)] : []), ...roles.filter((r) => r.role === "collector").map(roleSlot), ...busy.map((w) => {
     const st = workerState(w, b);
     const target = w.is_group ? `${w.item}（${(w.cids || []).length} 件）` : `CID ${w.item}`;
     const steps = [w.stage_label, w.phase ? `${w.phase_label}（${w.phase_index}/${w.phase_total}）` : "",
-      w.attempts > 1 ? `${w.attempts} 回目` : ""].filter(Boolean).join("・");
-    const flag = st === "err" ? el("span", { class: "pill ng" }, "エラー")
-      : st === "stall" ? el("span", { class: "pill warn" }, "止まっているかもしれません") : null;
+      w.attempts > 1 ? `${w.attempts} 回目` : "", w.rework ? "検証からの差し戻しを直している" : ""].filter(Boolean).join("・");
     return el("li", { class: st },
-      el("div", {}, el("b", {}, `#${w.slot} ${target}`), " ", flag),
+      el("div", {}, el("b", {}, `#${w.slot} ${target}`), " ", stallFlag(st)),
       el("div", { class: "help" }, steps || "—"),
       w.note ? el("div", { class: "memo" }, "メモ: ", w.note) : null,
       el("div", { class: "help" }, `経過 ${clock(w.elapsed_seconds)}・最後の動き ${ago(w.idle_seconds)}`));
-  }));
+  }), ...roles.filter((r) => r.role !== "collector").map(roleSlot));
 }
-// A stalled item is reported again on every poll with a new time; it stays the same alert.
+// A stall is reported again on every poll with a new time; it stays the same alert.
 function alertId(a) {
-  return a.source === "stall" ? `stall|${a.item}` : [a.time, a.level, a.source, a.item, a.title].join("|");
+  return a.source === "stall" ? `stall|${a.role || ""}|${a.item}` : [a.time, a.level, a.source, a.item, a.title].join("|");
 }
 function alertNode(a, id, openable) {
   const critical = a.level === "critical";
@@ -1976,6 +2100,13 @@ const itemTitle = (it) => String(it.title || it.id);
 const where = (it) => (it.file ? `${it.file}${it.line != null ? ":" + it.line : ""}` : "");
 function planBadge(plan) { return el("span", { class: "badge " + (own(PLAN_JA, plan) ? plan : "") }, own(PLAN_JA, plan) || "—"); }
 function confBadge(conf) { return el("span", { class: "badge " + (own(CONF_JA, conf) ? "conf-" + conf : "") }, own(CONF_JA, conf) || "—"); }
+// The independent review (option): the confidence shown is already the lower one when it found a problem.
+const REVIEW_MARK = { pass: ["✔ 検証 合格", "ok"], flag: ["⚠ 検証 要確認", "warn"], rework: ["⚠ 検証 差し戻し", "warn"],
+  unverified: ["検証できず", "warn"] };
+function reviewMark(it) {
+  const m = own(REVIEW_MARK, it.review);
+  return m ? el("span", { class: "sub " + m[1], title: "別の AI による独立した検証の結果" }, m[0]) : null;
+}
 function isApplied(it) {
   const a = it.applied;
   return a === true || (!!a && typeof a === "object" && Object.keys(a).some((k) => k !== "at"));
@@ -2057,7 +2188,7 @@ function renderCrumbs() {
   $("#resCrumbs").hidden = !run;  // the list of runs has its own heading
 }
 function runStatePill(r) {
-  const stage = own(STAGE_JA, r.stage) || r.stage || "";
+  const stage = (typeof r.stage_label === "string" && r.stage_label) || own(STAGE_JA, r.stage) || r.stage || "";
   if (r.unfinished) return el("span", { class: "pill warn" }, stage ? `途中: ${stage}` : "途中");
   if (r.summary) return el("span", { class: "pill ok" }, "一覧あり");
   return el("span", { class: "pill info" }, stage || "—");
@@ -2165,9 +2296,10 @@ function itemRow(it) {
   const open = () => go({ item: String(it.id) });
   return el("tr", { onclick: (e) => { if (!e.target.closest("select, button, a, input, label")) open(); } },
     cell("承認", sel, mark),
-    cell("ID", el("button", { type: "button", class: "linkish", onclick: open }, itemTitle(it)), el("span", { class: "sub" }, it.checker || "")),
+    cell("ID", el("button", { type: "button", class: "linkish", onclick: open }, itemTitle(it)), el("span", { class: "sub" }, it.checker || ""),
+      Array.isArray(it.merged_from) && it.merged_from.length ? el("span", { class: "sub" }, `統合: ${it.merged_from.join(", ")}`) : null),
     cell("推奨", planBadge(it.recommendation)),
-    cell("確信度", confBadge(it.confidence)),
+    cell("確信度", confBadge(it.confidence), reviewMark(it)),
     el("td", { "data-label": "見立て", class: "prose" }, el("div", {}, it.summary || "—", el("span", { class: "sub" }, where(it)))),
     cell("状態", statusPill(it)));
 }

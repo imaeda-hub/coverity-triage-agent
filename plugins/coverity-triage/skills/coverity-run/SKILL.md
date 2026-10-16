@@ -49,15 +49,15 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 
 ## 2. `ct.py tick` に従って進める
 
-`ct.py tick --run <run_dir>` を実行し、結果のとおりに動くことを、`done` が true になるまで繰り返します。
+`ct.py tick --run "<run_dir>"` を実行し、結果のとおりに動くことを、`done` が true になるまで繰り返します（パスに空白があってもよいように、`"..."` で囲みます）。
 
 結果の読み方：
 
 - `say`：利用者に伝えること。あれば、そのまま短く伝える。
-- `stop` が true：止める。`say` と `error` を伝え、それ以外は何もしない（初回解析が失敗したときなど）。
+- `stop` が true：止める。`say` と `error` を伝え、`initial` に `log_tail`（ログの最後）があれば、その要点も伝える。それ以外は何もしない（初回解析が失敗したときなど）。
 - `actions`：いまからすること。順に全部行う。
   - `type: launch`：`agent` の名前のカスタムエージェントを、`prompt` をそのまま渡して、**裏で動かす指定（background）で**起動する（1 つ終わるごとに次へ進めるように）。`task` を覚えておく。
-  - `type: command`：`command` を `ct.py` で実行する（ビルドでの検証など。時間がかかる）。`note` があれば先に伝える。終わったら `ct.py tick`。
+  - `type: command`：`command` を `ct.py` で実行する（ビルドでの検証など。時間がかかるので、裏で動かす指定で動かし、終わるのを待つ）。`note` があれば先に伝える。終わったら、結果（`build_ok`、`downgraded_to_low`）を短く伝えて `ct.py tick --finished <task>`。`ok: false` で終わった・止まったときは `ct.py tick --failed <task> --reason "<error>"`。
   - `type: mcp`：`tool` の MCP のツールを `args` で呼ぶ。`until_done` が true なら `done` が true になるまで同じ引数で呼び直す。全部終わったら `ct.py tick`（取得エージェントが使えないときに、あなたが代わりに取る）。
 - `wait` が true：裏で動いているエージェント（`running_items`、`running_roles`）が終わるのを待つ。初回解析の間（`stage` が `initial`）は、そのまま `ct.py tick` を呼び直す（tick が少し待ってから返る）。
 - `done` が true：3 へ進む。
@@ -65,7 +65,8 @@ allowed-tools: ["coverity-triage", "shell(uv run:*)"]
 裏で動かしたエージェントが終わったら：
 
 - 終わった（返事が返った）とき：`ct.py tick --run <run_dir> --finished <task>`
-- 途中で止まった、エラーになった、起動できなかったとき：`ct.py tick --run <run_dir> --failed <task> --reason "<理由>"`
+- 途中で止まった、エラーになった、起動できなかったとき、または返事が「続けられない理由」の 1 行だけだったとき：`ct.py tick --run <run_dir> --failed <task> --reason "<理由>"`
+- `task` は actions に書かれたとおりに渡す（`worker:20001#2` のように回数が付いていれば、付けたまま）。
 - 複数が終わっていたら、1 つずつ順に知らせる（そのたびに返る `actions` を行う）。
 - 結果を直す指示（「次の点を直してください」）も tick が `actions` に入れて返す。自分で直す点を考えない。
 

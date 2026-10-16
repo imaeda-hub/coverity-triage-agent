@@ -13,11 +13,21 @@ import yaml
 import ct
 from conftest import PLUGIN, REPO
 from coverity_triage import server
+from ctlib import flow, prepare
 
 ENTRY_SKILLS = {"coverity-setup", "coverity-run", "coverity-apply", "coverity-help", "coverity-selftest"}
 AGENT_SKILLS = {"coverity-triage-scripts"}
 WORKER_SKILLS = {"triage-investigation", "checker-knowledge", "code-fix", "deviation-comment", "triage-report"}
-WORKER = PLUGIN / "com.github.copilot" / "agents" / "coverity-triage-worker.agent.md"
+ROLE_SKILLS = {"triage-integration", "triage-review"}  # read by the integrator and the reviewer agents
+AGENTS_DIR = PLUGIN / "com.github.copilot" / "agents"
+# tools of each agent (none has the terminal; only the collector has MCP tools, and only the two that read)
+AGENTS = {
+    "coverity-triage-collector": (["read", "coverity-triage/search_issues", "coverity-triage/get_issues"], set()),
+    "coverity-triage-worker": (["read", "search", "edit", "skill"], WORKER_SKILLS),
+    "coverity-triage-integrator": (["read", "search", "edit", "skill"],
+                                   {"triage-integration", "checker-knowledge", "deviation-comment"}),
+    "coverity-triage-reviewer": (["read", "search", "edit", "skill"], {"triage-review", "checker-knowledge"}),
+}
 
 
 def frontmatter(path: Path) -> tuple[dict, str]:
@@ -56,7 +66,7 @@ def test_mcp_json_uses_only_what_every_client_expands():
 
 def test_skills_frontmatter():
     skills = skill_files()
-    assert set(skills) == ENTRY_SKILLS | AGENT_SKILLS | WORKER_SKILLS
+    assert set(skills) == ENTRY_SKILLS | AGENT_SKILLS | WORKER_SKILLS | ROLE_SKILLS
     for name, path in skills.items():
         meta, _ = frontmatter(path)
         assert meta["name"] == name and re.fullmatch(r"[a-z0-9-]{1,64}", name)
@@ -69,14 +79,21 @@ def test_skills_frontmatter():
             assert "allowed-tools" not in meta, name
 
 
-def test_worker_agent():
-    meta, body = frontmatter(WORKER)
-    assert WORKER.name == f"{meta['name']}.agent.md"
-    assert meta["tools"] == ["read", "search", "edit", "skill"]  # no terminal, no MCP tools
-    assert meta["model"] == "GPT-6 Luna" and meta["models"] == ["gpt-6-luna"] and meta["modelPolicy"] == "required"
-    assert meta["user-invocable"] is False
-    for skill in WORKER_SKILLS:
-        assert f"`{skill}`" in body, skill
+def test_agents():
+    assert {p.name for p in AGENTS_DIR.glob("*.agent.md")} == {f"{name}.agent.md" for name in AGENTS}
+    assert set(flow.AGENTS.values()) == set(AGENTS) == set(prepare.plugin_agents())
+    mcp = {t.name for t in asyncio.run(server.mcp.list_tools())}
+    for name, (tools, skills) in AGENTS.items():
+        meta, body = frontmatter(AGENTS_DIR / f"{name}.agent.md")
+        assert meta["name"] == name
+        assert meta["tools"] == tools, name  # written out in full: without it every tool, terminal included, is given
+        assert meta["model"] == "GPT-6 Luna" and meta["models"] == ["gpt-6-luna"] and meta["modelPolicy"] == "required"
+        assert meta["user-invocable"] is False and "disable-model-invocation" not in meta, name
+        for skill in skills:
+            assert f"`{skill}`" in body, (name, skill)
+        for tool in tools:
+            server_name, _, mcp_tool = tool.rpartition("/")
+            assert server_name in ("", "coverity-triage") and (not server_name or mcp_tool in mcp), (name, tool)
 
 
 def test_skills_name_only_existing_commands_and_tools():
@@ -84,7 +101,7 @@ def test_skills_name_only_existing_commands_and_tools():
     commands = set(parser._subparsers._group_actions[0].choices)  # noqa: SLF001 - argparse has no public API for this
     tools = {t.name for t in asyncio.run(server.mcp.list_tools())}
     texts = {p: p.read_text(encoding="utf-8") for p in (PLUGIN / "skills").rglob("*.md")}
-    texts[WORKER] = WORKER.read_text(encoding="utf-8")
+    texts.update({p: p.read_text(encoding="utf-8") for p in AGENTS_DIR.glob("*.agent.md")})
     for path, text in texts.items():
         for command in re.findall(r"ct\.py ([a-z][a-z-]+)", text):
             assert command in commands, f"{path}: ct.py {command}"

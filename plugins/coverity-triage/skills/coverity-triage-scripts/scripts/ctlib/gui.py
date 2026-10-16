@@ -204,8 +204,11 @@ def _config_problems(repo: Path, found: dict[str, Any], data: Any, problems: lis
     if not re.match(r"^https?://[^/\s]+", url):
         problems.append("Coverity の URL: http:// か https:// で始まるアドレスを入れてください")
     verify = data.get("verify") if isinstance(data.get("verify"), dict) else {}
-    if verify.get("default", "none") != "none" and not str(verify.get("build_command") or "").strip():
-        problems.append("ビルドでの検証: ビルドのコマンドを入れてください")
+    if not str(verify.get("build_command") or "").strip():
+        if verify.get("default", "none") != "none":
+            problems.append("ビルドでの検証: ビルドのコマンドを入れてください")
+        elif verify.get("initial") is True:  # new-run refuses it the same way
+            problems.append("初回解析: ビルドのコマンドを入れてください")
     config = _validate(ProjectConfig, data, CONFIG_FILE, problems)
     if config is None:
         return None
@@ -436,14 +439,16 @@ def _issues(run: Run) -> dict[int, Issue]:
 
 
 def _unfinished(run: Run) -> bool:
-    return unfinished(run.state)
+    return unfinished(run.state, run.dir)
 
 
 def _run_info(run: Run) -> dict[str, Any]:
     state = run.state
+    counts = state.counts()
+    # an item the integration took into another one is not counted (it is shown inside that one)
     return {"run_id": run.dir.name, "run_dir": str(run.dir), "created_at": state.created_at,
             "filter_name": state.filter_name, "stream": state.stream, "verify_mode": state.verify_mode,
-            "counts": state.counts(), "total": len(state.items), "unfinished": _unfinished(run)}
+            "counts": counts, "total": len(state.items) - counts.get("merged", 0), "unfinished": _unfinished(run)}
 
 
 def _logged_lately(run: Run) -> bool:
@@ -492,9 +497,10 @@ def _item_row(run: Run, item: ItemState, issues: dict[int, Issue],
     from .triage import review_of  # late import: triage is the larger module
 
     result = _result(run, item.id)
+    review = review_of(run, item) if item.status == "done" else {}
     if result is not None:  # the confidence the reports show: the lowest of the worker, the review and the build
         verify = read_json(run.dir / "verify.json", {}).get(item.id) if (run.dir / "verify.json").is_file() else None
-        result = assess.effective(result, review_of(run, item), verify)
+        result = assess.effective(result, review, verify)
     main = issues.get(item.cids[0]) if item.cids else None
     entry = decided.get(item.id)
     recommendation = result.recommendation if result else None
@@ -511,6 +517,9 @@ def _item_row(run: Run, item: ItemState, issues: dict[int, Issue],
             "decision": entry["decision"] if entry else None if summary_made else recommendation,
             "edited": bool(entry and entry["edited"]), "saved": entry is not None, "status": item.status,
             "applied": bool(applied), "applied_parts": applied,
+            # the independent review (option agents.review): pass / flag / unverified, None without one
+            "review": review.get("outcome") if review.get("outcome") in ("pass", "flag", "rework", "unverified") else None,
+            "merged_from": list(item.merged_from),
             "report": f"cid/{item.id}.html" if report.is_file() else None}
 
 

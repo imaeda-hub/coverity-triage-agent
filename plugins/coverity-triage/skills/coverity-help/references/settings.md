@@ -27,12 +27,39 @@
 | `options.metrics` | 推奨の採用率などを記録する | 既定 false |
 | `options.markdown` | 一覧と詳細レポートを、HTML（`summary.html`、`cid/<ID>.html`）に加えて Markdown（`summary.md`、`cid/<ID>.md`）でも出す。VS Code のプレビューや GitHub で読みたいとき。Markdown も表示専用で、書き換えても承認にはならない | 既定 false（HTML だけ）。画面の「オプション設定」の「Markdown も出す」 |
 | `verify.default` | ビルドでの検証：`none` / `build` / `build+analyze` | 既定 `none` |
+| `verify.initial` | 初回解析：`/coverity-run` の最初に、開いているフォルダをビルド・解析して Coverity サーバに登録し、それから警告を取る（[usage.md](usage.md)）。`/coverity-run 最初に解析して`・`解析はしないで` で、その実行だけ変えられる | 既定 false |
 | `verify.setup_command` | ビルドの前に実行する環境設定のコマンド。`{root}` はビルド用のフォルダに置き換わる | 例 `envset.bat "{root}" <引数>`。不要なら空 |
 | `verify.build_dir` | ビルドするフォルダ（リポジトリからの相対パス） | 空なら一番上 |
 | `verify.build_command` | ビルドのコマンド | 例 `make -f makefileXX` |
 | `verify.cov_build_args` / `verify.cov_analyze_args` | `cov-build` / `cov-analyze` の引数（`--dir` が必要） | 既定 `--dir idir` / `--dir idir --all` |
+| `verify.cov_commit_args` | 初回解析の `cov-commit-defects` に足す引数。`--dir`・`--url`・`--stream`・`--user`・`--version` はスクリプトが付ける。認証キーは環境変数 `COVERITY_PASSPHRASE` で渡す（コマンドラインとログには出さない） | 既定 空。認証キーのファイルを使うサイトは `--auth-key-file <ファイル>` など |
+| `verify.timeout_minutes` | 初回解析を止めるまでの時間（分）。人が見ていない間に、固まったビルドを止めるため | 既定 180。ふだんのビルドと解析の時間より長くする |
+| `agents.integration` | 統合：作業の AI が調べ終わったあとで、同じ原因の作業を 1 つにまとめる（[usage.md](usage.md) の「統合と検証」） | 既定 false |
+| `agents.review` | 検証：統合のあとで、出来上がった結果を 1 件ずつ独立に確かめる。確信度は下げることはあっても、上げない | 既定 false |
+| `agents.max_rework` | 検証から作業の AI に差し戻す回数の上限（作業ごと） | 既定 1（0〜2） |
 
-ビルドでの検証の設定は、`/coverity-setup` の「ビルドでの検証」で、試しにビルドしてから保存するのが安全です。
+- `verify.setup_command`・`verify.build_dir`・`verify.build_command`・`verify.cov_build_args`・`verify.cov_analyze_args` は、ビルドでの検証と初回解析で共有します。
+- ビルドでの検証と初回解析の設定は、`/coverity-setup` の「ビルドでの検証」か、画面の「オプション設定」の「ビルドでの検証と初回解析」で、試しにビルドしてから保存するのが安全です（試しのビルドでは、サーバに登録しません）。
+- 統合と検証は、使うと実行の時間が延びます。また、`/coverity-run` が終わって一覧ができるまで、承認を選べません。
+
+例（初回解析と、統合・検証を使う）：
+
+```yaml
+verify:
+  initial: true
+  default: none
+  setup_command: ""
+  build_dir: ""
+  build_command: make -f makefileXX
+  cov_build_args: --dir idir
+  cov_analyze_args: --dir idir --all
+  cov_commit_args: ""
+  timeout_minutes: 180
+agents:
+  integration: true
+  review: true
+  max_rework: 1
+```
 
 ## 条件ファイル（filters/*.yaml）
 

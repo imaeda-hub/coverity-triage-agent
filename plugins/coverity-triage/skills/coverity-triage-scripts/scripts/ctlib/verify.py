@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .common import CtError
+from .common import CtError, build_env, display_text
 from .config import VerifyConfig
 from .models import Issue
 
@@ -63,12 +63,13 @@ def _run_shell(command: str, cwd: Path, log: Path) -> bool:
     with open(log, "ab") as f:
         f.write(f"$ {command}\n".encode("utf-8"))
         f.flush()
-        proc = subprocess.run(command, cwd=cwd, shell=True, stdout=f, stderr=subprocess.STDOUT)
+        proc = subprocess.run(command, cwd=cwd, shell=True, stdout=f, stderr=subprocess.STDOUT, env=build_env())
     return proc.returncode == 0
 
 
 def _tail(log: Path) -> str:
-    return log.read_bytes()[-LOG_TAIL:].decode("utf-8", "replace") if log.is_file() else ""
+    """The end of the log (the build tools of a Japanese Windows write cp932)."""
+    return display_text(log.read_bytes()[-LOG_TAIL:]) if log.is_file() else ""
 
 
 def intermediate_dir(cov_analyze_args: str) -> str:

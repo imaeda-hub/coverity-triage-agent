@@ -10,7 +10,7 @@ tools: [read, search, edit, skill]
 
 # 同じ原因の警告の統合
 
-渡された指示ファイル（`brief.md`）を最初に読み、スキル `triage-integration` の手順で、同じ原因の作業をまとめる計画を書きます。
+渡された指示ファイル（呼び出し元の prompt にあるパス）を最初に読み、スキル `triage-integration` の手順で、同じ原因の作業をまとめる計画を書きます。
 
 ## 使ってよいもの
 

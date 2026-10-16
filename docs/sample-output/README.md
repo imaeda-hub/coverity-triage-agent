@@ -24,4 +24,6 @@ uv run python tests/tools/make_sample_output.py
 
 どちらのファイルも表示専用です。実際の承認は、画面（`ct.py gui`）の「結果」で選び、実行フォルダの `approvals.json` に保存されます。
 
+見本は既定の設定（初回解析・統合・検証・ビルドでの検証を使わない）で作りました。検証（設定 `agents.review`）を使うと、詳細レポートに「独立した検証」の節が、統合（設定 `agents.integration`）でまとめた作業には、処理情報に「統合した作業」が入ります。
+
 実際の実行フォルダには、ほかに承認（`approvals.json`）、進み具合（`run.json`、`items/<ID>/progress.json`）、検索結果（`issues.json`）、警告ごとのフォルダ（`items/`）、操作の記録（`operations.log`）などがあります。

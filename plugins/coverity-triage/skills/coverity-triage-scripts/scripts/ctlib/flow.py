@@ -54,20 +54,23 @@ def _prompt(brief: Path, what: str) -> str:
     return f"{what}。指示ファイル {brief} を読み、書かれた手順に従ってください。"
 
 
-def _launch(role: str, task: str, prompt: str, item: str | None = None) -> dict[str, Any]:
-    return {"type": "launch", "agent": AGENTS[role], "task": task, "item": item, "prompt": prompt,
-            "background": True}
+def _launch(role: str, task: str, prompt: str, item: str | None = None, round_: int = 1) -> dict[str, Any]:
+    """Start an agent. A start after the first has the round in its task (``worker:20001#2``), so a late
+    second report of an earlier start is told apart and ignored."""
+    return {"type": "launch", "agent": AGENTS[role], "task": task if round_ <= 1 else f"{task}#{round_}",
+            "item": item, "prompt": prompt, "background": True}
 
 
 def _sha(path: Path) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
 
 
-def _start_role(run: Run, role: str, task: str, **extra: Any) -> None:
-    """Record that the one agent of the role works on ``task`` (counting the starts of the same task)."""
+def _start_role(run: Run, role: str, task: str, fresh: bool = False, **extra: Any) -> None:
+    """Record that the one agent of the role works on ``task``, counting the starts of the same task
+    (``fresh``: a new piece of work, counted from 1 again)."""
     with run.update() as state:
         before = state.roles.get(role, {})
-        rounds = before.get("rounds", 0) + 1 if before.get("task") == task else 1
+        rounds = before.get("rounds", 0) + 1 if before.get("task") == task and not fresh else 1
         state.roles[role] = {"task": task, "active": True, "started": time.time(), "rounds": rounds,
                              "fallback": before.get("fallback", False), **extra}
     _log(run, "launch", role=role, task=task, item=extra.get("item"), round=rounds)
@@ -166,7 +169,7 @@ def tick(run_dir: str, finished: str | None = None, failed: str | None = None, r
         say.append(f"警告経路を取れなかった警告が {sum(len(c) for c in missing.values())} 件あります（経路なしで調べます）")
 
     # 4. the worker agents
-    actions += _fill_slots(run)
+    actions += _fill_slots(run, say)
     run = Run(run_dir)
     counts = run.state.counts()
     if counts["pending"] or counts["in_progress"]:
@@ -191,8 +194,14 @@ def tick(run_dir: str, finished: str | None = None, failed: str | None = None, r
 
     # 7. build verification
     if run.state.verify_mode != "none" and not run.state.verified:
-        actions.append({"type": "command", "command": f"ct.py verify --run {run.dir}",
-                        "note": "修正案をまとめてビルドで確かめます（時間がかかります）。終わったら ct.py tick"})
+        if run.state.roles.get("verify", {}).get("active"):
+            return _answer(run, "verify", [], say, wait=True,
+                           next_step="ct.py verify が終わるのを待ち、ct.py tick --finished verify（ok: false で終わった・"
+                                     "止まったときは --failed verify --reason ...）")
+        _start_role(run, "verify", "verify", fresh=True)
+        actions.append({"type": "command", "task": "verify", "command": f'ct.py verify --run "{run.dir}"',
+                        "note": "修正案をまとめてビルドで確かめます（時間がかかります）。終わったら ct.py tick --finished verify"
+                                "（ok: false で終わったら --failed verify --reason \"<error>\"）"})
         return _answer(run, "verify", actions, say)
 
     return _answer(run, "done", [], say, done=True)
@@ -223,48 +232,68 @@ def _answer(run: Run, stage: str, actions: list[dict[str, Any]], say: list[str],
 
 def _ended(run: Run, task: str, failed: bool, reason: str, say: list[str],
            actions: list[dict[str, Any]]) -> dict[str, Any] | None:
-    role, _, rest = task.partition(":")
+    name, _, number = task.partition("#")
+    round_ = int(number) if number.isdigit() else 1
+    role, _, rest = name.partition(":")
     if role == "worker":
-        _worker_ended(run, rest, failed, reason, say, actions)
+        _worker_ended(run, rest, round_, failed, reason, say, actions)
     elif role == "collector":
-        return _collector_ended(run, rest, failed, reason, say)
+        _collector_ended(run, rest, round_, failed, reason, say)
     elif role == "integrator":
-        _integrator_ended(run, failed, reason, say, actions)
+        _integrator_ended(run, round_, failed, reason, say, actions)
     elif role == "reviewer":
-        _reviewer_ended(run, rest, failed, reason, say, actions)
+        _reviewer_ended(run, rest, round_, failed, reason, say, actions)
+    elif role == "verify":
+        _verify_ended(run, failed, reason, say)
     else:
         raise CtError(f"task が分かりません: {task}（worker:<ID>、collector:search、collector:paths、integrator、"
-                      "reviewer:<ID> のどれか）")
+                      "reviewer:<ID>、verify のどれか。#<数> が付いていればそのまま）")
     return None
 
 
-def _worker_ended(run: Run, item_id: str, failed: bool, reason: str, say: list[str],
+def _fail_item(run: Run, item_id: str, reason: str, say: list[str]) -> None:
+    """The item could not be worked on. A merged item gives its members back as they were."""
+    triage.fail(str(run.dir), item_id, reason)
+    item = run.state.item(item_id)
+    if not item.merged_from:
+        say.append(f"{item_id}: 処理できませんでした（{reason}）")
+        return
+    with run.update() as state:
+        for member in item.merged_from:
+            current = state.item(member)
+            if current.status == "merged" and current.merged_into == item_id:
+                current.status, current.merged_into = "done", None
+        state.items = [i for i in state.items if i.id != item_id]
+        state.notes.append(f"統合した作業 {item_id} を処理できなかったため、元の作業 {', '.join(item.merged_from)} に戻しました"
+                           f"（{reason}）")
+    _log(run, "integrate-undo", level="warning", item=item_id, members=item.merged_from, reason=reason)
+    say.append(f"{item_id}: 処理できなかったため、統合をやめて元の作業 {', '.join(item.merged_from)} に戻しました")
+
+
+def _worker_ended(run: Run, item_id: str, round_: int, failed: bool, reason: str, say: list[str],
                   actions: list[dict[str, Any]]) -> None:
     item = run.state.item(item_id)
-    if item.status != "in_progress":
-        return  # told twice
+    if item.status != "in_progress" or round_ != item.fix_rounds + 1:
+        return  # told twice, or about a start that was followed by another
     if failed:
-        triage.fail(str(run.dir), item_id, reason or "作業エージェントが途中で止まりました")
-        say.append(f"{item_id}: 処理できませんでした（{reason or '作業エージェントが途中で止まりました'}）")
+        _fail_item(run, item_id, reason or "作業エージェントが途中で止まりました", say)
         return
     try:
         done = triage.finish(str(run.dir), item_id)
     except CtError as exc:
         problems = exc.details.get("problems")
         if not problems:  # not the worker's to fix (saving the fix failed, for example)
-            triage.fail(str(run.dir), item_id, str(exc))
-            say.append(f"{item_id}: 処理できませんでした（{exc}）")
+            _fail_item(run, item_id, str(exc), say)
             return
         if item.fix_rounds >= FIX_ROUNDS:
-            triage.fail(str(run.dir), item_id, f"結果ファイルを {FIX_ROUNDS} 回直しても通りませんでした: {'；'.join(problems)}")
-            say.append(f"{item_id}: 結果ファイルが直らなかったため、処理できなかった作業にしました")
+            _fail_item(run, item_id, f"結果ファイルを {FIX_ROUNDS} 回直しても通りませんでした: {'；'.join(problems)}", say)
             return
         with run.update() as state:
             state.item(item_id).fix_rounds += 1
         brief = run.item_dir(item_id) / "brief.md"
         actions.append(_launch("worker", f"worker:{item_id}",
                                _prompt(brief, "Coverity の警告を調べます") + " 結果ファイルの次の点を直してください：\n"
-                               + "\n".join(f"- {p}" for p in problems), item_id))
+                               + "\n".join(f"- {p}" for p in problems), item_id, item.fix_rounds + 2))
         return
     if done.get("split_into"):
         say.append(f"{item_id}: 原因の違う CID {', '.join(done['split_into'])} を個別の作業に戻しました")
@@ -272,9 +301,10 @@ def _worker_ended(run: Run, item_id: str, failed: bool, reason: str, say: list[s
         say.append(f"{item_id}: {warning}")
 
 
-def _collector_ended(run: Run, task: str, failed: bool, reason: str, say: list[str]) -> dict[str, Any] | None:
-    if not _role_busy(run, "collector"):
-        return None  # told twice
+def _collector_ended(run: Run, task: str, round_: int, failed: bool, reason: str, say: list[str]) -> None:
+    lease = run.state.roles.get("collector", {})
+    if not lease.get("active") or lease.get("task") != task or round_ != lease.get("rounds", 1):
+        return None  # told twice, or about a start that was followed by another
     _end_role(run, "collector", "failed" if failed else "done", reason=reason)
     if failed:  # the agent could not be started or stopped: the orchestrating agent calls the tools itself
         with run.update() as state:
@@ -288,6 +318,21 @@ def _collector_ended(run: Run, task: str, failed: bool, reason: str, say: list[s
     with run.update() as state:
         state.roles["collector"]["fallback"] = True
     return None
+
+
+def _verify_ended(run: Run, failed: bool, reason: str, say: list[str]) -> None:
+    if not run.state.roles.get("verify", {}).get("active"):
+        return  # told twice
+    if failed:  # ct.py verify stopped or said ok: false: the run goes on without it
+        with run.update() as state:
+            state.verified = True
+            state.roles.pop("verify", None)
+            state.notes.append(f"ビルドでの検証はできませんでした（{reason or '理由不明'}）")
+        _log(run, "verify-failed", level="warning", reason=reason)
+        say.append(f"ビルドでの検証はできませんでした（{reason or '理由不明'}）。確かめずに一覧を作ります")
+    elif not run.state.verified:
+        with run.update() as state:
+            state.roles.pop("verify", None)
 
 
 def _mcp_search(run: Run) -> dict[str, Any]:
@@ -321,17 +366,28 @@ def _collector_search(run: Run) -> dict[str, Any]:
         "`検索: found=<found> limited=<limited> excluded=<excluded>`", "",
         "ツールがエラーを返したら、そのエラーの文を 1 行で返します（何度も呼び直さない）。", ""]))
     _start_role(run, "collector", "search")
-    return _launch("collector", "collector:search", _prompt(brief, "Coverity の警告を検索します"))
+    return _launch("collector", "collector:search", _prompt(brief, "Coverity の警告を検索します"),
+                   round_=run.state.roles["collector"]["rounds"])
 
 
 def _missing_paths(run: Run) -> dict[str, list[int]]:
-    """CIDs whose warning path file is not there yet, by item (items still to be worked on)."""
+    """CIDs whose warning path is not there yet, by item (items still to be worked on). Before the last
+    round, a file that only says the path could not be fetched is removed, so it is fetched once more."""
+    retry = 0 < run.state.fetch_rounds < FETCH_ROUNDS and not _role_busy(run, "collector")
     missing = {}
     for item in run.state.items:
         if item.status != "pending":
             continue
         folder = run.item_dir(item.id)
-        cids = [c for c in item.cids if not (folder / f"issue-{c}.json").is_file()]
+        cids = []
+        for cid in item.cids:
+            path = folder / f"issue-{cid}.json"
+            if retry and path.is_file():
+                data = read_json(path, {})
+                if data.get("error") and not data.get("events"):
+                    path.unlink()
+            if not path.is_file():
+                cids.append(cid)
         if cids:
             missing[item.id] = cids
     return missing
@@ -358,7 +414,8 @@ def _collector_paths(run: Run, missing: dict[str, list[int]]) -> dict[str, Any]:
         "`警告経路: 保存 <保存した CID の数> / 取れなかった <取れなかった CID の数>`", "",
         "ツールがエラーを返した行は飛ばして、次の行へ進みます。", ""]))
     _start_role(run, "collector", "paths")
-    return _launch("collector", "collector:paths", _prompt(brief, "Coverity の警告経路を取ります"))
+    return _launch("collector", "collector:paths", _prompt(brief, "Coverity の警告経路を取ります"),
+                   round_=run.state.roles["collector"]["rounds"])
 
 
 def _mark_unfetched(run: Run, missing: dict[str, list[int]]) -> None:
@@ -373,11 +430,17 @@ def _mark_unfetched(run: Run, missing: dict[str, list[int]]) -> None:
 # ---- workers ------------------------------------------------------------------------------------
 
 
-def _fill_slots(run: Run) -> list[dict[str, Any]]:
+def _fill_slots(run: Run, say: list[str]) -> list[dict[str, Any]]:
     """Start as many items as there are free slots."""
-    actions = []
+    actions: list[dict[str, Any]] = []
     while True:
-        got = triage.next_item(str(run.dir))
+        try:
+            got = triage.next_item(str(run.dir))
+        except CtError as exc:
+            if not actions:
+                raise
+            say.append(str(exc))  # the items started already are given out; the next tick meets the error again
+            break
         if not got.get("item"):
             break
         item_id = got["item"]
@@ -476,18 +539,25 @@ def _integrator(run: Run, say: list[str]) -> dict[str, Any] | None:
         return None
     plan_file = folder / "plan.json"
     plan_file.unlink(missing_ok=True)
-    rows = []
+    no_grouping = load_no_grouping(run.repo)
+    rows, paths = [], []
     for item in run.state.items:
-        if item.status != "done":
+        if item.status != "done" or set(item.cids) & no_grouping:  # not to be merged (no-grouping.yaml)
             continue
         result = TriageResult.model_validate(read_json(run.result_file(item.id)))
-        main = run.mapped_issues().get(item.cids[0])
-        where = f"{main.file}:{main.line or '-'} {main.function or ''}".strip() if main else "-"
+        issues, events, _, _ = triage._item_view(run, item)
+        main = issues[0]
+        where = f"{main.file}:{main.line or '-'} {main.function or ''}".strip()
         patch = run.dir / "patches" / f"{item.id}-fix.patch"
-        rows.append(f"| {item.id} | {', '.join(map(str, item.cids))} | {main.checker if main else '-'} | `{where}` | "
+        rows.append(f"| {item.id} | {', '.join(map(str, item.cids))} | {main.checker} | `{where}` | "
                     f"{result.verdict.judgement} | {result.recommendation} | {result.confidence} | "
                     f"{result.verdict.summary} | `{run.result_file(item.id)}` | " + (f"`{patch}`" if patch.is_file() else "なし")
                     + " |")
+        for issue in issues:
+            stars = [e for e in events.get(issue.cid) or [] if e.main] or (events.get(issue.cid) or [])[-1:]
+            paths.append(f"- {item.id} / CID {issue.cid}（{issue.checker}）: "
+                         + ("、".join(f"`{e.file}`:{e.line or '-'} {e.tag} — {e.description}" for e in stars)
+                            or f"`{issue.file}`:{issue.line or '-'}（警告経路を取れませんでした）"))
     lines = ["# 統合の指示", "",
              "作業エージェントが調べ終わった作業のうち、**同じ原因**のものを見つけ、1 つの作業にまとめる計画を書きます。"
              "コードは変更しません（まとめた修正は、スクリプトか作業エージェントが作ります）。",
@@ -498,7 +568,8 @@ def _integrator(run: Run, say: list[str]) -> dict[str, Any] | None:
              f"| 調べるコード（読むだけ） | `{run.copy_dir('analyzed') if run.state.analyzed_revision else run.repo}` |"]
     if knowledge_path(run.repo).is_file():
         lines.append(f"| プロジェクトの知識（読む） | `{knowledge_path(run.repo)}` |")
-    lines += ["", "## 候補（決まった方法で見つけたもの）", ""]
+    lines += ["", "- パスは、どれもリポジトリの一番上からの相対パスです。", "",
+              "## 候補（決まった方法で見つけたもの）", ""]
     for n, group in enumerate(found, 1):
         lines.append(f"{n}. 作業 {', '.join(group['items'])}")
         lines += [f"   - {pair}: {'、'.join(why)}" for pair, why in group["reasons"].items()]
@@ -506,22 +577,28 @@ def _integrator(run: Run, say: list[str]) -> dict[str, Any] | None:
               "## 調べ終わった作業", "",
               "| 作業 | CID | チェッカー | 場所 | 見立て | 推奨 | 確信度 | 1 行の見立て | 結果ファイル | 修正の差分 |",
               "|---|---|---|---|---|---|---|---|---|---|", *rows, "",
+              "## 警告経路の ★（問題の起きる場所）", "", *paths, "",
               "## 決まり", "",
               f"- 1 つにまとめる CID は合わせて {MAX_GROUP} 件まで。まとめる作業は 2 つ以上。1 つの作業は 1 つのまとまりにだけ入れる。",
+              "- まとめてよいのは、上の「調べ終わった作業」の表にある作業だけ（グループ化しない CID を含む作業は載せていない）。",
               "- 原因が違うのに同じ箇所を変えている作業は、まとめずに conflicts に書く。",
               "- まとめるものが無ければ、merges を空にした計画を書く。", "",
-              f"計画を書いたら、呼び出し元に 1 行だけ返します。例: 「統合: 2 つにまとめる（G7 ← 20011, 20012）」", ""]
+              "計画を書いたら、呼び出し元に 1 行だけ返します。例: 「統合: 1 つにまとめる（20011, 20012）」", ""]
     brief = run.dir / "agents" / "integrator" / "brief.md"
     write_text(brief, "\n".join(lines))
     (run.dir / "agents" / "integrator" / "progress.json").unlink(missing_ok=True)
-    _start_role(run, "integrator", "integrator")
+    _start_role(run, "integrator", "integrator", fresh=True, repo_fingerprint=run.vcs.fingerprint())
     return _launch("integrator", "integrator", _prompt(brief, "同じ原因の警告をまとめます"))
 
 
-def _integrator_ended(run: Run, failed: bool, reason: str, say: list[str], actions: list[dict[str, Any]]) -> None:
-    if not _role_busy(run, "integrator"):
-        return  # told twice
-    rounds = _rounds(run, "integrator", "integrator")
+def _integrator_ended(run: Run, round_: int, failed: bool, reason: str, say: list[str],
+                      actions: list[dict[str, Any]]) -> None:
+    lease = run.state.roles.get("integrator", {})
+    rounds = lease.get("rounds", 1)
+    if not lease.get("active") or round_ != rounds:
+        return  # told twice, or about a start that was followed by another
+    if lease.get("repo_fingerprint") and run.vcs.fingerprint() != lease["repo_fingerprint"]:
+        say.append("統合の間に、利用者のリポジトリのファイルが変わりました。統合エージェントが誤って変更していないか確かめてください")
     problems: list[str] = []
     if not failed:
         try:
@@ -534,9 +611,10 @@ def _integrator_ended(run: Run, failed: bool, reason: str, say: list[str], actio
             return
     if not failed and rounds < ROLE_ROUNDS:
         brief = run.dir / "agents" / "integrator" / "brief.md"
-        _start_role(run, "integrator", "integrator")
+        _start_role(run, "integrator", "integrator", repo_fingerprint=lease.get("repo_fingerprint"))
         actions.append(_launch("integrator", "integrator", _prompt(brief, "同じ原因の警告をまとめます")
-                               + " 計画の次の点を直してください：\n" + "\n".join(f"- {p}" for p in problems)))
+                               + " 計画の次の点を直してください：\n" + "\n".join(f"- {p}" for p in problems),
+                               round_=rounds + 1))
         return
     _end_role(run, "integrator", "failed", reason=reason or "；".join(problems))
     with run.update() as state:
@@ -546,7 +624,11 @@ def _integrator_ended(run: Run, failed: bool, reason: str, say: list[str], actio
 
 
 def integrate(run: Run) -> list[str]:
-    """Check integration/plan.json and make one item of each merge. Returns the new item ids."""
+    """Check integration/plan.json and make one item of each merge. Returns the new item ids.
+
+    Nothing is changed unless the whole plan is right. The new items and the merged members are
+    recorded in one update; the fixes are made after it (a fix that cannot be made by joining the
+    members' patches is left to a worker)."""
     path = run.dir / "integration" / "plan.json"
     if not path.is_file():
         raise CtError("計画がありません", problems=[f"{path} を書いてください（形はスキル triage-integration）"])
@@ -579,12 +661,13 @@ def integrate(run: Run) -> list[str]:
     if problems:
         raise CtError("計画に直すところがあります", problems=problems)
 
-    made = []
+    order = {"low": 0, "medium": 1, "high": 2}
     merged_file = run.dir / "integration" / "merged.json"
     merged_info = read_json(merged_file, {})
-    for merge in plan.merges:
-        new_id = _next_group_id(run)
-        cids = [c for m in merge.members for c in items[m].cids]
+    made: list[tuple[str, Any, Any]] = []
+    numbers = [int(i.id[1:]) for i in run.state.items if re.fullmatch(r"G\d+", i.id)]
+    for n, merge in enumerate(plan.merges, 1):
+        new_id = f"G{max(numbers, default=0) + n}"
         folder = run.item_dir(new_id)
         folder.mkdir(parents=True, exist_ok=True)
         for member in merge.members:
@@ -593,41 +676,40 @@ def integrate(run: Run) -> list[str]:
                 if src.is_file():
                     (folder / src.name).write_bytes(src.read_bytes())
         lowest = min((TriageResult.model_validate(read_json(run.result_file(m))).confidence for m in merge.members),
-                     key=lambda c: {"low": 0, "medium": 1, "high": 2}[c])
-        result = merge.result.model_copy(update={"confidence": min(
-            (merge.result.confidence, lowest), key=lambda c: {"low": 0, "medium": 1, "high": 2}[c])})
+                     key=order.__getitem__)
+        result = merge.result.model_copy(update={"confidence": min((merge.result.confidence, lowest),
+                                                                   key=order.__getitem__)})
         merged_info[new_id] = {"members": merge.members, "reason": merge.reason, "fix_source": merge.fix_source,
-                               "result": result.model_dump()}
-        write_json(merged_file, merged_info)
-        with run.update() as state:
-            state.items.append(ItemState(id=new_id, cids=cids, merged_from=list(merge.members)))
+                               "result": result.model_dump(exclude={"item", "group_excluded_cids"})}
+        made.append((new_id, merge, result))
+    write_json(merged_file, merged_info)
+    with run.update() as state:
+        for new_id, merge, _ in made:
+            state.items.append(ItemState(id=new_id, cids=[c for m in merge.members for c in items[m].cids],
+                                         merged_from=list(merge.members)))
             for member in merge.members:
                 current = state.item(member)
                 current.status, current.merged_into = "merged", new_id
-        made.append(new_id)
-        if merge.fix_source == "rework" or run.config.options.annotation:
-            continue  # a worker writes the fix (and the annotation, which must say the merged comment)
-        _build_merged(run, new_id, merge.members, merge.fix_source, result)  # False: stays pending for a worker
-    for conflict in plan.conflicts:
-        with run.update() as state:
+        for conflict in plan.conflicts:
             for item_id in conflict.items:
                 if any(i.id == item_id for i in state.items):
                     state.item(item_id).warnings.append(
                         f"修正が作業 {', '.join(x for x in conflict.items if x != item_id)} と同じ箇所を変えています"
                         f"（原因は別）: {conflict.note}")
-    with run.update() as state:
         state.integrated = True
-    _log(run, "integrate", merges=made, conflicts=[c.items for c in plan.conflicts])
+    _log(run, "integrate", merges=[m[0] for m in made], conflicts=[c.items for c in plan.conflicts])
+    for new_id, merge, result in made:
+        if merge.fix_source == "rework" or run.config.options.annotation:
+            continue  # a worker writes the fix (and the annotation, which must say the merged comment)
+        try:
+            _build_merged(run, new_id, merge.members, merge.fix_source, result)  # False: stays pending for a worker
+        except CtError as exc:  # making the copy or saving failed: a worker makes the fix instead
+            _log(run, "integrate-build", level="warning", item=new_id, error=str(exc))
     for conflict in plan.conflicts:
         for item_id in conflict.items:
-            if run.result_file(item_id).is_file():
+            if any(i.id == item_id and i.status == "done" for i in run.state.items):
                 triage.write_item_files(run, item_id)
-    return made
-
-
-def _next_group_id(run: Run) -> str:
-    numbers = [int(i.id[1:]) for i in run.state.items if re.fullmatch(r"G\d+", i.id)]
-    return f"G{max(numbers, default=0) + 1}"
+    return [m[0] for m in made]
 
 
 def _build_merged(run: Run, item_id: str, members: list[str], source: str, result: Any) -> bool:
@@ -646,7 +728,7 @@ def _build_merged(run: Run, item_id: str, members: list[str], source: str, resul
     changed = vcs.changed_files(fix_dir)
     if not changed and not result.fix.already_fixed_on_latest:
         return False
-    data = {"item": item_id, **result.model_dump(), "group_excluded_cids": []}
+    data = {**result.model_dump(), "item": item_id, "group_excluded_cids": []}
     write_json(run.result_file(item_id), data)
     saved: dict[str, Any] = {}
     if changed:
@@ -757,16 +839,16 @@ def _reviewer(run: Run, item: ItemState) -> dict[str, Any]:
               f"検証の結果 `{out}` を書いたら、呼び出し元に 1 行だけ返します。例: 「{item.id}: 合格 — 根拠の行と経路の条件を確かめた」", ""]
     brief = run.dir / "agents" / "reviewer" / f"{item.id}.md"
     write_text(brief, "\n".join(lines))
-    _start_role(run, "reviewer", f"reviewer:{item.id}", item=item.id,
+    _start_role(run, "reviewer", f"reviewer:{item.id}", fresh=True, item=item.id, repo_fingerprint=run.vcs.fingerprint(),
                 result_sha=_sha(run.result_file(item.id)), patch_sha=_sha(Path(patch)) if patch else None)
     return _launch("reviewer", f"reviewer:{item.id}", _prompt(brief, "調べた結果を独立に確かめます"), item.id)
 
 
-def _reviewer_ended(run: Run, item_id: str, failed: bool, reason: str, say: list[str],
+def _reviewer_ended(run: Run, item_id: str, round_: int, failed: bool, reason: str, say: list[str],
                     actions: list[dict[str, Any]]) -> None:
     lease = run.state.roles.get("reviewer", {})
-    if lease.get("task") != f"reviewer:{item_id}" or not lease.get("active"):
-        return  # told twice
+    if lease.get("task") != f"reviewer:{item_id}" or not lease.get("active") or round_ != lease.get("rounds", 1):
+        return  # told twice, or about a start that was followed by another
     item = run.state.item(item_id)
     problems: list[str] = []
     review = None
@@ -789,13 +871,16 @@ def _reviewer_ended(run: Run, item_id: str, failed: bool, reason: str, say: list
                     (patch and _sha(Path(patch)) != lease.get("patch_sha")):
                 reason = "検証の間に、結果ファイルか修正の差分が変わりました（検証の結果は使いません）"
                 failed = True
+            elif lease.get("repo_fingerprint") and run.vcs.fingerprint() != lease["repo_fingerprint"]:
+                say.append(f"{item_id}: 検証の間に、利用者のリポジトリのファイルが変わりました。"
+                           "検証エージェントが誤って変更していないか確かめてください")
     if problems and _rounds(run, "reviewer", f"reviewer:{item_id}") < ROLE_ROUNDS:
         brief = run.dir / "agents" / "reviewer" / f"{item_id}.md"
         _start_role(run, "reviewer", f"reviewer:{item_id}", item=item_id, result_sha=lease.get("result_sha"),
-                    patch_sha=lease.get("patch_sha"))
+                    patch_sha=lease.get("patch_sha"), repo_fingerprint=lease.get("repo_fingerprint"))
         actions.append(_launch("reviewer", f"reviewer:{item_id}", _prompt(brief, "調べた結果を独立に確かめます")
                                + " 検証の結果ファイルの次の点を直してください：\n" + "\n".join(f"- {p}" for p in problems),
-                               item_id))
+                               item_id, run.state.roles["reviewer"]["rounds"]))
         return
     _end_role(run, "reviewer", "failed" if failed or problems else review.outcome, item=item_id,
               reason=reason or "；".join(problems))

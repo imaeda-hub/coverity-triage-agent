@@ -13,7 +13,6 @@ triage (the warnings would be the old ones). Only the commands written in the se
 from __future__ import annotations
 
 import os
-import re
 import signal
 import subprocess
 import sys
@@ -21,7 +20,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .common import CtError, pid_alive, read_json, resolve_path, spawn_detached, write_json
+from . import oplog
+from .common import CtError, build_env, display_text, pid_alive, read_json, resolve_path, spawn_detached, write_json
 from .envvars import get_env
 from .run import Run
 from .verify import LOG_TAIL, intermediate_dir, safe_relpath
@@ -42,7 +42,8 @@ def _status_file(run: Run) -> Path:
 
 
 def _tail(log: Path) -> str:
-    return log.read_bytes()[-LOG_TAIL:].decode("utf-8", "replace") if log.is_file() else ""
+    """The end of the log (the build tools of a Japanese Windows write cp932)."""
+    return display_text(log.read_bytes()[-LOG_TAIL:]) if log.is_file() else ""
 
 
 def status(run: Run) -> dict[str, Any]:
@@ -50,9 +51,12 @@ def status(run: Run) -> dict[str, Any]:
     data = read_json(_status_file(run), {}) if _status_file(run).is_file() else {}
     if not data:
         return {"status": "none"}
-    if data.get("status") == "running" and not pid_alive(data.get("pid")) and \
-            time.time() - data.get("started", 0) > 30:  # the process is gone without writing its end
-        data = {**data, "status": "failed", "error": "初回解析のプロセスが途中で止まりました"}
+    if data.get("status") == "running":
+        elapsed = time.time() - data.get("started", 0)
+        if not pid_alive(data.get("pid")) and elapsed > 30:  # the process is gone without writing its end
+            data = {**data, "status": "failed", "error": "初回解析のプロセスが途中で止まりました"}
+        elif elapsed > run.config.verify.timeout_minutes * 60 + 600:  # its PID may be another program's now
+            data = {**data, "status": "failed", "error": "初回解析が時間の上限を過ぎても終わっていません"}
     data["elapsed_seconds"] = round((data.get("finished") or time.time()) - data.get("started", time.time()))
     data["step_label"] = STEPS.get(data.get("step", ""), data.get("step", ""))
     if data["status"] == "failed":
@@ -92,45 +96,46 @@ def wait(run: Run, seconds: int) -> dict[str, Any]:
     return current
 
 
-def command_line(run: Run, root: Path) -> tuple[str, dict[str, str]]:
-    """One shell line (setup → build → analyze → commit) and the environment it needs.
+def command_lines(run: Run, root: Path) -> tuple[str, str, dict[str, str], dict[str, str]]:
+    """Two shell lines and their environments: setup → build → analyze, then setup → commit.
 
-    The authentication key goes in an environment variable (``COVERITY_PASSPHRASE``, which
-    cov-commit-defects reads when --password is not given), never on the command line or in the log."""
+    The authentication key is given only to the commit, in an environment variable
+    (``COVERITY_PASSPHRASE``, which cov-commit-defects reads when --password is not given): never on
+    a command line, and never to the build, whose tools may print their environment into the log."""
     config, coverity = run.config.verify, run.config.coverity
-    steps = []
+    prefix = []
     if config.setup_command:
         setup = config.setup_command.replace("{root}", str(root))
-        steps.append(("call " if sys.platform == "win32" else "") + setup)
+        prefix.append(("call " if sys.platform == "win32" else "") + setup)
     if config.build_dir:
         target = root / safe_relpath(config.build_dir)
-        steps.append(f'cd /d "{target}"' if sys.platform == "win32" else f'cd "{target}"')
+        prefix.append(f'cd /d "{target}"' if sys.platform == "win32" else f'cd "{target}"')
     idir = intermediate_dir(config.cov_analyze_args)
     revision = run.vcs.current_revision()
-    user = get_env(coverity.user_env) or ""
-    steps += [f"echo {MARK}build", f"cov-build {config.cov_build_args} {config.build_command}",
-              f"echo {MARK}analyze", f"cov-analyze {config.cov_analyze_args}", f"echo {MARK}commit"]
+    build = " && ".join([*prefix, f"echo {MARK}build", f"cov-build {config.cov_build_args} {config.build_command}",
+                         f"echo {MARK}analyze", f"cov-analyze {config.cov_analyze_args}"])
+    keys = (coverity.key_env, "COVERITY_PASSPHRASE")
+    build_env_ = build_env(drop=keys)
     if coverity.api == "fake":  # the self-test and the tests: nothing is sent anywhere
-        steps.append(f"echo commit skipped because coverity.api is fake: stream {run.state.stream} version {revision}")
-    else:
-        if not user or not get_env(coverity.key_env):
-            raise CtError(f"サーバへの登録に使う認証情報がありません（環境変数 {coverity.user_env} / {coverity.key_env}。"
-                          "/coverity-setup で入れます）")
-        commit = (f'cov-commit-defects --dir "{idir}" --url "{coverity.url}" --stream "{run.state.stream}" '
-                  f'--user "{user}" --version "{revision}"')
-        if config.cov_commit_args:
-            commit += " " + config.cov_commit_args
-        steps.append(commit)
-    env = dict(os.environ)
-    key = get_env(coverity.key_env)
-    if key:
-        env["COVERITY_PASSPHRASE"] = key
-    return " && ".join(steps), env
+        commit = " && ".join([*prefix, f"echo {MARK}commit",
+                              f"echo commit skipped because coverity.api is fake: stream {run.state.stream} version {revision}"])
+        return build, commit, build_env_, build_env_
+    user, key = get_env(coverity.user_env), get_env(coverity.key_env)
+    if not user or not key:
+        raise CtError(f"サーバへの登録に使う認証情報がありません（環境変数 {coverity.user_env} / {coverity.key_env}。"
+                      "/coverity-setup で入れます）")
+    line = (f'cov-commit-defects --dir "{idir}" --url "{coverity.url}" --stream "{run.state.stream}" '
+            f'--user "{user}" --version "{revision}"')
+    if config.cov_commit_args:
+        line += " " + config.cov_commit_args
+    commit = " && ".join([*prefix, f"echo {MARK}commit", line])
+    return build, commit, build_env_, build_env(extra={"COVERITY_PASSPHRASE": key}, drop=keys)
 
 
 def _stop_tree(proc: subprocess.Popen[bytes]) -> None:
     if sys.platform == "win32":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, check=False)
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, check=False,
+                       creationflags=subprocess.CREATE_NO_WINDOW)
     else:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
@@ -138,59 +143,98 @@ def _stop_tree(proc: subprocess.Popen[bytes]) -> None:
             proc.kill()
 
 
+class _Steps:
+    """The last step mark the shell lines echoed into the log, read as the log grows."""
+
+    def __init__(self, log: Path):
+        self.log, self.offset, self.step, self.rest = log, 0, "setup", b""
+
+    def update(self) -> str:
+        try:
+            with open(self.log, "rb") as f:
+                f.seek(self.offset)
+                data = f.read()
+        except OSError:
+            return self.step
+        self.offset += len(data)
+        lines = (self.rest + data).split(b"\n")
+        self.rest = lines.pop()
+        for line in lines:
+            if line.startswith(MARK.encode()):
+                self.step = line[len(MARK):].decode("ascii", "replace").strip() or self.step
+        return self.step
+
+
+def _shell(line: str, env: dict[str, str], cwd: Path, log: Path, deadline: float, steps: _Steps,
+           on_step: Any) -> tuple[int | None, bool]:
+    """Run one shell line into the log. Returns the exit code (None: stopped at the deadline)."""
+    extra: dict[str, Any] = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32"
+                             else {"start_new_session": True})
+    with open(log, "ab") as f:
+        proc = subprocess.Popen(line, cwd=cwd, shell=True, stdout=f, stderr=subprocess.STDOUT, env=env, **extra)
+        try:
+            while proc.poll() is None:
+                if time.monotonic() > deadline:
+                    _stop_tree(proc)
+                    proc.wait()
+                    return None, True
+                on_step(steps.update())
+                time.sleep(2)
+        except BaseException:  # the watcher itself fails: never leave the build running unseen
+            _stop_tree(proc)
+            raise
+    on_step(steps.update())
+    return proc.returncode, False
+
+
 def execute(run_dir: str) -> dict[str, Any]:
     """The body of the detached process (ct.py initial-run)."""
     run = Run(run_dir)
     log = folder(run) / LOG_FILE
     started = read_json(_status_file(run), {}).get("started") or time.time()
-    base = {"started": started, "pid": os.getpid()}
-    write_json(_status_file(run), {**base, "status": "running", "step": "setup"})
-    timeout = run.config.verify.timeout_minutes * 60
+    dirty = run.vcs.has_local_changes()  # uncommitted changes are analyzed, but the snapshot says HEAD
+    base = {"started": started, "pid": os.getpid(), "dirty": dirty}
+    state = {"step": ""}
+
+    def on_step(step: str) -> None:
+        if step != state["step"]:
+            state["step"] = step
+            write_json(_status_file(run), {**base, "status": "running", "step": step})
+
+    on_step("setup")
+    minutes = run.config.verify.timeout_minutes
+    deadline = time.monotonic() + minutes * 60
+    steps = _Steps(log)
+    secrets = oplog.secrets_of(run.config)
+    out: dict[str, Any]
     try:
-        line, env = command_line(run, run.repo)
-    except CtError as exc:
-        out = {**base, "status": "failed", "step": "setup", "error": str(exc), "finished": time.time()}
-        write_json(_status_file(run), out)
-        return out
-    with open(log, "wb") as f:
-        f.write(f"$ {line}\n".encode("utf-8"))
-        f.flush()
-        extra: dict[str, Any] = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32"
-                                 else {"start_new_session": True})
-        proc = subprocess.Popen(line, cwd=run.repo, shell=True, stdout=f, stderr=subprocess.STDOUT, env=env, **extra)
-        timed_out = False
-        deadline = time.monotonic() + timeout
-        while proc.poll() is None:
-            if time.monotonic() > deadline:
-                timed_out = True
-                _stop_tree(proc)
+        build, commit, build_env_, commit_env = command_lines(run, run.repo)
+        log.write_bytes(b"")
+        code, timed_out = None, False
+        for line, env in ((build, build_env_), (commit, commit_env)):
+            with open(log, "ab") as f:
+                f.write(f"$ {oplog.mask(line, secrets)}\n".encode("utf-8"))
+            code, timed_out = _shell(line, env, run.repo, log, deadline, steps, on_step)
+            if timed_out or code != 0:
                 break
-            step = _step(log)
-            if step:
-                write_json(_status_file(run), {**base, "status": "running", "step": step})
-            time.sleep(2)
-        proc.wait()
-    step = _step(log) or "setup"
-    if timed_out:
-        out = {**base, "status": "failed", "step": step, "finished": time.time(),
-               "error": f"{run.config.verify.timeout_minutes} 分たっても終わらなかったため止めました（設定 verify.timeout_minutes）"}
-    elif proc.returncode != 0:
-        out = {**base, "status": "failed", "step": step, "finished": time.time(),
-               "error": f"{STEPS.get(step, step)}で失敗しました（終了コード {proc.returncode}）"}
-    else:
-        out = {**base, "status": "done", "step": "commit", "finished": time.time(),
-               "revision": run.vcs.current_revision(), "stream": run.state.stream}
+        step = steps.update()
+        if timed_out:
+            out = {**base, "status": "failed", "step": step, "finished": time.time(),
+                   "error": f"{minutes} 分たっても終わらなかったため止めました（設定 verify.timeout_minutes）"}
+        elif code != 0:
+            out = {**base, "status": "failed", "step": step, "finished": time.time(),
+                   "error": f"{STEPS.get(step, step)}で失敗しました（終了コード {code}）"}
+        else:
+            out = {**base, "status": "done", "step": "commit", "finished": time.time(),
+                   "revision": run.vcs.current_revision(), "stream": run.state.stream}
+    except CtError as exc:
+        out = {**base, "status": "failed", "step": state["step"] or "setup", "error": str(exc), "finished": time.time()}
+    except Exception as exc:  # noqa: BLE001 - the status must say it ended
+        out = {**base, "status": "failed", "step": state["step"] or "setup", "finished": time.time(),
+               "error": f"初回解析を続けられませんでした: {type(exc).__name__}: {exc}"}
     write_json(_status_file(run), out)
     from .triage import _log
 
     _log(run, "initial", level="critical" if out["status"] == "failed" else "info", status=out["status"],
-         step=step, error=out.get("error", ""), seconds=round(out["finished"] - started))
+         step=out["step"], error=out.get("error", ""), seconds=round(out["finished"] - started))
     return out
-
-
-def _step(log: Path) -> str | None:
-    """The last step the shell line reached (from the marks it echoes into the log)."""
-    if not log.is_file():
-        return None
-    found = re.findall(rf"^{MARK}(\w+)", log.read_bytes()[-200_000:].decode("utf-8", "replace"), re.MULTILINE)
-    return found[-1] if found else "setup"

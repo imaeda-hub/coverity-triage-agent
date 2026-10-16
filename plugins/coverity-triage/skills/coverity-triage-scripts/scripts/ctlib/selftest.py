@@ -1,7 +1,7 @@
 """/coverity-selftest: checks in the person's environment, written to one result folder.
 
 The skill coverity-selftest drives the test. Checks that follow fixed rules are judged here; what
-only the agent or the person can see (menus, tools, the subagent) is recorded with ``record``.
+only the agent or the person can see (menus, tools, the subagents) is recorded with ``record``.
 Host names, user names and credentials are masked before anything is written. Source code of
 in-house repositories is never recorded, only its shape (file names, line numbers, counts).
 """
@@ -53,7 +53,12 @@ CHECKS = [
     Check("1-4", "サブエージェントのツール", "使えるのは読み取り・検索・編集・スキルだけ（ターミナルと MCP のツールが無い）", "agent"),
     Check("1-5", "スキルの読み込み", "サブエージェントがスキル triage-investigation を読める", "agent"),
     Check("1-6", "サブエージェントのモデル", "サブエージェントが GPT-6 Luna で動く", "agent"),
-    Check("1-7", "配置", "サブエージェントの定義が ~/.copilot/agents にあり最新、MCP サーバの Python 環境がある", "script"),
+    Check("1-7", "配置", "サブエージェント 4 つ（取得・作業・統合・検証）の定義が ~/.copilot/agents"
+          "（COPILOT_HOME があればその agents）にあり最新、MCP サーバの Python 環境がある", "script"),
+    Check("1-8", "取得のエージェント", "coverity-triage-collector を起動でき、使えるツールに MCP の search_issues と get_issues が"
+          "あり、ターミナルと update_triage が無い", "agent"),
+    Check("1-9", "統合のエージェント", "coverity-triage-integrator を起動でき、ターミナルと MCP のツールが無い", "agent"),
+    Check("1-10", "検証のエージェント", "coverity-triage-reviewer を起動でき、ターミナルと MCP のツールが無い", "agent"),
     Check("2-1", "見本のリポジトリ", "偽データの見本のリポジトリを作れる", "script"),
     Check("2-2", "実行", "すべての作業が終わり、summary.html ができる", "script"),
     Check("2-3", "レポートの形", "各レポートに逸脱案と修正案（差分つき）があり、承認欄に推奨が入っている", "script"),
@@ -69,20 +74,35 @@ CHECKS = [
     Check("3-5", "解析リビジョン", "スナップショットのリビジョンが分かり、リポジトリにある", "script"),
     Check("4-1", "試しのビルド", "修正前の最新のコードをビルドできる", "agent"),
     Check("4-2", "Coverity のコマンド", "cov-build / cov-analyze / cov-format-errors が見つかる", "script"),
+    Check("4-3", "サーバへの登録のコマンド", "初回解析（verify.initial）を使うとき、cov-commit-defects が見つかる"
+          "（登録そのものは試さない）", "script"),
 ]
 CHECK_IDS = {c.id: c for c in CHECKS}
 
 
-class Masker:
-    """Replaces credentials, user names and Coverity host names."""
+def _home_relative(path: Path) -> str:
+    """A folder under the home folder as ``~/...``: the user name is not written, and it still opens."""
+    try:
+        return "~/" + path.relative_to(Path.home()).as_posix()
+    except ValueError:
+        return str(path)
 
-    def __init__(self, repo: str | None):
+
+def _repo(state: dict[str, Any]) -> Path | None:
+    return Path(state["repo_root"]).expanduser() if state.get("repo_root") else None
+
+
+class Masker:
+    """Replaces credentials, user names and Coverity host names (in values; keys are names the scripts chose)."""
+
+    def __init__(self, repo: str | Path | None):
         self.secrets: list[str] = []
         self.users = {getpass.getuser(), Path.home().name}
         self.hosts: set[str] = set()
-        if repo and (Path(repo) / CONFIG_DIR / CONFIG_FILE).is_file():
+        repo = Path(repo).expanduser() if repo else None
+        if repo and (repo / CONFIG_DIR / CONFIG_FILE).is_file():
             try:
-                config = load_config(Path(repo))
+                config = load_config(repo)
             except CtError:
                 return
             self.secrets = [v for v in (get_env(config.coverity.key_env),) if v]
@@ -106,7 +126,7 @@ class Masker:
         if isinstance(value, str):
             return self.text(value)
         if isinstance(value, dict):
-            return {self.text(str(k)): self(v) for k, v in value.items()}
+            return {str(k): self(v) for k, v in value.items()}
         if isinstance(value, (list, tuple)):
             return [self(v) for v in value]
         return value
@@ -118,7 +138,7 @@ class Result:
         if not (self.dir / STATE_FILE).is_file():
             raise CtError(f"動作確認の結果フォルダではありません: {self.dir}（ct.py selftest start から始めます）")
         self.state = read_json(self.dir / STATE_FILE)
-        self.mask = Masker(self.state.get("repo_root"))
+        self.mask = Masker(_repo(self.state))
 
     def save(self) -> None:
         write_json(self.dir / STATE_FILE, self.state)
@@ -161,7 +181,7 @@ def start(sections: str, repo: str | None, client: str, base: str | None) -> dic
     folder.mkdir(parents=True, exist_ok=True)
     plugin = read_json(PLUGIN_ROOT / "plugin.json")
     state = {"started": datetime.now().isoformat(timespec="seconds"), "sections": picked,
-             "repo_root": str(resolve_path(repo)) if repo else None, "client": client,
+             "repo_root": _home_relative(resolve_path(repo)) if repo else None, "client": client,
              "environment": {"os": platform.platform(), "python": platform.python_version(),
                              "plugin": f"{plugin.get('name')} {plugin.get('version')}",
                              "uv": _version(["uv", "--version"]), "git": _version(["git", "--version"]),
@@ -181,12 +201,18 @@ def start(sections: str, repo: str | None, client: str, base: str | None) -> dic
 
 def static(folder: str) -> dict[str, Any]:
     result = Result(folder)
-    agent = agent_state()
+    agents = agent_state()  # every agent of the plugin, and old ones it no longer has ("stale")
     venv = (SERVER_DIR / ".venv").is_dir()
-    ok = agent["status"] == "current" and venv
+    behind = {name: a["status"] for name, a in agents.items() if a["status"] != "current"}
+    ok = not behind and venv
+    count = sum(a["status"] != "stale" for a in agents.values())
+    shown = "すべて最新" if not behind else "、".join(f"{name} {status}" for name, status in behind.items())
+    folders = sorted({str(Path(a["path"]).parent) for a in agents.values()})
+    detail = f"定義のフォルダ: {'、'.join(folders)}"
+    if not ok:
+        detail += "\nct.py install-agent と ct.py prewarm を実行し、VS Code（Copilot CLI）を再起動します"
     result.record("1-7", "pass" if ok else "fail",
-                  f"サブエージェントの定義: {agent['status']}、MCP サーバの Python 環境: {'あり' if venv else 'なし'}",
-                  "" if ok else "ct.py install-agent と ct.py prewarm を実行し、VS Code（Copilot CLI）を再起動します")
+                  f"サブエージェントの定義 {count} 個: {shown}、MCP サーバの Python 環境: {'あり' if venv else 'なし'}", detail)
     result.save()
     return {"ok": True, "1-7": result.state["checks"]["1-7"]}
 
@@ -223,7 +249,8 @@ def check_run(folder: str, run_dir: str) -> dict[str, Any]:
     run = Run(run_dir)
     counts = run.state.counts()
     summary = run.summary_file()
-    finished = counts["done"] == len(run.state.items) and summary.is_file()
+    # an item the integration took into another one is finished with it
+    finished = counts["done"] + counts.get("merged", 0) == len(run.state.items) and summary.is_file()
     result.record("2-2", "pass" if finished else "fail", f"作業 {len(run.state.items)} 件: {counts}",
                   "" if summary.is_file() else "summary.html がありません")
 
@@ -338,8 +365,22 @@ def check_build(folder: str) -> dict[str, Any]:
     found = {name: shutil.which(name) for name in ("cov-build", "cov-analyze", "cov-format-errors")}
     missing = [n for n, p in found.items() if not p]
     result.record("4-2", "fail" if missing else "pass", "見つかりました" if not missing else f"見つかりません: {missing}")
+    # Only whether the command is there: committing a snapshot would write to Coverity (③ never does).
+    initial = False
+    if _repo(result.state):
+        try:
+            initial = load_config(_repo(result.state)).verify.initial
+        except CtError:
+            pass
+    commit = shutil.which("cov-commit-defects")
+    if commit:
+        result.record("4-3", "pass", "見つかりました")
+    else:
+        result.record("4-3", "fail" if initial else "info", "見つかりません",
+                      "初回解析を使う設定です。Coverity の bin フォルダを PATH に足すか、環境設定のコマンドで足します"
+                      if initial else "初回解析（verify.initial）を使わない設定なので、今は要りません")
     result.save()
-    return {"ok": True, "4-2": result.state["checks"]["4-2"]}
+    return {"ok": True, "4-2": result.state["checks"]["4-2"], "4-3": result.state["checks"]["4-3"]}
 
 
 def record(folder: str, check_id: str, status: str, actual: str, detail: str) -> dict[str, Any]:

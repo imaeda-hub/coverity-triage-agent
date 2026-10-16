@@ -90,6 +90,10 @@ class Vcs(ABC):
     def current_revision(self) -> str:
         """The revision the person's working copy is at (the initial analysis records it in Coverity)."""
 
+    @abstractmethod
+    def has_local_changes(self) -> bool:
+        """Whether tracked files of the person's working copy differ from its revision."""
+
 
 # ==== git ===================================================================================
 
@@ -197,6 +201,9 @@ class GitVcs(Vcs):
 
     def current_revision(self) -> str:
         return out_text(self.git("rev-parse", "HEAD"))
+
+    def has_local_changes(self) -> bool:
+        return bool(out_text(self.git("status", "--porcelain", "--untracked-files=no")))
 
     def fingerprint(self) -> str:
         status = self.git("status", "--porcelain=v1", "-z", "--untracked-files=all").stdout
@@ -322,6 +329,9 @@ class SvnVcs(Vcs):
 
     def current_revision(self) -> str:
         return out_text(self.svn("info", "--show-item", "revision", str(self.repo)))
+
+    def has_local_changes(self) -> bool:
+        return bool(out_text(self.svn("status", "-q")))
 
     def fingerprint(self) -> str:
         status = self.svn("status").stdout

@@ -183,14 +183,19 @@ def finish_item(item: ItemState, status: Status, error: str = "") -> None:
     item.slot = None
 
 
-def unfinished(state: RunState) -> bool:
-    """Whether /coverity-run still has something to do in the run (it can be resumed)."""
+def unfinished(state: RunState, folder: Path | None = None) -> bool:
+    """Whether /coverity-run still has something to do in the run (it can be resumed).
+
+    With the run folder, a run whose summary was not made yet is unfinished too."""
     counts = state.counts()
     if not state.planned or counts["pending"] + counts["in_progress"] + counts["error"]:
         return True
     if state.integration and not state.integrated:
         return True
-    return state.review and any(i.status == "done" and i.review is None for i in state.items)
+    if state.review and any(i.status == "done" and i.review is None for i in state.items):
+        return True
+    return folder is not None and bool(state.items) and \
+        not any((folder / f"summary.{ext}").is_file() for ext in ("html", "md"))
 
 
 def list_runs(output: Path) -> list[Path]:

@@ -168,6 +168,9 @@ class MergedResult(_Result):
     deviation: DeviationPlan
     fix: FixPlan
     revision_drift: RevisionDrift
+    # written in result.json too (skill triage-report); the scripts set them for the merged item
+    item: str | None = None
+    group_excluded_cids: list[int] = Field(default_factory=list)
 
     _reason = field_validator("confidence_reason")(_text)
 

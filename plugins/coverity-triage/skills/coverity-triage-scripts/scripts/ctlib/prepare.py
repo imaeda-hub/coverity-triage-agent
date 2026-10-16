@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
 
 from .common import PLUGIN_ROOT, CtError, out_text, resolve_path, run_cmd
 from .config import (CONFIG_DIR, CONFIG_FILE, DEFAULT_FILTER, DEFAULT_OUTPUT_DIR, DEFAULT_PARALLEL, FILTERS_DIR,
@@ -19,7 +20,12 @@ from .vcs import make_vcs
 from .verify import trial_build as run_trial_build
 
 SERVER_DIR = PLUGIN_ROOT / "server"
-WORKER_AGENT = PLUGIN_ROOT / "com.github.copilot" / "agents" / "coverity-triage-worker.agent.md"
+AGENTS_DIR = PLUGIN_ROOT / "com.github.copilot" / "agents"
+AGENT_SUFFIX = ".agent.md"
+AGENT_PREFIX = "coverity-triage-"  # every agent of the plugin; others in the person's folder are not touched
+AGENT_ROLES = {"coverity-triage-collector": "取得", "coverity-triage-worker": "作業",
+               "coverity-triage-integrator": "統合", "coverity-triage-reviewer": "検証"}
+INITIAL_COMMANDS = ("cov-build", "cov-analyze", "cov-commit-defects")
 CONFIG_HEADER = ("# Coverity トリアージの設定（/coverity-setup で作成）。チームで共有するためコミットします。\n"
                  "# 認証情報はここに書きません（環境変数に置きます）。\n")
 
@@ -33,8 +39,19 @@ def _uv() -> str:
 
 
 def user_agents_dir() -> Path:
-    """Folder of the person's own custom agents, read by GitHub Copilot."""
-    return Path.home() / ".copilot" / "agents"
+    """Folder of the person's own custom agents, read by the Copilot CLI.
+
+    The CLI keeps its settings in ``$COPILOT_HOME`` when the variable is set, ``~/.copilot`` otherwise."""
+    home = os.environ.get("COPILOT_HOME")
+    return (Path(home).expanduser() if home else Path.home() / ".copilot") / "agents"
+
+
+def plugin_agents() -> dict[str, Path]:
+    """The agent definitions of the plugin (``com.github.copilot/agents/*.agent.md``), by name, in the
+    order of /coverity-run (collector, worker, integrator, reviewer)."""
+    found = {p.name[:-len(AGENT_SUFFIX)]: p for p in AGENTS_DIR.glob(f"*{AGENT_SUFFIX}")}
+    order = list(AGENT_ROLES)
+    return dict(sorted(found.items(), key=lambda kv: (order.index(kv[0]) if kv[0] in order else len(order), kv[0])))
 
 
 # ---- prewarm / install-agent -----------------------------------------------------------------
@@ -50,23 +67,50 @@ def prewarm() -> dict[str, Any]:
             "seconds": round(time.monotonic() - started, 1)}
 
 
-def agent_state() -> dict[str, Any]:
-    target = user_agents_dir() / WORKER_AGENT.name
-    if not target.is_file():
-        return {"status": "missing", "path": str(target)}
-    same = target.read_bytes() == WORKER_AGENT.read_bytes()
-    return {"status": "current" if same else "outdated", "path": str(target)}
+def _stale_agents(folder: Path) -> list[Path]:
+    """Agents of an earlier version of the plugin that it no longer has (they could still be started)."""
+    if not folder.is_dir():
+        return []
+    current = {p.name.lower() for p in plugin_agents().values()}
+    return sorted(p for p in folder.glob(f"{AGENT_PREFIX}*{AGENT_SUFFIX}")
+                  if p.is_file() and p.name.lower() not in current)
+
+
+def agent_state() -> dict[str, dict[str, str]]:
+    """Every agent of the plugin in the person's agents folder: current / outdated / missing.
+
+    Old agents the plugin no longer has are listed too, as ``stale``."""
+    folder = user_agents_dir()
+    out = {}
+    for name, source in plugin_agents().items():
+        target = folder / source.name
+        if not target.is_file():
+            status = "missing"
+        else:
+            status = "current" if target.read_bytes() == source.read_bytes() else "outdated"
+        out[name] = {"status": status, "path": str(target)}
+    for path in _stale_agents(folder):
+        out[path.name[:-len(AGENT_SUFFIX)]] = {"status": "stale", "path": str(path)}
+    return out
 
 
 def install_agent() -> dict[str, Any]:
-    """Copy the worker agent to the person's agents folder (where Copilot finds it in every harness)."""
-    before = agent_state()["status"]
-    target = user_agents_dir() / WORKER_AGENT.name
-    if before != "current":
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(WORKER_AGENT, target)
-    return {"ok": True, "status": {"missing": "installed", "outdated": "updated", "current": "unchanged"}[before],
-            "path": str(target), "restart_needed": before != "current"}
+    """Copy the plugin's agents to the person's agents folder (where the Copilot CLI finds them), and
+    remove the old ones the plugin no longer has. Only what changed is written."""
+    folder = user_agents_dir()
+    agents = {}
+    for name, before in agent_state().items():
+        target = Path(before["path"])
+        if before["status"] == "stale":
+            target.unlink()
+        elif before["status"] != "current":
+            folder.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(plugin_agents()[name], target)
+        status = {"missing": "installed", "outdated": "updated", "current": "unchanged",
+                  "stale": "removed"}[before["status"]]
+        agents[name] = {"status": status, "path": str(target)}
+    return {"ok": True, "folder": str(folder), "agents": agents,
+            "restart_needed": any(a["status"] != "unchanged" for a in agents.values())}
 
 
 # ---- detect / init-config --------------------------------------------------------------------
@@ -165,11 +209,18 @@ def doctor(repo_root: str) -> dict[str, Any]:
     venv = (SERVER_DIR / ".venv").is_dir()
     checks.append(_check("MCP サーバの Python 環境", "ok" if venv else "ng", str(SERVER_DIR / ".venv"),
                          "" if venv else "ct.py prewarm を実行します"))
-    agent = agent_state()
-    checks.append(_check("サブエージェント coverity-triage-worker", "ok" if agent["status"] == "current" else "ng",
-                         {"current": "入っています", "missing": "まだ入っていません",
-                          "outdated": "プラグインの更新前のものです"}[agent["status"]] + f"（{agent['path']}）",
-                         "" if agent["status"] == "current" else "ct.py install-agent を実行し、VS Code（Copilot CLI）を再起動します"))
+    for name, agent in agent_state().items():
+        if agent["status"] == "stale":
+            checks.append(_check(f"古いサブエージェント {name}", "warning",
+                                 f"プラグインに無くなった定義が残っています（{agent['path']}）",
+                                 "ct.py install-agent で消し、Copilot CLI を再起動します"))
+            continue
+        role = AGENT_ROLES.get(name)
+        checks.append(_check(f"サブエージェント {name}", "ok" if agent["status"] == "current" else "ng",
+                             (f"{role}のエージェント。" if role else "")
+                             + {"current": "入っています", "missing": "まだ入っていません",
+                                "outdated": "プラグインの更新前のものです"}[agent["status"]] + f"（{agent['path']}）",
+                             "" if agent["status"] == "current" else "ct.py install-agent を実行し、VS Code（Copilot CLI）を再起動します"))
 
     config_path = repo / CONFIG_DIR / CONFIG_FILE
     config = None
@@ -221,9 +272,42 @@ def doctor(repo_root: str) -> dict[str, Any]:
             remote = out_text(run_cmd(["git", "remote", "get-url", "origin"], repo, check=False))
             checks.append(_check("git のリモート origin", "ok" if remote else "warning", remote or "ありません",
                                  "" if remote else "修正を push できません（反映のときに必要）"))
+        if config.verify.initial:
+            checks += _initial_checks(config)
     ready = all(c["status"] != "ng" for c in checks)
     return {"ok": True, "ready": ready, "checks": checks,
             "next": "Coverity への接続は MCP の check_connection で確かめる" if ready else "status が ng の項目を直す"}
+
+
+def _initial_checks(config: ProjectConfig) -> list[dict[str, str]]:
+    """The initial analysis (option verify.initial): the build command, the Coverity commands and the
+    credentials cov-commit-defects uses."""
+    verify, coverity = config.verify, config.coverity
+    checks = [_check("初回解析のビルドのコマンド", "ok" if verify.build_command else "ng",
+                     verify.build_command or "設定 verify.build_command がありません",
+                     "" if verify.build_command else "/coverity-setup の「ビルドでの検証」で設定します")]
+    fake = coverity.api == "fake"  # nothing is committed with the fake data
+    for name in INITIAL_COMMANDS:
+        if fake and name == "cov-commit-defects":
+            continue
+        found = shutil.which(name)
+        if found:
+            checks.append(_check(f"初回解析の {name}", "ok", found))
+        elif verify.setup_command:  # the setup command may add the Coverity tools to PATH
+            checks.append(_check(f"初回解析の {name}", "warning",
+                                 "PATH にありません（環境設定のコマンドで足されるなら問題ありません）",
+                                 "環境設定のコマンドで PATH に足されるか確かめます"))
+        else:
+            checks.append(_check(f"初回解析の {name}", "ng", "PATH にありません",
+                                 "Coverity の解析のツール（bin フォルダ）を PATH に足すか、環境設定のコマンドで足します"))
+    if not fake:
+        missing = [name for name in (coverity.user_env, coverity.key_env) if not get_env(name)]
+        checks.append(_check("初回解析の登録の認証情報", "ng" if missing else "ok",
+                             f"環境変数 {'・'.join(missing)} がありません" if missing else
+                             f"環境変数 {coverity.user_env} と {coverity.key_env}（認証キーは COVERITY_PASSPHRASE で渡し、"
+                             "コマンドラインとログに出しません）",
+                             "/coverity-setup の手順で、ターミナルの伏せ字の欄から入れます" if missing else ""))
+    return checks
 
 
 # ---- build verification settings (option) ---------------------------------------------------
@@ -250,8 +334,11 @@ def trial_build(repo_root: str, setup_command: str, build_command: str, build_di
 
 
 def set_verify(repo_root: str, default: str, setup_command: str, build_command: str, build_dir: str,
-               cov_build_args: str | None, cov_analyze_args: str | None) -> dict[str, Any]:
-    """Save the build verification settings the person agreed to."""
+               cov_build_args: str | None, cov_analyze_args: str | None, initial: bool | None = None,
+               cov_commit_args: str | None = None, timeout_minutes: int | None = None) -> dict[str, Any]:
+    """Save the build verification and initial analysis settings the person agreed to.
+
+    The values given as None keep what the settings have."""
     repo = resolve_path(repo_root)
     path = repo / CONFIG_DIR / CONFIG_FILE
     text = path.read_text(encoding="utf-8")
@@ -259,11 +346,16 @@ def set_verify(repo_root: str, default: str, setup_command: str, build_command: 
     data = yaml.safe_load(text) or {}
     verify = {**(data.get("verify") or {}), "default": default, "setup_command": setup_command,
               "build_dir": build_dir, "build_command": build_command}
-    if cov_build_args is not None:
-        verify["cov_build_args"] = cov_build_args
-    if cov_analyze_args is not None:
-        verify["cov_analyze_args"] = cov_analyze_args
+    for key, value in (("cov_build_args", cov_build_args), ("cov_analyze_args", cov_analyze_args),
+                       ("initial", initial), ("cov_commit_args", cov_commit_args),
+                       ("timeout_minutes", timeout_minutes)):
+        if value is not None:
+            verify[key] = value
     data["verify"] = verify
-    ProjectConfig.model_validate(data)
+    try:
+        ProjectConfig.model_validate(data)
+    except ValidationError as exc:
+        raise CtError("設定の値が正しくありません",
+                      problems=[f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()]) from exc
     path.write_text(header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return {"ok": True, "written": str(path), "verify": verify}
