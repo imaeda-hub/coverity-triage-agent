@@ -504,6 +504,7 @@ def _item_row(run: Run, item: ItemState, issues: dict[int, Issue],
     main = issues.get(item.cids[0]) if item.cids else None
     entry = decided.get(item.id)
     recommendation = result.recommendation if result else None
+    default = approvals.default_decision(run, item.id, result) if result else None
     report = run.report_file(item.id)
     applied = [part for part in APPLIED_JA if part in item.applied]
     return {"id": item.id, "title": item_title(item.id, len(item.cids)), "cids": list(item.cids),
@@ -512,9 +513,11 @@ def _item_row(run: Run, item: ItemState, issues: dict[int, Issue],
             "recommendation": recommendation, "confidence": result.confidence if result else None,
             "judgement": result.verdict.judgement if result else None,
             "summary": result.verdict.summary if result else "",
+            "default_decision": default,  # the recommendation as an approval (None: not applied)
+            "already_fixed": bool(result and result.recommendation == "fix" and default is None),
             # What preview will apply: until ct.py summary puts the recommendation in, the recommendation;
             # after it, an item without an approval (a row of an old summary.md that could not be read) is not.
-            "decision": entry["decision"] if entry else None if summary_made else recommendation,
+            "decision": entry["decision"] if entry else None if summary_made else default,
             "edited": bool(entry and entry["edited"]), "saved": entry is not None, "status": item.status,
             "applied": bool(applied), "applied_parts": applied,
             # the independent review (option agents.review): pass / flag / unverified, None without one

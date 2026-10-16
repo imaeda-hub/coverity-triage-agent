@@ -32,7 +32,7 @@ def preview(run_dir: str) -> dict[str, Any]:
     if not approvals.summary_made(run):
         raise CtError("一覧がありません（/coverity-run の最後に ct.py summary で作ります）")
     decided = approvals.decisions(run)
-    triage, code, reject, skipped, problems = [], [], [], [], []
+    triage, code, reject, skipped, problems, nothing = [], [], [], [], [], []
     for item in run.state.items:
         decision = decided.get(item.id)
         if decision is None or item.status != "done":
@@ -46,6 +46,9 @@ def preview(run_dir: str) -> dict[str, Any]:
             skipped.append(item.id)
             continue
         if decision == "fix":
+            if "fix" not in saved and approvals.already_fixed(run, item.id):
+                nothing.append(item.id)  # the latest revision is already fixed: nothing to take in
+                continue
             if "fix" not in saved:
                 problems.append(f"{item.id}: 修正の差分がないため「修正」は反映できません（「逸脱」か「却下」にしてください）")
                 continue
@@ -76,7 +79,8 @@ def preview(run_dir: str) -> dict[str, Any]:
     else:
         next_step = ("反映するものがありません（承認された作業が無いか、すべて反映済みです）。承認するときは、画面の「結果」で"
                      f"承認してから、もう一度 ct.py preview（画面: ct.py gui --repo {run.repo} --run {run.dir} --view summary）")
-    return {"ok": True, "counts": counts, "already_applied": skipped,
+    out_nothing = {"already_fixed_on_latest": nothing} if nothing else {}
+    return {"ok": True, "counts": counts, "already_applied": skipped, **out_nothing,
             "items": [{"id": e["id"], "approval": label, "cids": e["cids"]}
                       for label, entries in (("逸脱", triage), ("修正", [c for c in code if c["kind"] == "fix"]),
                                              ("却下", reject)) for e in entries],

@@ -290,3 +290,68 @@ def test_work_copy_failure_stops_with_the_item_recorded(capsys, repo, monkeypatc
     assert "修正用のコピーを用意できませんでした" in failed["error"] and "止めて" in failed["next"]
     status = run_ct(capsys, "status", "--run", run_dir)
     assert status["counts"]["error"] == 1 and "no space left" in status["errors"][0]["reason"]
+
+
+@pytest.mark.skipif(shutil.which("svnadmin") is None, reason="svn is not installed")
+def test_svn_new_slot_is_copied_from_a_local_copy(tmp_path, monkeypatch):
+    from ctlib.config import VcsConfig
+    from ctlib.vcs import SvnVcs
+
+    server_repo = tmp_path / "svnrepo"
+    subprocess.run(["svnadmin", "create", str(server_repo)], check=True)
+    wc = tmp_path / "wc"
+    subprocess.run(["svn", "checkout", "-q", server_repo.as_uri(), str(wc)], check=True)
+    (wc / "a.c").write_text("int a;\n", encoding="utf-8")
+    subprocess.run(["svn", "add", "-q", "a.c"], cwd=wc, check=True)
+    subprocess.run(["svn", "commit", "-q", "-m", "a"], cwd=wc, check=True)
+    vcs = SvnVcs(wc, VcsConfig(type="svn"))
+    work = tmp_path / "work"
+    vcs.reset_copy(work / "fix-1", "1")
+    (work / "fix-1" / "a.c").write_text("int a = 1;\n", encoding="utf-8")  # a worker is editing slot 1
+    (work / "fix-1" / "new.c").write_text("x\n", encoding="utf-8")
+
+    calls = []
+    real = SvnVcs.svn
+    monkeypatch.setattr(SvnVcs, "svn", lambda self, *args, **kw: calls.append(args[0]) or real(self, *args, **kw))
+    vcs.reset_copy(work / "fix-2", "1")
+    assert "checkout" not in calls  # no new checkout from the server
+    assert (work / "fix-2" / "a.c").read_text(encoding="utf-8") == "int a;\n"
+    assert not (work / "fix-2" / "new.c").exists() and vcs.changed_files(work / "fix-2") == []
+    assert (work / "fix-1" / "a.c").read_text(encoding="utf-8") == "int a = 1;\n"  # slot 1 is untouched
+
+
+def test_already_fixed_on_latest_is_not_applied_by_default(capsys, repo):
+    from ctlib import gui
+
+    run_dir = start_run(capsys, repo, "--limit", "1")["run_dir"]
+    run_ct(capsys, "plan", "--run", run_dir)
+    item = work_item(capsys, run_dir, edit=False, fix={**RESULT["fix"], "already_fixed_on_latest": True})
+    item_id = item["item"]
+    assert item["finish"]["recommendation"] == "fix"
+    run_ct(capsys, "summary", "--run", run_dir)
+    # "fix" has no diff to take in, so the approval starts as "not applied" (not an error in preview)
+    assert approvals.load(Run(run_dir))[item_id]["decision"] is None
+    assert not approvals.load(Run(run_dir))[item_id]["edited"]
+    row = next(r for r in gui.run_summary(repo, Path(run_dir).name)["items"] if r["id"] == item_id)
+    assert row["already_fixed"] and row["default_decision"] is None and row["decision"] is None
+    page = (Path(run_dir) / "cid" / f"{item_id}.html").read_text(encoding="utf-8")
+    assert "取り込む修正（差分）はありません" in page
+
+    approve(run_dir, item_id, "fix")  # the person chooses "fix" anyway: nothing to do, still no error
+    preview = run_ct(capsys, "preview", "--run", run_dir)
+    assert preview["already_fixed_on_latest"] == [item_id] and preview["counts"]["修正"] == 0
+
+
+def test_a_long_deviation_comment_is_sent_back(capsys, repo):
+    run_dir = start_run(capsys, repo, "--limit", "1")["run_dir"]
+    run_ct(capsys, "plan", "--run", run_dir)
+    long = {**RESULT["deviation"], "comment": "誤検知。" + "あ" * 200}
+    item = run_ct(capsys, "next", "--run", run_dir)
+    server.get_issues(item["repo_root"], item["stream"], item["cids"], item["item_dir"])
+    brief = run_ct(capsys, "brief", "--run", run_dir, "--item", item["item"])
+    source = Path(run_dir) / "work" / "fix-1" / "src" / "reader.c"
+    source.write_bytes(source.read_bytes() + b"/* fix */\n")
+    Path(brief["result_file"]).write_text(json.dumps({**RESULT, "item": item["item"], "deviation": long},
+                                                     ensure_ascii=False), encoding="utf-8")
+    sent_back = run_ct(capsys, "finish", "--run", run_dir, "--item", item["item"], ok=False)
+    assert any("200 字以内" in p for p in sent_back["problems"])

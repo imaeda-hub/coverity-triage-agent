@@ -64,6 +64,7 @@ ROLE_STATES = {"waiting": "待ち", "running": "動いている", "fallback": "�
 REVIEW_JA = {"pass": "合格", "flag": "要確認", "rework": "差し戻し", "unverified": "検証できなかった"}
 WORKER_STAGES = {
     "idle": "空き",
+    "copy": "修正用のコピーを用意中",
     "fetch": "警告経路を取得中",
     "brief": "指示を作っている",
     "investigate": "調査中",
@@ -254,6 +255,9 @@ def _describe(record: dict[str, Any]) -> str:
         groups = _count(record.get("groups"))
         return (f"作業の一覧を作った（警告 {record.get('issues', '-')} 件、作業 {record.get('items', '-')} 件"
                 + (f"、うちグループ {groups} 件" if groups else "") + "）")
+    if event == "copy":
+        return (f"{item} の修正用のコピーを" + ("作り始めた" if record.get("create") else "元に戻し始めた")
+                + f"（スロット {record.get('slot', '-')}" + ("、初回は時間がかかる" if record.get("create") else "") + "）")
     if event == "next":
         attempt = record.get("attempt") or 1
         return (f"{item} の調査を始めた（スロット {record.get('slot', '-')}"
@@ -490,10 +494,10 @@ def _main(stage: str, counts: dict[str, int], free: int, records: list[dict[str,
 
 
 def _attempt(records: list[dict[str, Any]], item: ItemState) -> list[dict[str, Any]]:
-    """Records of the item's current attempt: from its last ``next`` on."""
+    """Records of the item's current attempt: from its last ``copy`` or ``next`` on."""
     start = -1
     for i, record in enumerate(records):
-        if record["event"] == "next" and _item(record) == item.id:
+        if record["event"] in ("copy", "next") and _item(record) == item.id:
             start = i
     if start >= 0:
         return [r for r in records[start:] if _item(r) == item.id]
@@ -540,6 +544,9 @@ def _worker(run: Run, item: ItemState, slot: int, records: list[dict[str, Any]],
     mine = _attempt(records, item)
     folder = run.item_dir(item.id)
     stage, since = "fetch", item.started
+    copying = bool(mine) and mine[0]["event"] == "copy" and not any(r["event"] == "next" for r in mine)
+    if copying:  # ct.py next is still creating or resetting the work copy
+        stage, since = "copy", _epoch(mine[0].get("time")) or since
     for record in mine:
         event = record["event"]
         if event == "mcp:get_issues":
@@ -551,7 +558,7 @@ def _worker(run: Run, item: ItemState, slot: int, records: list[dict[str, Any]],
         else:
             continue
         since = _epoch(record.get("time")) or since
-    if not any(r["event"] in ("mcp:get_issues", "brief") for r in mine):
+    if not copying and not any(r["event"] in ("mcp:get_issues", "brief") for r in mine):
         # No log of this attempt (an older run, or the log was lost): judge from the files.
         brief = _mtime(folder / "brief.md")
         if brief is not None and (not item.started or brief >= item.started - 2):
@@ -561,6 +568,9 @@ def _worker(run: Run, item: ItemState, slot: int, records: list[dict[str, Any]],
         stage = "finishing"  # the worker wrote its result; the main agent checks it with ct.py finish
 
     progress, progress_time = _progress(run, item)
+    if copying:
+        progress, progress_time = ({"note": "初めて使うスロットは、リポジトリの大きさにより数分から数十分かかります"}
+                                   if mine[0].get("create") else {}), None
     phase = progress.get("phase") if progress.get("phase") in PHASES else None
     seen = [t for t in (item.started, progress_time, _newest_file(folder),
                         *(_epoch(r.get("time")) for r in mine)) if t is not None]
@@ -571,7 +581,8 @@ def _worker(run: Run, item: ItemState, slot: int, records: list[dict[str, Any]],
             "phase_label": PHASES.get(phase or "", ""), "phase_index": list(PHASES).index(phase) + 1 if phase else 0,
             "phase_total": len(PHASES), "note": _short(progress.get("note"), 200),
             "elapsed_seconds": max(0, int(now - item.started)) if item.started else None,
-            "idle_seconds": idle, "stalled": idle is not None and idle >= STALL_SECONDS,
+            # a copy of a large repository is made by svn / git without any sign of life on the way
+            "idle_seconds": idle, "stalled": not copying and idle is not None and idle >= STALL_SECONDS,
             "last_seen": _iso(max(seen)) if seen else None}
 
 

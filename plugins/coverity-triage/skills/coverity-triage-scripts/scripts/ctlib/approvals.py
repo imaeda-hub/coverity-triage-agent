@@ -40,6 +40,20 @@ def _proposal(result: TriageResult) -> dict[str, str]:
     return {k: getattr(result.deviation, k).strip() for k in FIELDS}
 
 
+def default_decision(run: Run, item_id: str, result: TriageResult) -> str | None:
+    """The AI's recommendation as an approval. A fix with nothing to take in (the latest revision is
+    already fixed, so there is no diff) is "not applied": "fix" could not be applied by preview."""
+    if (result.recommendation == "fix" and result.fix.already_fixed_on_latest
+            and "fix" not in read_json(run.item_dir(item_id) / "saved.json", {})):
+        return None
+    return result.recommendation
+
+
+def already_fixed(run: Run, item_id: str) -> bool:
+    result = _result(run, item_id)
+    return bool(result and result.fix.already_fixed_on_latest)
+
+
 def _entry(decision: str | None, recommendation: str | None, deviation: dict[str, str] | None = None,
            updated_at: str | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {"decision": decision, "edited": decision != recommendation or deviation is not None,
@@ -116,8 +130,8 @@ def ensure_defaults(run: Run, results: dict[str, TriageResult]) -> dict[str, dic
         items = load(run)
         added = [item_id for item_id in results if item_id not in items]
         for item_id in added:
-            recommendation = results[item_id].recommendation
-            items[item_id] = _entry(recommendation, recommendation)
+            default = default_decision(run, item_id, results[item_id])
+            items[item_id] = _entry(default, default)
         if added or not _path(run).is_file():
             _save(run, items)
     return items
@@ -167,7 +181,7 @@ def update(run: Run, item_id: str, decision: str | None, deviation: dict[str, An
             kept = (items.get(item_id) or {}).get("deviation")
         else:
             kept = None if edit == _proposal(result) else edit
-        entry = _entry(decision, result.recommendation, kept)
+        entry = _entry(decision, default_decision(run, item_id, result), kept)
         items[item_id] = entry
         _save(run, items)
         # inside the lock, so a later change is never overwritten by an earlier one's pages

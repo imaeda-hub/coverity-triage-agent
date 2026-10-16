@@ -31,7 +31,7 @@ user-invocable: false
    - `verdict.summary`：まとめた原因を 1 行で。
    - `verdict.rationale`：なぜ同じ原因と言えるか、それぞれの CID の警告経路がどう同じ原因に行き着くかを順に。
    - `verdict.evidence`：原因のコードの場所と、それぞれの警告の場所。
-   - `deviation.comment`：スキル `deviation-comment` の書き方で、**すべての CID に当てはまる 1 つの文**にする。
+   - `deviation.comment`：スキル `deviation-comment` の書き方（問題にならない理由だけを 1〜2 文・200 字以内で言い切る）で、**すべての CID に当てはまる 1 つの文**にする。
    - `confidence`：まとめる作業のうち、いちばん低い確信度を超えない（スクリプトもそのように直す）。
 5. **ぶつかる修正を書く**：原因は違うのに、修正が同じ箇所を変えている作業は、まとめずに `conflicts` に書く（人が反映するときの注意になる）。
 6. 計画を書いたら、呼び出し元に 1 行だけ返す。

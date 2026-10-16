@@ -281,6 +281,16 @@ class SvnVcs(Vcs):
         if dest.exists():
             shutil.rmtree(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
+        # A checkout of a large repository from the server takes many minutes. Copying a work copy
+        # of the same run on this PC is much faster; reset_copy then reverts and updates it.
+        source = next((p for p in sorted(dest.parent.iterdir())
+                       if p != dest and (p / ".svn").is_dir()), None)
+        if source is not None:
+            try:
+                shutil.copytree(source, dest, symlinks=True)
+                return
+            except (OSError, shutil.Error):
+                shutil.rmtree(dest, ignore_errors=True)
         self.svn("checkout", "--quiet", "-r", revision, self.url(), str(dest))
 
     def _status(self, dest: Path, *extra: str) -> list[tuple[str, str]]:

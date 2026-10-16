@@ -23,6 +23,7 @@ from .run import ItemState, Run, create_run, finish_item, list_runs, unfinished
 from .vcs import detect
 
 VCS_LOCK_SECONDS = 1800  # creating a work copy of a large repository can take long
+DEVIATION_COMMENT_MAX = 200  # characters: a deviation comment says only why the warning is no problem
 PROGRESS_FILE = "progress.json"  # written by the worker subagent at each step (best effort)
 PREVIOUS_RESULT = "result.previous.json"  # the result before the review sent the item back
 REWORK_FRESH = "rework-fresh"  # the earlier fix could not be applied to the work copy again
@@ -192,14 +193,18 @@ def next_item(run_dir: str) -> dict[str, Any]:
     latest = run.state.latest_revision or ""
     previous = run.dir / "patches" / f"{item.id}-fix.patch"
     start_from = previous if item.rework and previous.is_file() else None
+    fix_dir = run.copy_dir("fix", item.slot)
+    # Creating a new copy of a large repository can take minutes: show it on the monitor meanwhile.
+    _log(run, "copy", item=item.id, slot=item.slot,
+         create=not ((fix_dir / ".git").exists() or (fix_dir / ".svn").exists()))
     try:
         with file_lock(run.dir / "work" / "vcs", timeout=VCS_LOCK_SECONDS):
-            vcs.reset_copy(run.copy_dir("fix", item.slot), latest)
+            vcs.reset_copy(fix_dir, latest)
             fresh = run.item_dir(item.id) / REWORK_FRESH
             fresh.unlink(missing_ok=True)
             if start_from is not None:  # sent back by the review: the worker changes its earlier fix
-                if vcs.apply_to_copy(run.copy_dir("fix", item.slot), start_from):
-                    vcs.reset_copy(run.copy_dir("fix", item.slot), latest)  # made anew from the latest revision
+                if vcs.apply_to_copy(fix_dir, start_from):
+                    vcs.reset_copy(fix_dir, latest)  # made anew from the latest revision
                     fresh.parent.mkdir(parents=True, exist_ok=True)
                     fresh.write_text("前の修正を当てられませんでした\n", encoding="utf-8")
             if config.options.annotation:
@@ -419,6 +424,10 @@ def _read_result(run: Run, item: ItemState) -> TriageResult:
     problems = []
     if result.item != item.id:
         problems.append(f"item は {item.id} にしてください（今は {result.item}）")
+    if len(result.deviation.comment.strip()) > DEVIATION_COMMENT_MAX:
+        problems.append(f"deviation.comment は {DEVIATION_COMMENT_MAX} 字以内にしてください（今は "
+                        f"{len(result.deviation.comment.strip())} 字）。問題にならない理由と根拠の場所だけを書き、"
+                        "調べた過程や但し書きは verdict.rationale に移します（スキル deviation-comment）")
     excluded = set(result.group_excluded_cids)
     if excluded and not item.is_group:
         problems.append("group_excluded_cids はグループのときだけ書きます")

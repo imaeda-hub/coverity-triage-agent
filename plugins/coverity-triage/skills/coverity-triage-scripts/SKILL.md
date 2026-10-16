@@ -65,7 +65,7 @@ uv run --native-tls <このスキルのフォルダ>/scripts/ct.py <コマンド
 
 | コマンド | すること | 主な結果 |
 |---|---|---|
-| `preview --run D` | 人が画面で入れた承認と逸脱の手直し（`approvals.json`。古い実行は `summary.md` の承認欄と `cid/<ID>.md` の逸脱の節）を読み、反映の内容 `apply-plan.json` と確認用の文字列を作る | `counts`、`items`、`plan_file`、`confirmation_token`、`next` |
+| `preview --run D` | 人が画面で入れた承認と逸脱の手直し（`approvals.json`。古い実行は `summary.md` の承認欄と `cid/<ID>.md` の逸脱の節）を読み、反映の内容 `apply-plan.json` と確認用の文字列を作る | `counts`、`items`、`plan_file`、`confirmation_token`、`already_fixed_on_latest`（最新で直っていて取り込むものが無い作業）、`next` |
 | `apply-code --run D --token T` | 修正を反映する（git：ブランチを push、svn：ワーキングコピーに差分を適用）。却下したグループは次から個別にする | `pull_requests`（`title`、`body`、`branch`、`compare_url`）、`svn_applied`、`coverity`、`errors` |
 | `knowledge-candidates --run D` | （オプション）人が推奨を変えた・手直しした作業から、知識の候補を出す | `candidates`、`current_knowledge` |
 | `add-knowledge --run D --entry "1 行の知識"...` | （オプション）人が選んだ知識を `knowledge.md` に追記する | `file` |

@@ -80,6 +80,20 @@ def test_log_adds_level_and_source_and_read_skips_broken_lines(tmp_path):
 # ---- the board -------------------------------------------------------------------------------
 
 
+def test_a_worker_whose_copy_is_being_made(tmp_path):
+    folder = make_run(tmp_path, [busy("20001", 1, 900), busy("20002", 2, 800)])
+    log(folder, 900, "copy", item="20001", slot=1, create=False)
+    started(folder, "20001", 1, 880)
+    log(folder, 800, "copy", item="20002", slot=2, create=True)
+    board = activity.board(Run(folder), now=NOW)
+    one, two = board["workers"][:2]
+    assert one["stage"] == "fetch"
+    # still making a new copy after 13 minutes: not reported as stalled, and the reason is shown
+    assert two["stage"] == "copy" and two["stage_label"] == "修正用のコピーを用意中" and not two["stalled"]
+    assert "数分から数十分" in two["note"]
+    assert board["recent"][0]["text"] == "20002 の修正用のコピーを作り始めた（スロット 2、初回は時間がかかる）"
+
+
 def test_a_run_being_searched_and_planned(tmp_path):
     folder = make_run(tmp_path, [], planned=False)
     board = activity.board(Run(folder), now=NOW)

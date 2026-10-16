@@ -493,13 +493,27 @@ def _mark_unfetched(run: Run, missing: dict[str, list[int]]) -> None:
 # ---- workers ------------------------------------------------------------------------------------
 
 
+def _copy_missing(run: Run) -> bool:
+    """The slot the next item gets has no work copy yet (a copy of a large repository takes minutes)."""
+    busy = {i.slot for i in run.state.items if i.status == "in_progress"}
+    slot = next((s for s in range(1, run.config.parallel + 1) if s not in busy), None)
+    if slot is None or not any(i.status == "pending" for i in run.state.items):
+        return False
+    fix_dir = run.copy_dir("fix", slot)
+    return not ((fix_dir / ".git").exists() or (fix_dir / ".svn").exists())
+
+
 def _fill_slots(run: Run, say: list[str], keep: bool = False) -> list[dict[str, Any]]:
     """Start as many items as there are free slots.
 
-    When a start fails, the starts made before it (and, with ``keep``, what the tick has to give out
-    already) are given out; the next tick meets the error again if it is not of that item only."""
+    A slot whose work copy has yet to be made waits for the next tick when there is something to
+    give out already, so that no worker waits for another's copy. When a start fails, the starts
+    made before it (and, with ``keep``, what the tick has to give out already) are given out; the
+    next tick meets the error again if it is not of that item only."""
     actions: list[dict[str, Any]] = []
     while True:
+        if (actions or keep) and _copy_missing(Run(run.dir)):
+            break  # making that copy can take long: give out the starts first, the next tick makes it
         item_id = None
         try:
             got = triage.next_item(str(run.dir))
@@ -730,6 +744,10 @@ def integrate(run: Run) -> list[str]:
             used.add(member)
         if sum(len(items[m].cids) for m in merge.members if m in items) > MAX_GROUP:
             problems.append(f"merges[{n}]: まとめる CID は合わせて {MAX_GROUP} 件までにします")
+        comment = merge.result.deviation.comment.strip()
+        if len(comment) > triage.DEVIATION_COMMENT_MAX:
+            problems.append(f"merges[{n}]: result.deviation.comment は {triage.DEVIATION_COMMENT_MAX} 字以内にしてください"
+                            f"（今は {len(comment)} 字）。問題にならない理由と根拠の場所だけを書きます（スキル deviation-comment）")
         source = merge.fix_source
         if source not in ("combine", "rework") and not (source.startswith("item:") and source[5:] in merge.members):
             problems.append(f"merges[{n}]: fix_source は combine、rework、item:<まとめる作業の ID> のどれかにします")

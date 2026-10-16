@@ -1671,7 +1671,7 @@ function runLabel(r) {
 const BOX_W = 14;          // a worker's box, borders included (as in the example of the spec)
 const BAR = 9;             // progress bar inside it
 const STEP_SHORT = { read: "読む", judge: "判断", fix: "修正", deviation: "逸脱", result: "結果",
-  fetch: "取得", brief: "指示", investigate: "調査", retry: "直す", finishing: "確認",
+  copy: "コピー", fetch: "取得", brief: "指示", investigate: "調査", retry: "直す", finishing: "確認",
   compare: "比較", check: "確かめ", write: "書く" };
 const INITIAL_SHORT = { setup: "準備", build: "ビルド", analyze: "解析", commit: "登録" };
 const ROLE_TITLE = { collector: "collector", integrator: "integrator", reviewer: "reviewer" };
@@ -2425,7 +2425,9 @@ function approvalPanel() {
     applied ? el("div", { class: "note warn", style: "margin-bottom:12px" }, "この作業はもう反映しています。ここで承認を変えても、反映した内容は元に戻りません。") : null,
     el("div", { class: "field" },
       el("label", { for: "apDecision" }, "承認", el("span", { class: "diffmark", id: "apDecision-mark", hidden: true }, "推奨から変更")), sel,
-      el("div", { class: "help" }, `AI の推奨は「${own(PLAN_JA, it.recommendation) || "—"}」です。「反映しない」にすると、/coverity-apply で何もしません。`)),
+      el("div", { class: "help" }, it.already_fixed
+        ? "AI の推奨は「修正」ですが、最新のリビジョンではもう直っているため、取り込む修正（差分）はありません。承認は「反映しない」にしてあります。次の解析で警告が消えるか確かめてください。"
+        : `AI の推奨は「${own(PLAN_JA, it.recommendation) || "—"}」です。「反映しない」にすると、/coverity-apply で何もしません。`)),
     el("fieldset", {}, el("legend", {}, "逸脱の内容"),
       el("p", { class: "help", style: "margin:0 0 10px" }, "承認が「逸脱」のとき、/coverity-apply でこの内容を Coverity に書き込みます。直して保存すると、詳細レポートにも直した内容が出ます。"),
       typeof d.deviation_note === "string" && d.deviation_note ? el("div", { class: "note warn", style: "margin-bottom:10px;white-space:pre-wrap" }, d.deviation_note) : null,
@@ -2457,7 +2459,7 @@ function fileLinks(d) {
 function formChanged() {
   if (!det || !det.data || !$("#apState")) return;
   const f = det.form, it = det.data.item || {};
-  $("#apDecision-mark").hidden = (f.decision || "") === (it.recommendation || "");
+  $("#apDecision-mark").hidden = (f.decision || "") === (aiDecision(it) || "");
   for (const k of DEVIATION_FIELDS) $(`#ap-${k}-mark`).hidden = f[k] === det.ai[k];
   const dirty = detailDirty();
   const st = $("#apState");
@@ -2497,10 +2499,15 @@ async function saveDetail() {
   renderDetail();  // the report is written again with the saved approval
   showApMsg(warning ? "warn" : "ok", warning || "保存しました。一覧と詳細レポートも新しくしました。");
 }
+// The recommendation as an approval: "" (not applied) when the latest revision is already fixed.
+function aiDecision(it) {
+  const d = "default_decision" in it ? it.default_decision : it.recommendation;
+  return own(PLAN_JA, d) ? d : "";
+}
 function resetToAi() {
   if (!det || !det.data) return;
   const it = det.data.item || {};
-  Object.assign(det.form, { decision: own(PLAN_JA, it.recommendation) ? it.recommendation : "", ...det.ai });
+  Object.assign(det.form, { decision: aiDecision(it), ...det.ai });
   $("#apDecision").value = det.form.decision;
   for (const k of DEVIATION_FIELDS) $("#ap-" + k).value = det.form[k];
   formChanged();
