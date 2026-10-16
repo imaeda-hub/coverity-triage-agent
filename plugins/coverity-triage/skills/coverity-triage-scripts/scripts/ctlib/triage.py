@@ -175,9 +175,13 @@ def next_item(run_dir: str) -> dict[str, Any]:
                         "処理中の作業を ct.py finish か ct.py fail で終えてから呼んでください"}
 
     latest = run.state.latest_revision or ""
+    fix_dir = run.copy_dir("fix", item.slot)
+    # Creating a new copy of a large repository can take minutes: show it on the monitor meanwhile.
+    _log(run, "copy", item=item.id, slot=item.slot,
+         create=not ((fix_dir / ".git").exists() or (fix_dir / ".svn").exists()))
     try:
         with file_lock(run.dir / "work" / "vcs", timeout=VCS_LOCK_SECONDS):
-            vcs.reset_copy(run.copy_dir("fix", item.slot), latest)
+            vcs.reset_copy(fix_dir, latest)
             if config.options.annotation:
                 vcs.reset_copy(run.copy_dir("annotation", item.slot), latest)
             # the analyzed copy is shared and read-only: reset it only while no other item is reading it

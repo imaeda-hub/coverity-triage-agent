@@ -290,3 +290,31 @@ def test_work_copy_failure_stops_with_the_item_recorded(capsys, repo, monkeypatc
     assert "修正用のコピーを用意できませんでした" in failed["error"] and "止めて" in failed["next"]
     status = run_ct(capsys, "status", "--run", run_dir)
     assert status["counts"]["error"] == 1 and "no space left" in status["errors"][0]["reason"]
+
+
+@pytest.mark.skipif(shutil.which("svnadmin") is None, reason="svn is not installed")
+def test_svn_new_slot_is_copied_from_a_local_copy(tmp_path, monkeypatch):
+    from ctlib.config import VcsConfig
+    from ctlib.vcs import SvnVcs
+
+    server_repo = tmp_path / "svnrepo"
+    subprocess.run(["svnadmin", "create", str(server_repo)], check=True)
+    wc = tmp_path / "wc"
+    subprocess.run(["svn", "checkout", "-q", server_repo.as_uri(), str(wc)], check=True)
+    (wc / "a.c").write_text("int a;\n", encoding="utf-8")
+    subprocess.run(["svn", "add", "-q", "a.c"], cwd=wc, check=True)
+    subprocess.run(["svn", "commit", "-q", "-m", "a"], cwd=wc, check=True)
+    vcs = SvnVcs(wc, VcsConfig(type="svn"))
+    work = tmp_path / "work"
+    vcs.reset_copy(work / "fix-1", "1")
+    (work / "fix-1" / "a.c").write_text("int a = 1;\n", encoding="utf-8")  # a worker is editing slot 1
+    (work / "fix-1" / "new.c").write_text("x\n", encoding="utf-8")
+
+    calls = []
+    real = SvnVcs.svn
+    monkeypatch.setattr(SvnVcs, "svn", lambda self, *args, **kw: calls.append(args[0]) or real(self, *args, **kw))
+    vcs.reset_copy(work / "fix-2", "1")
+    assert "checkout" not in calls  # no new checkout from the server
+    assert (work / "fix-2" / "a.c").read_text(encoding="utf-8") == "int a;\n"
+    assert not (work / "fix-2" / "new.c").exists() and vcs.changed_files(work / "fix-2") == []
+    assert (work / "fix-1" / "a.c").read_text(encoding="utf-8") == "int a = 1;\n"  # slot 1 is untouched

@@ -224,7 +224,7 @@ plugins/coverity-triage/                       … プラグイン（Agent Plugi
 修正用のコピー：
 
 - git：出力先の下に worktree を作り、取り込み先の最新のコミットにそろえる（`git worktree add --detach`）。作業ごとに元に戻して使い回す（`reset --hard` と `clean -fdx`）。仕上げでコミットし、警告ごとのブランチ（`coverity-fix/cid-<CID>`、グループは `coverity-fix/<実行 ID>-G1`）を作る。オプション `per_run_branch` のときはブランチを作らず、反映のときに承認した分だけを 1 つのブランチにまとめる（`cherry-pick`）。どちらの場合も `refs/coverity-triage/<実行 ID>/<ID>-fix` でコミットを残す。実行の最後（`ct.py summary`）に worktree を消す。
-- svn：出力先の下に最新のリビジョンをチェックアウトし、作業ごとに `svn revert` と、管理外のファイルの削除で戻して使い回す。差分は `svn add` のあと `svn diff` で作る。
+- svn：出力先の下に最新のリビジョンをチェックアウトし（2 つ目からのスロットは、同じ実行のコピーを PC の中で複製してから `svn update` でそろえる。大きなリポジトリをサーバから取り直すと数十分かかるため）、作業ごとに `svn revert` と、管理外のファイルの削除で戻して使い回す。差分は `svn add` のあと `svn diff` で作る。
 - 解析リビジョンが分かり、リポジトリにある場合は、調査用にそのリビジョンのコピー（`analyzed`）も作る。分からない場合は、手元のコード（開いているリポジトリ）を読んで調べ、ずれを確かめる（`ct.py brief` が、ファイルの有無・行数・関数名で機械的にも確かめる）。
 - 利用者のリポジトリの状態（`git status` と `git diff` の要約値）を `next` で記録し、`finish` で比べる。変わっていれば警告として知らせ、レポートの注意に書く。
 - 差分のファイルは git / svn が出したバイト列のまま保存する（文字コードを変えない）。詳細レポートに載せるときだけ、表示用に読み替える。
@@ -332,8 +332,8 @@ verify:                     # options の代わりに、default が none 以外�
 - `items/<ID>/progress.json`：サブエージェントが節目ごとに編集の機能で丸ごと上書きする（できるときだけ）。`{"item": "20001", "phase": "judge", "note": "呼び出し元 read_config() を確認中"}`。`phase` は `read`（警告経路とコードを読む）→ `judge`（真偽を判断する）→ `fix`（修正を作る）→ `deviation`（逸脱コメントを書く）→ `result`（結果ファイルを書く）。サブエージェントは時刻を書けない（ターミナルが無い）ので、時刻はファイルの更新時刻を使う。場所と形は `brief.md` の「フォルダとファイル」の表で伝える。
 - `activity.board(run)`：画面が 2 秒ごとに取る状態（`GET /api/runs/<run_id>/activity`）。
   - 実行の段階（`search` / `plan` / `items` / `verify` / `summary` / `apply` / `done`）と、メインのエージェントのいまの仕事（作業を配っている、サブエージェントの終わりを待っている など）と、最後の記録からの秒数。`apply` は、最後の `apply-code` より後の `preview` か `update_triage` の記録が 10 分以内のときだけ（人が反映に同意しなかったときは、そのあと何も記録されないため）。画面の実行の一覧も同じ決め方で、10 分より前から記録の無い終わった実行は、記録を読まずに `done` にする。
-  - スロット（1〜`parallel`。空きも返す）ごとの作業：CID かグループ、何回目か、段階（その作業の最後の `next` 以降の記録で決める。`mcp:get_issues` の開始 → 警告経路を取得中、`brief` → 調査中、`finish` の `problems` → 結果を直している）、`progress.json` の `phase` と `note`、経過時間、最後の動きからの秒数。
-  - 停止の疑い（`stalled`）：処理中の作業で、その作業の最後の記録・`progress.json`・作業のフォルダの中のファイルの更新時刻のうち、いちばん新しいものから 10 分（`STALL_SECONDS`）以上たったとき。注意にも入れる。
+  - スロット（1〜`parallel`。空きも返す）ごとの作業：CID かグループ、何回目か、段階（その作業の最後の `copy` か `next` 以降の記録で決める。`next` がコピーを用意し始めた `copy` だけ → 修正用のコピーを用意中、`mcp:get_issues` の開始 → 警告経路を取得中、`brief` → 調査中、`finish` の `problems` → 結果を直している）、`progress.json` の `phase` と `note`、経過時間、最後の動きからの秒数。
+  - 停止の疑い（`stalled`）：修正用のコピーを用意中のものを除く処理中の作業で、その作業の最後の記録・`progress.json`・作業のフォルダの中のファイルの更新時刻のうち、いちばん新しいものから 10 分（`STALL_SECONDS`）以上たったとき。注意にも入れる。
   - 最近の動き（新しい順に 40 件。記録を日本語の 1 行にしたもの）。
 - `activity.alerts(run)`：重大なエラーと注意（新しい順に 100 件まで）。元は、`operations.log` の `critical` / `warning` の行、`run.json` でエラーになった作業（理由）、`items/*/issue-*.json` の取れなかった警告経路、`apply-plan.result.json` の書き込めなかった逸脱、`verify.json` のビルドの失敗、停止の疑い。
 - 画面のボードは、上にメインの枠、その下に `parallel` の数の枠を、罫線の文字で描く（等幅のフォント）。枠には作業、段階、進み具合の棒（`phase` の位置）、経過時間を出し、停止の疑いは「⚠ 停止?」と色で示す。
