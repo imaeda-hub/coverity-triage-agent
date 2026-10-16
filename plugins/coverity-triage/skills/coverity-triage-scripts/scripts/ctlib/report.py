@@ -62,6 +62,9 @@ class ItemReport:
         return path
 
 
+ALREADY_FIXED_NOTE = ("最新のリビジョンではもう直っているため、取り込む修正（差分）はありません。"
+                      "承認は「反映しない」で構いません。次の解析で警告が消えるか確かめてください")
+
 def item_title(item_id: str, count: int) -> str:
     return f"{item_id}（{count} 件）" if item_id.startswith("G") else item_id
 
@@ -106,7 +109,7 @@ def render_item(r: ItemReport, decision: dict[str, Any] | None = None) -> str:
     if res.fix.exceeded_constraints:
         notes.append("修正の制約を超えた点あり: " + "、".join(res.fix.exceeded_constraints))
     if res.fix.already_fixed_on_latest:
-        notes.append("最新のリビジョンでは直っています")
+        notes.append("最新のリビジョンでは直っています" if r.saved.get("fix") else ALREADY_FIXED_NOTE)
     notes += r.notes
     out += ["## 1. 結論", "",
             f"- 推奨: **{PLAN_JA[res.recommendation]}** ／ 確信度: **{CONFIDENCE_JA[res.confidence]}**"
@@ -578,7 +581,7 @@ def render_item_html(r: ItemReport, decision: dict[str, Any] | None = None) -> s
     if res.fix.exceeded_constraints:
         notes.append("修正の制約を超えた点あり: " + "、".join(res.fix.exceeded_constraints))
     if res.fix.already_fixed_on_latest:
-        notes.append("最新のリビジョンでは直っています")
+        notes.append("最新のリビジョンでは直っています" if r.saved.get("fix") else ALREADY_FIXED_NOTE)
     notes += r.notes
     drift = DRIFT_JA[res.revision_drift.status] + (f"（{res.revision_drift.detail}）" if res.revision_drift.detail else "")
     body += [f'<section class="card conclusion {rec}">', "<h2>結論</h2>",
@@ -629,11 +632,14 @@ def render_item_html(r: ItemReport, decision: dict[str, Any] | None = None) -> s
 
     fix = res.fix
     fix_rows = [("概要", _e(fix.summary)), ("影響とリスク", _e(fix.impact)), *_saved_links(r, "fix")]
+    nothing_to_take = not r.saved.get("fix") and fix.already_fixed_on_latest
     if not r.saved.get("fix"):
         fix_rows.append(("差分", "なし（最新のリビジョンでは直っているため）" if fix.already_fixed_on_latest else "なし"))
     fixed = ['<article class="plan fix' + (" recommended" if rec == "fix" else "") + '">',
              "<h3>案B: 修正" + (recommended if rec == "fix" else "") + "</h3>",
-             '<p class="note">「修正」で反映すると、修正をブランチ（svn では差分）で取り込みます。</p>', _kv(fix_rows),
+             '<p class="note">' + (ALREADY_FIXED_NOTE if nothing_to_take else
+                                   "「修正」で反映すると、修正をブランチ（svn では差分）で取り込みます。") + "</p>",
+             _kv(fix_rows),
              "<details><summary>修正した場合の Classification / Action / Severity（参考。"
              "「修正」で反映しても Coverity には書き込みません）</summary>", _kv(_attr_rows(fix)), "</details>",
              "</article>"]

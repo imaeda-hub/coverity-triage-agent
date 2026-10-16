@@ -318,3 +318,25 @@ def test_svn_new_slot_is_copied_from_a_local_copy(tmp_path, monkeypatch):
     assert (work / "fix-2" / "a.c").read_text(encoding="utf-8") == "int a;\n"
     assert not (work / "fix-2" / "new.c").exists() and vcs.changed_files(work / "fix-2") == []
     assert (work / "fix-1" / "a.c").read_text(encoding="utf-8") == "int a = 1;\n"  # slot 1 is untouched
+
+
+def test_already_fixed_on_latest_is_not_applied_by_default(capsys, repo):
+    from ctlib import gui
+
+    run_dir = start_run(capsys, repo, "--limit", "1")["run_dir"]
+    run_ct(capsys, "plan", "--run", run_dir)
+    item = work_item(capsys, run_dir, edit=False, fix={**RESULT["fix"], "already_fixed_on_latest": True})
+    item_id = item["item"]
+    assert item["finish"]["recommendation"] == "fix"
+    run_ct(capsys, "summary", "--run", run_dir)
+    # "fix" has no diff to take in, so the approval starts as "not applied" (not an error in preview)
+    assert approvals.load(Run(run_dir))[item_id]["decision"] is None
+    assert not approvals.load(Run(run_dir))[item_id]["edited"]
+    row = next(r for r in gui.run_summary(repo, Path(run_dir).name)["items"] if r["id"] == item_id)
+    assert row["already_fixed"] and row["default_decision"] is None and row["decision"] is None
+    page = (Path(run_dir) / "cid" / f"{item_id}.html").read_text(encoding="utf-8")
+    assert "取り込む修正（差分）はありません" in page
+
+    approve(run_dir, item_id, "fix")  # the person chooses "fix" anyway: nothing to do, still no error
+    preview = run_ct(capsys, "preview", "--run", run_dir)
+    assert preview["already_fixed_on_latest"] == [item_id] and preview["counts"]["修正"] == 0
